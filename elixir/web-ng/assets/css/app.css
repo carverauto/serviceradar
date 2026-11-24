@@ -1011,10 +1011,16 @@ samp,
   background-color: color-mix(in srgb, #020617 72%, transparent);
 }
 
-/* Native dialog top-layer dim (showModal). */
+/* Native dialog top-layer dim (showModal) and scroll containment. */
+.sr-ui-modal:modal {
+  overscroll-behavior: contain;
+}
+
 .sr-ui-modal::backdrop,
 .modal::backdrop {
   background-color: color-mix(in srgb, #020617 72%, transparent);
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 /* Top-layer dialog already has a backdrop; keep the panel surface transparent. */
@@ -5211,6 +5217,15 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   min-width: 0;
   display: grid;
   gap: 0.35rem;
+}
+
+.sr-camera-relay-player-compact {
+  gap: 0;
+}
+
+.sr-camera-relay-player-compact .sr-camera-relay-frame {
+  border: 0;
+  border-radius: 0;
 }
 
 .sr-camera-relay-frame {

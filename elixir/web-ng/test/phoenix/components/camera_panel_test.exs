@@ -143,9 +143,10 @@ defmodule ServiceRadarWebNGWeb.Components.CameraPanelTest do
       refute html =~ "unchecked"
       refute html =~ "sr-ops-camera-tile-degraded"
 
-      # The streaming tile keeps its plain stream detail.
+      # The streaming tile keeps its plain stream detail and links to the recordings workspace.
       assert html =~ "Low"
       assert html =~ "Source: live relay (stream open)"
+      assert html =~ ~s(href="/cameras/cam-front/recordings")
     end
   end
 

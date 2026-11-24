@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
   attr(:session, :map, required: true)
   attr(:id_prefix, :string, default: "camera-relay")
   attr(:class, :string, default: "")
+  attr(:compact, :boolean, default: false)
 
   def relay_player(assigns) do
     ~H"""
@@ -24,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
       data-webrtc-signaling-path={relay_webrtc_signaling_path(@session)}
       data-webrtc-ice-servers={relay_webrtc_ice_servers_json(@session)}
       data-playback-state={relay_playback_state(@session)}
-      class={["sr-camera-relay-player", @class]}
+      class={["sr-camera-relay-player", @compact && "sr-camera-relay-player-compact", @class]}
     >
       <div class="sr-camera-relay-frame">
         <canvas data-role="video-canvas" class="sr-camera-relay-canvas" />
@@ -36,7 +37,46 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
           autoplay
         />
       </div>
-      <div class="sr-camera-relay-meta">
+      <div
+        :if={@compact}
+        data-role="relay-compact-bar"
+        class="flex flex-wrap items-center justify-between gap-2 bg-zinc-950/95 px-3 py-1.5 text-[11px] text-zinc-300"
+      >
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <span class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+            <span class="size-1.5 rounded-full bg-emerald-400"></span>
+            <span data-role="transport-status">Connecting stream...</span>
+          </span>
+          <span data-role="viewer-count" class="font-mono text-[10px] text-zinc-400">
+            Viewers: {Map.get(@session, :viewer_count, 0)}
+          </span>
+          <span data-role="failure-reason" class="sr-camera-relay-muted text-[10px] text-rose-400">
+            {relay_failure_reason_text(@session)}
+          </span>
+        </div>
+        <details data-role="relay-diagnostics-details" class="text-[10px] text-zinc-400">
+          <summary class="cursor-pointer select-none rounded border border-zinc-700/80 bg-zinc-900 px-2 py-0.5 font-medium text-zinc-300 hover:border-zinc-500">
+            Stream info
+          </summary>
+          <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-zinc-800 bg-zinc-900/90 px-2.5 py-1.5 font-mono text-[10px] text-zinc-400">
+            <span data-role="player-status">Waiting for decoder...</span>
+            <span data-role="compatibility-status">
+              Preferred: {relay_preferred_playback_transport(@session)}
+            </span>
+            <span data-role="relay-status">Relay: {relay_status_label(@session.status)}</span>
+            <span data-role="playback-state" data-state={relay_playback_state(@session)}>
+              Playback: {relay_playback_state(@session)}
+            </span>
+            <span data-role="termination-kind" class="sr-camera-relay-muted">
+              {relay_termination_text(@session)}
+            </span>
+            <span data-role="close-reason" class="sr-camera-relay-muted">
+              {relay_close_reason_text(@session)}
+            </span>
+          </div>
+        </details>
+      </div>
+      <div :if={!@compact} class="sr-camera-relay-meta">
         <span data-role="transport-status">Connecting stream...</span>
         <span data-role="player-status">Waiting for decoder...</span>
         <span data-role="compatibility-status">

@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
         <div class="sr-ops-camera-wall">
           <.link
             :for={tile <- @camera_preview_tiles}
-            href={~p"/cameras/#{tile.camera_source_id}"}
+            href={~p"/cameras/#{tile.camera_source_id}/recordings"}
             class="sr-ops-camera-tile sr-ops-camera-tile-live"
             aria-label={"Open #{tile.label}"}
           >
@@ -206,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
 
   defp camera_placeholder_tiles(_count), do: []
 
-  defp camera_tile_href(%{id: id}) when is_binary(id) and id != "", do: ~p"/cameras/#{id}"
+  defp camera_tile_href(%{id: id}) when is_binary(id) and id != "", do: ~p"/cameras/#{id}/recordings"
   defp camera_tile_href(_tile), do: ~p"/cameras"
 
   defp camera_tile_id(%{camera_source_id: id}) when is_binary(id), do: id

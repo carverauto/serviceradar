@@ -548,8 +548,17 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
     assert has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
 
-    # Clicking the person clip card jumps playback window to [started_at - 5s, ended_at + 10s] and selects the card
+    # Clicking the person clip card opens the clip playback modal with [started_at - 5s, ended_at + 10s]
+    # and selects the card
     view |> element("#camera-clip-card-#{person_clip_id}") |> render_click()
+    assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='true']")
+    assert has_element?(view, "#camera-clip-playback-modal")
+    assert has_element?(view, "#camera-clip-modal-player[data-has-adjacent-window='false']")
+    assert is_binary(player_playlist_path(view))
+
+    # Clicking View in Timeline closes the modal and focuses the main stage timeline player
+    view |> element("#camera-clip-modal-open-timeline") |> render_click()
+    refute has_element?(view, "#camera-clip-playback-modal")
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='true']")
     assert is_binary(player_playlist_path(view))
 
@@ -659,9 +668,20 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     assert vehicle_frame.id in normal_frame_ids
     refute quarantined_frame.id in normal_frame_ids
 
-    # Clip playback focuses the window and preserves both VisualFrame detections inside [start_us - 5s, end_us + 10s]
+    # Clip playback opens the clip modal with VisualFrame detections inside [start_us - 5s, end_us + 10s],
+    # and View in Timeline focuses the main stage player with those detections
     person_clip_id = "evt-#{person_frame.id}-person"
     view |> element("#camera-clip-card-#{person_clip_id}") |> render_click()
+    assert has_element?(view, "#camera-clip-playback-modal")
+
+    modal_overlays = player_overlay_detections(view, "#camera-clip-modal-player")
+    modal_frame_ids = Enum.map(modal_overlays, & &1["visual_frame_id"])
+    assert person_frame.id in modal_frame_ids
+    assert vehicle_frame.id in modal_frame_ids
+    refute quarantined_frame.id in modal_frame_ids
+
+    view |> element("#camera-clip-modal-open-timeline") |> render_click()
+    refute has_element?(view, "#camera-clip-playback-modal")
 
     clip_overlays = player_overlay_detections(view)
     clip_frame_ids = Enum.map(clip_overlays, & &1["visual_frame_id"])
@@ -670,11 +690,11 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     refute quarantined_frame.id in clip_frame_ids
   end
 
-  defp player_overlay_detections(view) do
+  defp player_overlay_detections(view, selector \\ "#camera-timeline-player") do
     view
     |> render()
     |> LazyHTML.from_fragment()
-    |> LazyHTML.query("#camera-timeline-player")
+    |> LazyHTML.query(selector)
     |> LazyHTML.attribute("data-overlay-detections")
     |> List.first()
     |> case do

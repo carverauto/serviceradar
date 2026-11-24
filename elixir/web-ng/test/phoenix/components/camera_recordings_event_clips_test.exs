@@ -275,6 +275,16 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert has_selector?(live_doc, "#camera-timeline-live-indicator")
     assert attr_of(live_doc, "#camera-timeline-exit-live", "phx-click") == ["exit_live_mode"]
     assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id}")
+    assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} [data-role='relay-compact-bar']")
+
+    assert has_selector?(
+             live_doc,
+             "#camera-workspace-live-relay-#{live_session.id} [data-role='relay-diagnostics-details']"
+           )
+
+    assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} [data-role='transport-status']")
+    assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} [data-role='viewer-count']")
+    refute has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} .sr-camera-relay-meta")
     refute has_selector?(live_doc, "#camera-timeline-player")
 
     # Confidence threshold slider
@@ -472,21 +482,77 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert length(decoded_events) == 2
     assert hd(decoded_events)["category"] == "person"
 
-    # Top zoom slider + date label + pinned LIVE playhead + live data attributes
+    # Top zoom slider + date label + pinned LIVE playhead + live data attributes + phx-update=ignore tick rail
     assert has_selector?(live_doc, "#camera-timeline-zoom-slider[value='3']")
     assert has_selector?(live_doc, "#camera-timeline-date-label")
     assert has_selector?(live_doc, "#camera-timeline-live-playhead[data-role='vertical-live-playhead']")
+    assert has_selector?(live_doc, "#camera-timeline-tick-labels[phx-update='ignore']")
     assert attr_of(live_doc, "#camera-timeline-coverage-bar", "data-anchored-latest") == ["true"]
 
-    # Two adjacent events collapse to 1 inline thumbnail while distant event gets its own (using frame URL fallback)
+    # Two adjacent verified-thumbnail events collapse to 1 inline thumbnail placed tightly beside the bar (left-7),
+    # while evt-animal-far with thumbnail_url: nil does NOT guess a broken /frame/:id.jpg URL
     thumbs = LazyHTML.query(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker']")
-    assert Enum.count(thumbs) == 2
-    assert LazyHTML.attribute(thumbs, "phx-click") == ["select_event_clip", "select_event_clip"]
+    assert Enum.count(thumbs) == 1
+    assert LazyHTML.attribute(thumbs, "phx-click") == ["select_event_clip"]
     assert has_selector?(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[loading='lazy']")
+    assert has_selector?(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker'].left-7")
 
-    assert has_selector?(
+    refute has_selector?(
              live_doc,
              "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[src='/api/cameras/#{@source_id}/timeline/thumbnails/frame/frame-a1.jpg']"
+           )
+
+    # Smart mode excludes motion pills from the vertical rail, and dense motion pills in All mode are coalesced
+    dense_motion =
+      for idx <- 1..50 do
+        ts = @base_us + idx * 60_000_000
+
+        %{
+          id: "evt-motion-#{idx}",
+          camera_source_id: @source_id,
+          started_at: DateTime.from_unix!(ts, :microsecond),
+          ended_at: DateTime.from_unix!(ts + 5_000_000, :microsecond),
+          start_us: ts,
+          end_us: ts + 5_000_000,
+          peak_ts_us: ts,
+          duration_seconds: 5,
+          category: :motion,
+          smart_type: :basic,
+          label: "Motion",
+          confidence: nil,
+          visual_frame_id: "frame-m-#{idx}",
+          thumbnail_url: nil
+        }
+      end
+
+    smart_doc =
+      (clips ++ dense_motion)
+      |> page_assigns(%{timeline_span: "1h", timeline_clips_mode: "smart"})
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    refute has_selector?(
+             smart_doc,
+             "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='motion']"
+           )
+
+    assert has_selector?(
+             smart_doc,
+             "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='person']"
+           )
+
+    all_doc =
+      (clips ++ dense_motion)
+      |> page_assigns(%{timeline_span: "1h", timeline_clips_mode: "all"})
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    all_markers = LazyHTML.query(all_doc, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
+    assert Enum.count(all_markers) <= 24
+
+    assert has_selector?(
+             all_doc,
+             "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='person']"
            )
 
     # Historical (not anchored to latest) hides pinned LIVE playhead and sets data-anchored-latest=false
@@ -534,6 +600,69 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert text_of(doc, "#select-timeline-semantic-hit-0 [data-role='semantic-hit-object-class']") == "Animal"
     refute has_selector?(doc, "#select-timeline-semantic-hit-1 img")
     assert text_of(doc, "#select-timeline-semantic-hit-1 [data-role='semantic-hit-object-class']") == "Person"
+  end
+
+  test "renders centered clip playback modal with native dialog, metadata header, HLS player, scrubber, and transport controls" do
+    modal = %{
+      kind: :clip,
+      clip_id: "evt-person-1",
+      camera_name: "Synthetic South Gate",
+      category: :person,
+      label: "Person",
+      confidence: 0.94,
+      timestamp_us: @base_us + 60_000_000,
+      started_at: DateTime.from_unix!(@base_us + 60_000_000, :microsecond),
+      start_us: @base_us + 60_000_000,
+      end_us: @base_us + 72_000_000,
+      play_from_us: @base_us + 55_000_000,
+      play_to_us: @base_us + 82_000_000,
+      playlist_origin_us: @base_us + 55_000_000,
+      playlist_path: "/api/cameras/#{@source_id}/timeline/playlist.m3u8?from=1&to=2&source=auto",
+      seek_us: @base_us + 64_000_000,
+      seek_offset_seconds: 9.0,
+      highlight_frame_id: "frame-1",
+      overlay_detections: [
+        %{
+          visual_frame_id: "frame-1",
+          offset_seconds: 9.0,
+          object_class: "person",
+          score: 0.94,
+          bbox: [0.1, 0.1, 0.4, 0.8]
+        }
+      ],
+      clip: nil
+    }
+
+    doc =
+      %{clip_modal: modal}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert has_selector?(
+             doc,
+             "dialog#camera-clip-playback-modal[phx-hook='DialogTopLayer'][data-cancel='close_clip_modal']"
+           )
+
+    assert text_of(doc, "#camera-clip-modal-title") == "Synthetic South Gate"
+    assert text_of(doc, "#camera-clip-modal-class-badge") =~ "Person"
+    assert text_of(doc, "#camera-clip-modal-confidence") == "94%"
+    assert has_selector?(doc, "#camera-clip-modal-time")
+    assert attr_of(doc, "#camera-clip-modal-open-timeline", "phx-click") == ["open_clip_in_timeline"]
+    assert attr_of(doc, "#camera-clip-modal-close", "phx-click") == ["close_clip_modal"]
+
+    assert has_selector?(
+             doc,
+             "#camera-clip-modal-player[phx-hook='CameraTimelinePlayer'][data-has-adjacent-window='false']"
+           )
+
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='playback-scrubber']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='semantic-bbox-overlay']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-back-10']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-play-pause']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-fwd-10']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-mute']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-fullscreen']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='toggle-bbox-overlay']")
   end
 
   test "renders sticky camera switcher rail and explicit empty states for single-camera and zero-match filters" do

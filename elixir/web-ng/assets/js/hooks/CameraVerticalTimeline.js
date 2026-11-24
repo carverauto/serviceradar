@@ -108,11 +108,24 @@ export default {
       options
     )
 
+    // Remove any inline thumbnail button whose image fails to load so broken
+    // image icons / alt text ("Moti...") never appear on the vertical rail.
+    this.el.addEventListener(
+      "error",
+      event => {
+        const thumbBtn = event.target?.closest?.("[data-role='event-thumb-marker']")
+        if (thumbBtn) thumbBtn.remove?.()
+      },
+      {capture: true, signal: this.listeners.signal}
+    )
+
+    this.renderTickLabels()
     this.startOrStopLiveTicker()
   },
 
   updated() {
     this.syncAnchorState()
+    this.renderTickLabels()
     this.startOrStopLiveTicker()
   },
 
@@ -160,19 +173,24 @@ export default {
     }
   },
 
-  tickLiveRail() {
-    const win = this.currentWindowUs()
+  renderTickLabels(win = this.currentWindowUs()) {
     if (!win) return
 
-    const includeSeconds = win.spanUs <= 3_600_000_000
     const container = this.el.parentElement || this.el
     const tickEls = container.querySelectorAll?.("[data-role='vertical-tick-label']") || []
     for (const tickEl of tickEls) {
       const frac = Number(tickEl.dataset?.tickFraction)
       if (!Number.isFinite(frac)) continue
       const tickUs = Math.round(win.toUs - frac * win.spanUs)
-      tickEl.textContent = formatRailTime(tickUs, this.timezone, {includeSeconds})
+      tickEl.textContent = formatRailTime(tickUs, this.timezone, {includeSeconds: false})
     }
+  },
+
+  tickLiveRail() {
+    const win = this.currentWindowUs()
+    if (!win) return
+
+    this.renderTickLabels(win)
 
     const markers = this.el.querySelectorAll?.("[data-role='event-clip-marker'][data-event-ts-us]") || []
     for (const marker of markers) {

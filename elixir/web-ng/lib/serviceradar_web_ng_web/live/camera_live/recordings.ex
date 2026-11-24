@@ -123,6 +123,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_clips_total_pages: 1,
         timeline_clips_counts: default_clip_counts(),
         timeline_selected_clip_id: nil,
+        clip_modal: nil,
         live_mode?: false,
         live_tile: nil,
         live_relay_subscriptions: MapSet.new(),
@@ -232,6 +233,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_seek_us: seek_us,
       timeline_highlight_frame_id: highlight_frame_id,
       timeline_selected_clip_id: nil,
+      clip_modal: nil,
       timeline_clips_page: 1,
       gaps_page: 1,
       timeline_user_selected_window?: false,
@@ -353,6 +355,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_clips_total_pages={@timeline_clips_total_pages}
         timeline_clips_counts={@timeline_clips_counts}
         timeline_selected_clip_id={@timeline_selected_clip_id}
+        clip_modal={@clip_modal}
         gaps_page={@gaps_page}
         gaps_per_page={@gaps_per_page}
         timeline_manage_drawer_open?={@timeline_manage_drawer_open?}
@@ -374,7 +377,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       :live ->
         socket =
           socket
-          |> assign(mode: :timeline, requested_mode: :timeline, live_mode?: true, error: nil)
+          |> assign(
+            mode: :timeline,
+            requested_mode: :timeline,
+            live_mode?: true,
+            clip_modal: nil,
+            error: nil
+          )
           |> start_live_stream()
 
         {:noreply, socket}
@@ -386,6 +395,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
             requested_mode: :timeline,
             live_mode?: false,
             live_tile: nil,
+            clip_modal: nil,
             error: nil
           )
 
@@ -398,6 +408,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
             requested_mode: :published,
             live_mode?: false,
             live_tile: nil,
+            clip_modal: nil,
             error: nil
           )
 
@@ -549,6 +560,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       socket =
         socket
         |> exit_live_mode_assigns()
+        |> assign(:clip_modal, nil)
         |> focus_playback_on_timestamp(scope, source, cov, target_us)
 
       {:noreply, socket}
@@ -890,6 +902,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
+  def handle_event("select_semantic_hit", params, socket) do
+    handle_event("select_timeline_semantic_hit", params, socket)
+  end
+
   def handle_event("select_timeline_semantic_hit", params, socket) do
     with {:ok, scope, source} <- authorize_timeline_view(socket),
          {:ok, seek_us} <- parse_required_int(params["seek_us"]) do
@@ -898,38 +914,29 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       highlight_frame_id = parse_optional_uuid(params["frame_id"])
       cov = socket.assigns.timeline_coverage
 
-      socket =
-        socket
-        |> exit_live_mode_assigns()
-        |> assign(
-          current_scope: scope,
-          source: source,
-          timeline_selected_clip_id: nil,
-          timeline_seek_us: seek_us,
-          timeline_highlight_frame_id: highlight_frame_id,
-          error: nil
+      hit =
+        find_matching_semantic_hit(
+          socket.assigns.timeline_search_results,
+          highlight_frame_id,
+          seek_us
         )
 
-      socket =
-        if is_map(cov) and seek_us >= cov.from_us and seek_us <= cov.to_us do
-          focus_playback_on_hit(socket, scope, source, cov, clip_start_us, clip_end_us, seek_us)
-        else
-          reloaded =
-            socket
-            |> assign(
-              timeline_custom_from_us: max(clip_start_us - 30_000_000, 0),
-              timeline_anchor_to_us: clip_end_us + 30_000_000
-            )
-            |> load_timeline_for_authorized(scope, source)
+      modal =
+        build_clip_modal_from_hit(socket, scope, source, cov, %{
+          clip_start_us: clip_start_us,
+          clip_end_us: clip_end_us,
+          seek_us: seek_us,
+          highlight_frame_id: highlight_frame_id,
+          hit: hit
+        })
 
-          if is_nil(reloaded.assigns.error) do
-            assign(reloaded, timeline_user_selected_window?: true)
-          else
-            reloaded
-          end
-        end
-
-      {:noreply, socket}
+      {:noreply,
+       assign(socket,
+         current_scope: scope,
+         source: source,
+         clip_modal: modal,
+         error: nil
+       )}
     else
       {:error, reason}
       when reason in [:unauthorized, :permission_revoked, :recording_block_not_found, :invalid_id] ->
@@ -937,6 +944,34 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
       _ ->
         {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_clip_modal", _params, socket) do
+    {:noreply, assign(socket, clip_modal: nil)}
+  end
+
+  def handle_event("open_clip_in_timeline", _params, socket) do
+    case socket.assigns.clip_modal do
+      nil ->
+        {:noreply, socket}
+
+      modal ->
+        case authorize_timeline_view(socket) do
+          {:ok, scope, source} ->
+            cov = socket.assigns.timeline_coverage
+
+            socket =
+              socket
+              |> exit_live_mode_assigns()
+              |> assign(current_scope: scope, source: source, clip_modal: nil, error: nil)
+              |> focus_main_timeline_from_modal(scope, source, cov, modal)
+
+            {:noreply, socket}
+
+          {:error, reason} ->
+            {:noreply, unavailable(socket, reason)}
+        end
     end
   end
 
@@ -1142,13 +1177,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
            find_event_clip(socket.assigns.timeline_event_clips, clip_id) ||
              find_event_clip(socket.assigns.timeline_event_markers, clip_id) do
       cov = socket.assigns.timeline_coverage
+      modal = build_clip_modal_from_clip(socket, scope, source, cov, clip)
 
-      socket =
-        socket
-        |> exit_live_mode_assigns()
-        |> focus_playback_on_event_clip(scope, source, cov, clip)
-
-      {:noreply, socket}
+      {:noreply,
+       assign(socket,
+         current_scope: scope,
+         source: source,
+         timeline_selected_clip_id: clip.id,
+         clip_modal: modal,
+         error: nil
+       )}
     else
       {:error, reason} -> {:noreply, unavailable(socket, reason)}
       nil -> {:noreply, socket}
@@ -3351,6 +3389,268 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp clip_in_play_window?(_, _, _), do: false
+
+  defp build_clip_modal_from_clip(socket, scope, source, cov, clip) do
+    {padded_start_us, padded_end_us} =
+      if Map.get(clip, :category) in [:recording, "recording"] do
+        {clip.start_us, clip.end_us}
+      else
+        {max(clip.start_us - 5_000_000, 0), clip.end_us + 10_000_000}
+      end
+
+    {play_from_us, play_to_us} = clamp_clip_window_to_coverage(cov, padded_start_us, padded_end_us)
+    seek_us = Map.get(clip, :peak_ts_us) || clip.start_us
+    visual_frame_id = Map.get(clip, :visual_frame_id)
+
+    playlist_path =
+      build_playlist_path_if_playable(
+        source.id,
+        cov,
+        play_from_us,
+        play_to_us,
+        socket.assigns.timeline_profile_id,
+        socket.assigns.timeline_source
+      )
+
+    playlist_origin_us =
+      compute_playlist_origin_us(cov, play_from_us, play_to_us, socket.assigns.timeline_source)
+
+    seek_offset_seconds =
+      compute_seek_offset_seconds(seek_us, playlist_origin_us, play_to_us)
+
+    overlay_detections =
+      resolve_overlay_detections(
+        socket,
+        scope,
+        source.id,
+        play_from_us,
+        play_to_us,
+        visual_frame_id,
+        socket.assigns.timeline_search_results
+      )
+
+    category = normalize_modal_category(Map.get(clip, :category))
+    timestamp_us = Map.get(clip, :start_us) || seek_us
+
+    %{
+      kind: :clip,
+      clip_id: to_string(clip.id),
+      camera_name: source.display_name || "Camera",
+      category: category,
+      label: Map.get(clip, :label) || modal_category_label(category),
+      confidence: Map.get(clip, :confidence),
+      timestamp_us: timestamp_us,
+      started_at: Map.get(clip, :started_at) || us_to_datetime_safe(timestamp_us),
+      start_us: clip.start_us,
+      end_us: clip.end_us,
+      play_from_us: play_from_us,
+      play_to_us: play_to_us,
+      playlist_origin_us: playlist_origin_us,
+      playlist_path: playlist_path,
+      seek_us: seek_us,
+      seek_offset_seconds: seek_offset_seconds,
+      highlight_frame_id: visual_frame_id,
+      overlay_detections: overlay_detections,
+      clip: clip
+    }
+  end
+
+  defp build_clip_modal_from_hit(socket, scope, source, cov, %{
+         clip_start_us: clip_start_us,
+         clip_end_us: clip_end_us,
+         seek_us: seek_us,
+         highlight_frame_id: highlight_frame_id,
+         hit: hit
+       }) do
+    padded_start_us = max(min(clip_start_us, seek_us) - 5_000_000, 0)
+    padded_end_us = max(clip_end_us, seek_us) + 10_000_000
+
+    inside_cov? =
+      is_map(cov) and is_integer(cov.from_us) and is_integer(cov.to_us) and seek_us >= cov.from_us and
+        seek_us <= cov.to_us
+
+    {play_from_us, play_to_us} =
+      if inside_cov? do
+        clamp_clip_window_to_coverage(cov, padded_start_us, padded_end_us)
+      else
+        {padded_start_us, min(padded_end_us, padded_start_us + @max_playlist_window_us)}
+      end
+
+    playlist_path =
+      if inside_cov? do
+        build_playlist_path_if_playable(
+          source.id,
+          cov,
+          play_from_us,
+          play_to_us,
+          socket.assigns.timeline_profile_id,
+          socket.assigns.timeline_source
+        )
+      else
+        build_direct_playlist_path(
+          source.id,
+          play_from_us,
+          play_to_us,
+          socket.assigns.timeline_profile_id,
+          socket.assigns.timeline_source
+        )
+      end
+
+    playlist_origin_us =
+      if inside_cov? do
+        compute_playlist_origin_us(cov, play_from_us, play_to_us, socket.assigns.timeline_source)
+      else
+        play_from_us
+      end
+
+    seek_offset_seconds =
+      compute_seek_offset_seconds(seek_us, playlist_origin_us, play_to_us)
+
+    overlay_detections =
+      resolve_overlay_detections(
+        socket,
+        scope,
+        source.id,
+        play_from_us,
+        play_to_us,
+        highlight_frame_id,
+        socket.assigns.timeline_search_results
+      )
+
+    raw_class = (is_map(hit) && Map.get(hit, :object_class)) || nil
+    category = normalize_modal_category(raw_class)
+
+    %{
+      kind: :semantic_hit,
+      clip_id: nil,
+      camera_name: source.display_name || "Camera",
+      category: category,
+      label: modal_category_label(category),
+      confidence: is_map(hit) && Map.get(hit, :score),
+      timestamp_us: seek_us,
+      started_at: us_to_datetime_safe(seek_us),
+      start_us: clip_start_us,
+      end_us: clip_end_us,
+      play_from_us: play_from_us,
+      play_to_us: play_to_us,
+      playlist_origin_us: playlist_origin_us,
+      playlist_path: playlist_path,
+      seek_us: seek_us,
+      seek_offset_seconds: seek_offset_seconds,
+      highlight_frame_id: highlight_frame_id,
+      overlay_detections: overlay_detections,
+      clip: nil
+    }
+  end
+
+  defp focus_main_timeline_from_modal(socket, scope, source, cov, %{kind: :clip, clip: clip}) when is_map(clip) do
+    focus_playback_on_event_clip(socket, scope, source, cov, clip)
+  end
+
+  defp focus_main_timeline_from_modal(socket, scope, source, cov, modal) do
+    seek_us = modal.seek_us
+    clip_start_us = modal.start_us
+    clip_end_us = modal.end_us
+
+    socket =
+      assign(socket,
+        timeline_selected_clip_id: nil,
+        timeline_seek_us: seek_us,
+        timeline_highlight_frame_id: modal.highlight_frame_id
+      )
+
+    if is_map(cov) and is_integer(cov.from_us) and is_integer(cov.to_us) and
+         seek_us >= cov.from_us and seek_us <= cov.to_us do
+      focus_playback_on_hit(socket, scope, source, cov, clip_start_us, clip_end_us, seek_us)
+    else
+      reloaded =
+        socket
+        |> assign(
+          timeline_custom_from_us: max(clip_start_us - 30_000_000, 0),
+          timeline_anchor_to_us: clip_end_us + 30_000_000
+        )
+        |> load_timeline_for_authorized(scope, source)
+
+      if is_nil(reloaded.assigns.error) do
+        assign(reloaded, timeline_user_selected_window?: true)
+      else
+        reloaded
+      end
+    end
+  end
+
+  defp clamp_clip_window_to_coverage(cov, padded_start_us, padded_end_us) do
+    case cov do
+      %{from_us: cov_from, to_us: cov_to} when is_integer(cov_from) and is_integer(cov_to) ->
+        clamped_from = max(padded_start_us, cov_from)
+        clamped_to = min(padded_end_us, min(clamped_from + @max_playlist_window_us, cov_to))
+        {clamped_from, max(clamped_to, clamped_from + 1_000_000)}
+
+      _ ->
+        {padded_start_us, min(padded_end_us, padded_start_us + @max_playlist_window_us)}
+    end
+  end
+
+  defp build_direct_playlist_path(source_id, play_from_us, play_to_us, profile_id, source_str) do
+    query_items =
+      [
+        {"from", Integer.to_string(play_from_us)},
+        {"to", Integer.to_string(play_to_us)},
+        {"source", playlist_source_param(source_str)}
+      ] ++
+        if(profile_id in [nil, ""], do: [], else: [{"profile", profile_id}])
+
+    "/api/cameras/#{source_id}/timeline/playlist.m3u8?" <> URI.encode_query(query_items)
+  end
+
+  defp find_matching_semantic_hit(results, frame_id, seek_us) when is_list(results) do
+    Enum.find(results, fn hit ->
+      (is_binary(frame_id) and frame_id != "" and Map.get(hit, :visual_frame_id) == frame_id) or
+        Map.get(hit, :best_timeline_ts_us) == seek_us
+    end)
+  end
+
+  defp find_matching_semantic_hit(_, _, _), do: nil
+
+  defp normalize_modal_category(cat) when cat in [:person, :animal, :vehicle, :package, :motion, :recording], do: cat
+
+  defp normalize_modal_category(raw) when is_binary(raw) do
+    case String.downcase(String.trim(raw)) do
+      "person" -> :person
+      "human" -> :person
+      "pedestrian" -> :person
+      "animal" -> :animal
+      "dog" -> :animal
+      "cat" -> :animal
+      "vehicle" -> :vehicle
+      "car" -> :vehicle
+      "truck" -> :vehicle
+      "bicycle" -> :vehicle
+      "package" -> :package
+      "motion" -> :motion
+      "recording" -> :recording
+      _ -> :motion
+    end
+  end
+
+  defp normalize_modal_category(_), do: :motion
+
+  defp modal_category_label(:person), do: "Person"
+  defp modal_category_label(:animal), do: "Animal"
+  defp modal_category_label(:vehicle), do: "Vehicle"
+  defp modal_category_label(:package), do: "Package"
+  defp modal_category_label(:motion), do: "Motion"
+  defp modal_category_label(:recording), do: "Recording"
+  defp modal_category_label(_), do: "Detection"
+
+  defp us_to_datetime_safe(us) when is_integer(us) do
+    case DateTime.from_unix(us, :microsecond) do
+      {:ok, dt} -> dt
+      _ -> nil
+    end
+  end
+
+  defp us_to_datetime_safe(_), do: nil
 
   defp focus_playback_on_event_clip(socket, scope, source, cov, clip) do
     tz = user_timezone(scope)
