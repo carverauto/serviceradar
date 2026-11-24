@@ -48,6 +48,12 @@ defmodule ServiceRadar.Camera.SemanticSearch do
   @default_min_score 0.04
   @default_coalesce_gap_us 6_000_000
   @default_clip_pad_us 2_000_000
+  @rrf_k 60
+  @rrf_weight_visual 1.0
+  @rrf_weight_caption_fts 1.5
+  @rrf_weight_caption_vector 1.0
+  @rrf_max_score (@rrf_weight_visual + @rrf_weight_caption_fts + @rrf_weight_caption_vector) /
+                   (@rrf_k + 1)
 
   @cache_table :camera_semantic_search_query_cache
   @cache_ttl_ms 60_000
@@ -88,6 +94,43 @@ defmodule ServiceRadar.Camera.SemanticSearch do
          {:ok, sources_by_id} <- load_authorized_sources_map(auth_ctx, opts),
          :ok <- ensure_camera_authorized(cam_uuid, sources_by_id) do
       query_frame_overlay_detections(cam_uuid, frame_uuid, opts)
+    end
+  end
+
+  @doc """
+  Embeds a text string using the active SigLIP text-embedder RPC and returns the
+  L2-normalized `Ash.Vector` along with active model metadata.
+
+  Used by `ServiceRadar.Camera.VisualCaptionWorker` to embed generated clip captions
+  into the same vector space as interactive search queries.
+  """
+  @spec embed_text(String.t(), keyword()) ::
+          {:ok,
+           %{
+             vector: Ash.Vector.t(),
+             model_id: String.t(),
+             model_version: String.t(),
+             embedding_dim: pos_integer()
+           }}
+          | {:error, term()}
+  def embed_text(text, opts \\ []) when is_binary(text) and is_list(opts) do
+    trimmed = String.trim(text)
+
+    if trimmed == "" do
+      {:error, :invalid_query}
+    else
+      model_cfg = VisualIndexDispatcher.active_model_config(opts)
+      query_sha256 = sha256_hex(normalize_query_for_cache(trimmed))
+
+      with {:ok, vec} <- resolve_query_embedding(trimmed, query_sha256, model_cfg, opts) do
+        {:ok,
+         %{
+           vector: vec,
+           model_id: model_cfg.embedder_model_id,
+           model_version: model_cfg.embedder_model_version,
+           embedding_dim: model_cfg.embedding_dim
+         }}
+      end
     end
   end
 
@@ -138,6 +181,15 @@ defmodule ServiceRadar.Camera.SemanticSearch do
                parsed,
                target_sources,
                opts
+             ),
+           {:ok, caption_candidates} <-
+             execute_caption_candidates_query(
+               query_vec,
+               model_cfg,
+               effective_ids,
+               parsed,
+               target_sources,
+               opts
              ) do
         coalesce_gap_us =
           clamp_int(
@@ -146,9 +198,12 @@ defmodule ServiceRadar.Camera.SemanticSearch do
             60_000_000
           )
 
+        visual_clips =
+          coalesce_candidates_into_clips(raw_candidates, target_sources, coalesce_gap_us)
+
         clips =
-          raw_candidates
-          |> coalesce_candidates_into_clips(target_sources, coalesce_gap_us)
+          visual_clips
+          |> fuse_hybrid_rrf(caption_candidates, target_sources, parsed)
           |> Enum.take(parsed.limit)
 
         with :ok <-
@@ -954,6 +1009,377 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       catalog_end_us: catalog_end_us,
       time_uncertainty_us: time_uncertainty_us,
       score: clamp_score(similarity)
+    }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Step 4b: Pre-filtered VLM caption FTS + caption_embedding k-NN candidates
+  # ---------------------------------------------------------------------------
+
+  defp execute_caption_candidates_query(
+         %Ash.Vector{} = query_vec,
+         model_cfg,
+         effective_ids,
+         parsed,
+         _target_sources,
+         opts
+       ) do
+    loaders = Keyword.get(opts, :loaders, %{})
+
+    cond do
+      is_function(Map.get(loaders, :captions_loader), 2) ->
+        loaders.captions_loader.(Ash.Vector.to_list(query_vec), %{
+          query: parsed.query,
+          model_id: model_cfg.embedder_model_id,
+          model_version: model_cfg.embedder_model_version,
+          embedding_dim: model_cfg.embedding_dim,
+          camera_source_ids: effective_ids,
+          parsed: parsed
+        })
+
+      is_function(Map.get(loaders, :embeddings_loader), 2) ->
+        # DB-free test injected embeddings_loader without captions_loader.
+        {:ok, []}
+
+      true ->
+        query_postgres_caption_candidates(query_vec, model_cfg, effective_ids, parsed)
+    end
+  end
+
+  defp query_postgres_caption_candidates(query_vec, model_cfg, effective_ids, parsed) do
+    dim = if model_cfg.embedding_dim == 512, do: 512, else: 768
+    candidate_limit = clamp_int(parsed.limit * 4, 32, 200)
+    cam_bins = Enum.map(effective_ids, &Ecto.UUID.dump!/1)
+
+    {profile_sql, profile_params, limit_idx} =
+      if parsed.stream_profile_id do
+        {"AND cap.stream_profile_id = $6::uuid", [Ecto.UUID.dump!(parsed.stream_profile_id)], 7}
+      else
+        {"", [], 6}
+      end
+
+    sql = """
+    WITH q AS (
+      SELECT websearch_to_tsquery('english', $1) AS tsq
+    ),
+    fts_hits AS (
+      SELECT
+        cap.id,
+        cap.catalog_entry_id,
+        cap.visual_frame_id,
+        cap.camera_source_id,
+        cap.stream_profile_id,
+        cap.start_us,
+        cap.end_us,
+        cap.time_basis,
+        cap.caption_text,
+        cap.action_tags,
+        c.timeline_start_us,
+        c.timeline_end_us,
+        c.time_uncertainty_us,
+        ts_rank_cd(cap.caption_tsv, q.tsq)::double precision AS fts_rank,
+        CASE
+          WHEN cap.caption_embedding IS NOT NULL AND cap.embedding_dim = #{dim}
+            THEN (1.0 - ((cap.caption_embedding::vector(#{dim})) <=> ($2::vector(#{dim}))))::double precision
+          ELSE NULL
+        END AS caption_similarity
+      FROM platform.camera_visual_clip_captions cap
+      CROSS JOIN q
+      JOIN platform.camera_recording_catalog c
+        ON c.id = cap.catalog_entry_id
+      WHERE cap.camera_source_id = ANY($3::uuid[])
+        AND cap.start_us < $5
+        AND cap.end_us >= $4
+        AND c.recording_block_id IS NOT NULL
+        AND c.local_state <> 'quarantined'
+        AND c.quarantine_reason IS NULL
+        AND (c.local_state = 'present' OR c.archive_state = 'verified')
+        AND cap.caption_tsv @@ q.tsq
+        #{profile_sql}
+      ORDER BY fts_rank DESC, cap.start_us DESC
+      LIMIT $#{limit_idx}
+    ),
+    vec_hits AS (
+      SELECT
+        cap.id,
+        cap.catalog_entry_id,
+        cap.visual_frame_id,
+        cap.camera_source_id,
+        cap.stream_profile_id,
+        cap.start_us,
+        cap.end_us,
+        cap.time_basis,
+        cap.caption_text,
+        cap.action_tags,
+        c.timeline_start_us,
+        c.timeline_end_us,
+        c.time_uncertainty_us,
+        CASE
+          WHEN cap.caption_tsv @@ q.tsq
+            THEN ts_rank_cd(cap.caption_tsv, q.tsq)::double precision
+          ELSE 0.0
+        END AS fts_rank,
+        (1.0 - ((cap.caption_embedding::vector(#{dim})) <=> ($2::vector(#{dim}))))::double precision AS caption_similarity
+      FROM platform.camera_visual_clip_captions cap
+      CROSS JOIN q
+      JOIN platform.camera_recording_catalog c
+        ON c.id = cap.catalog_entry_id
+      WHERE cap.camera_source_id = ANY($3::uuid[])
+        AND cap.start_us < $5
+        AND cap.end_us >= $4
+        AND cap.caption_embedding IS NOT NULL
+        AND cap.embedding_dim = #{dim}
+        AND c.recording_block_id IS NOT NULL
+        AND c.local_state <> 'quarantined'
+        AND c.quarantine_reason IS NULL
+        AND (c.local_state = 'present' OR c.archive_state = 'verified')
+        #{profile_sql}
+      ORDER BY (cap.caption_embedding::vector(#{dim})) <=> ($2::vector(#{dim})) ASC,
+               cap.start_us DESC
+      LIMIT $#{limit_idx}
+    ),
+    combined AS (
+      SELECT * FROM fts_hits
+      UNION ALL
+      SELECT * FROM vec_hits
+    )
+    SELECT DISTINCT ON (id)
+      id,
+      catalog_entry_id,
+      visual_frame_id,
+      camera_source_id,
+      stream_profile_id,
+      start_us,
+      end_us,
+      time_basis,
+      caption_text,
+      action_tags,
+      timeline_start_us,
+      timeline_end_us,
+      time_uncertainty_us,
+      fts_rank,
+      caption_similarity
+    FROM combined
+    ORDER BY id, fts_rank DESC NULLS LAST, caption_similarity DESC NULLS LAST
+    """
+
+    params =
+      [parsed.query, query_vec, cam_bins, parsed.from_us, parsed.to_us] ++
+        profile_params ++ [candidate_limit]
+
+    case SQL.query(Repo, sql, params) do
+      {:ok, %{rows: rows}} ->
+        {:ok, Enum.map(rows, &decode_caption_candidate_row/1)}
+
+      {:error, reason} ->
+        Logger.warning("Camera caption hybrid query skipped due to database error",
+          reason: inspect(reason)
+        )
+
+        {:ok, []}
+    end
+  end
+
+  defp decode_caption_candidate_row([
+         id,
+         catalog_id,
+         frame_id,
+         cam_id,
+         profile_id,
+         start_us,
+         end_us,
+         time_basis,
+         caption_text,
+         action_tags,
+         catalog_start_us,
+         catalog_end_us,
+         time_uncertainty_us,
+         fts_rank,
+         caption_similarity
+       ]) do
+    %{
+      id: decode_uuid(id),
+      catalog_entry_id: decode_uuid(catalog_id),
+      visual_frame_id: if(frame_id, do: decode_uuid(frame_id), else: ""),
+      camera_source_id: decode_uuid(cam_id),
+      stream_profile_id: decode_uuid(profile_id),
+      start_us: start_us,
+      end_us: end_us,
+      time_basis: to_string(time_basis || "received"),
+      caption_text: caption_text,
+      action_tags: List.wrap(action_tags),
+      catalog_start_us: catalog_start_us,
+      catalog_end_us: catalog_end_us,
+      time_uncertainty_us: time_uncertainty_us,
+      fts_rank: if(is_number(fts_rank), do: fts_rank * 1.0, else: 0.0),
+      caption_similarity: if(is_number(caption_similarity), do: clamp_score(caption_similarity))
+    }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Step 4c: Hybrid Reciprocal Rank Fusion (RRF) across visual + caption legs
+  # ---------------------------------------------------------------------------
+
+  defp fuse_hybrid_rrf(visual_clips, [], _sources_by_id, _parsed), do: visual_clips
+
+  defp fuse_hybrid_rrf(visual_clips, caption_candidates, sources_by_id, parsed) do
+    normalized_captions = Enum.map(caption_candidates, &normalize_caption_candidate/1)
+
+    fts_ranked =
+      normalized_captions
+      |> Enum.filter(&(&1.fts_rank > 0.0))
+      |> Enum.sort_by(fn c -> {-c.fts_rank, -c.start_us, c.catalog_entry_id} end)
+      |> Enum.with_index(1)
+      |> Map.new(fn {cap, rank} -> {caption_fusion_key(cap), {rank, cap}} end)
+
+    cap_vec_ranked =
+      normalized_captions
+      |> Enum.filter(
+        &(is_number(&1.caption_similarity) and &1.caption_similarity >= parsed.min_score)
+      )
+      |> Enum.sort_by(fn c -> {-c.caption_similarity, -c.start_us, c.catalog_entry_id} end)
+      |> Enum.with_index(1)
+      |> Map.new(fn {cap, rank} -> {caption_fusion_key(cap), {rank, cap}} end)
+
+    if map_size(fts_ranked) == 0 and map_size(cap_vec_ranked) == 0 do
+      attach_captions_to_visual_clips(visual_clips, normalized_captions)
+    else
+      visual_by_key =
+        visual_clips
+        |> Enum.with_index(1)
+        |> Enum.reduce(%{}, fn {clip, rank}, acc ->
+          key = clip_fusion_key(clip)
+          Map.put_new(acc, key, {rank, clip})
+        end)
+
+      all_keys =
+        Enum.uniq(Map.keys(visual_by_key) ++ Map.keys(fts_ranked) ++ Map.keys(cap_vec_ranked))
+
+      all_keys
+      |> Enum.map(fn key ->
+        vis_entry = Map.get(visual_by_key, key)
+        fts_entry = Map.get(fts_ranked, key)
+        cap_vec_entry = Map.get(cap_vec_ranked, key)
+
+        {rrf_raw, sources} =
+          {0.0, []}
+          |> add_rrf_leg(vis_entry, @rrf_weight_visual, "visual_vector")
+          |> add_rrf_leg(fts_entry, @rrf_weight_caption_fts, "caption_fts")
+          |> add_rrf_leg(cap_vec_entry, @rrf_weight_caption_vector, "caption_vector")
+
+        fused_score = min(1.0, Float.round(rrf_raw / @rrf_max_score, 4))
+        caption = pick_caption(fts_entry, cap_vec_entry)
+
+        base_clip =
+          case vis_entry do
+            {_rank, clip} -> clip
+            nil -> build_clip_from_caption(caption, sources_by_id, parsed)
+          end
+
+        base_clip
+        |> Map.put(:score, fused_score)
+        |> Map.put(:caption_text, caption && caption.caption_text)
+        |> Map.put(:action_tags, if(caption, do: caption.action_tags, else: []))
+        |> Map.put(:match_sources, Enum.reverse(sources))
+      end)
+      |> Enum.sort_by(fn clip ->
+        {-clip.score, -clip.best_timeline_ts_us, to_string(clip.visual_frame_id)}
+      end)
+    end
+  end
+
+  defp attach_captions_to_visual_clips(visual_clips, normalized_captions) do
+    captions_by_key =
+      Map.new(normalized_captions, fn cap -> {caption_fusion_key(cap), cap} end)
+
+    Enum.map(visual_clips, fn clip ->
+      case Map.get(captions_by_key, clip_fusion_key(clip)) do
+        nil ->
+          clip
+
+        cap ->
+          clip
+          |> Map.put(:caption_text, cap.caption_text)
+          |> Map.put(:action_tags, cap.action_tags)
+      end
+    end)
+  end
+
+  defp add_rrf_leg(acc, nil, _weight, _label), do: acc
+
+  defp add_rrf_leg({score, sources}, {rank, _item}, weight, label) do
+    {score + weight / (@rrf_k + rank), [label | sources]}
+  end
+
+  defp pick_caption({_rank, cap}, _), do: cap
+  defp pick_caption(nil, {_rank, cap}), do: cap
+  defp pick_caption(nil, nil), do: nil
+
+  defp clip_fusion_key(%{catalog_entry_id: cid}) when is_binary(cid) and cid != "", do: cid
+  defp clip_fusion_key(clip), do: "#{clip.camera_source_id}:#{clip.best_timeline_ts_us}"
+
+  defp caption_fusion_key(%{catalog_entry_id: cid}) when is_binary(cid) and cid != "", do: cid
+  defp caption_fusion_key(cap), do: "#{cap.camera_source_id}:#{cap.start_us}"
+
+  defp normalize_caption_candidate(item) do
+    raw_fts = fetch_val(item, :fts_rank)
+    raw_sim = fetch_val(item, :caption_similarity)
+
+    %{
+      id: to_string(fetch_val(item, :id) || ""),
+      catalog_entry_id: to_string(fetch_val(item, :catalog_entry_id) || ""),
+      visual_frame_id: to_string(fetch_val(item, :visual_frame_id) || ""),
+      camera_source_id: to_string(fetch_val(item, :camera_source_id) || ""),
+      stream_profile_id: to_string(fetch_val(item, :stream_profile_id) || ""),
+      start_us: fetch_val(item, :start_us) || 0,
+      end_us: fetch_val(item, :end_us) || fetch_val(item, :start_us) || 0,
+      time_basis: to_string(fetch_val(item, :time_basis) || "received"),
+      caption_text: fetch_val(item, :caption_text),
+      action_tags: item |> fetch_val(:action_tags) |> List.wrap() |> Enum.map(&to_string/1),
+      catalog_start_us: fetch_val(item, :catalog_start_us),
+      catalog_end_us: fetch_val(item, :catalog_end_us),
+      time_uncertainty_us: fetch_val(item, :time_uncertainty_us),
+      fts_rank: if(is_number(raw_fts), do: raw_fts * 1.0, else: 0.0),
+      caption_similarity: if(is_number(raw_sim), do: clamp_score(raw_sim))
+    }
+  end
+
+  defp build_clip_from_caption(cap, sources_by_id, parsed) do
+    mid_ts = div(cap.start_us + cap.end_us, 2)
+
+    {clip_start_us, clip_end_us} =
+      compute_clip_bounds(
+        cap.start_us,
+        cap.end_us,
+        mid_ts,
+        cap.catalog_start_us,
+        cap.catalog_end_us
+      )
+
+    source_meta = Map.get(sources_by_id, cap.camera_source_id, %{})
+    label = format_camera_label(Map.get(source_meta, :display_name))
+    uncertainty = format_time_uncertainty(cap.time_basis, cap.time_uncertainty_us)
+
+    %{
+      catalog_entry_id: cap.catalog_entry_id,
+      visual_frame_id: cap.visual_frame_id,
+      camera_source_id: cap.camera_source_id,
+      camera_display_name: label,
+      device_uid: Map.get(source_meta, :device_uid),
+      stream_profile_id: cap.stream_profile_id,
+      clip_start_us: clip_start_us,
+      clip_end_us: clip_end_us,
+      best_timeline_ts_us: mid_ts,
+      time_basis: cap.time_basis,
+      time_uncertainty: uncertainty,
+      score: 0.0,
+      region_kind: "caption",
+      object_class: parsed.object_class,
+      dominant_colors: [],
+      bbox: nil,
+      frame_detections: [],
+      caption_text: cap.caption_text,
+      action_tags: cap.action_tags
     }
   end
 

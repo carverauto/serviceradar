@@ -103,7 +103,10 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
             region_kind: :crop,
             object_class: "person",
             dominant_colors: ["red"],
-            bbox: [0.1, 0.2, 0.4, 0.8]
+            bbox: [0.1, 0.2, 0.4, 0.8],
+            caption_text: "A person in a red dress walks past the gate.",
+            action_tags: ["walking"],
+            match_sources: ["visual_vector", "caption_fts"]
           }
         ])
 
@@ -112,6 +115,9 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
       assert formatted.time_uncertainty == "unmeasured"
       assert [hit] = formatted.results
       assert hit.score == 0.8732
+      assert hit.caption_text == "A person in a red dress walks past the gate."
+      assert hit.action_tags == ["walking"]
+      assert hit.match_sources == ["visual_vector", "caption_fts"]
 
       assert hit.timeline_path ==
                "/cameras/#{@camera_id}/recordings?mode=timeline&from=1700000010000000&to=1700000016000000&seek=1700000012000000&highlight_frame=#{@frame_id}"
@@ -241,7 +247,8 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
           score: 0.89,
           object_class: "person",
           dominant_colors: ["red"],
-          bbox: [0.15, 0.2, 0.35, 0.85]
+          bbox: [0.15, 0.2, 0.35, 0.85],
+          caption_text: "A person in a red jacket crosses the driveway."
         })
 
       overlay_detections = [
@@ -291,6 +298,8 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
       assert html =~ ~s(data-role="semantic-bbox-overlay")
       assert html =~ ~s(data-role="toggle-bbox-overlay")
       assert html =~ "data-overlay-detections="
+      assert html =~ ~s(data-role="semantic-hit-caption")
+      assert html =~ "A person in a red jacket crosses the driveway."
     end
   end
 
