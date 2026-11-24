@@ -27,13 +27,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
 
     socket =
       if connected?(socket) do
-        scope = socket.assigns[:current_scope]
-
-        if can_view_recordings?(scope) do
-          push_navigate(socket, to: ~p"/cameras/#{camera_source_id}/recordings?mode=live")
-        else
-          open_camera_source(socket, camera_source_id)
-        end
+        open_camera_source(socket, camera_source_id)
       else
         socket
       end
@@ -188,9 +182,5 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
 
   defp can_view_recording_settings?(scope) do
     RBAC.can_any?(scope, @recording_settings_permissions)
-  end
-
-  defp can_view_recordings?(scope) do
-    RBAC.can?(scope, "devices.view") and RBAC.can?(scope, "devices.cameras.recordings.view")
   end
 end
