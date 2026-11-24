@@ -69,7 +69,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
           "hop_ttl" => 5,
           "hop_ip" => "198.51.100.5",
           "router_alias_id" => "rtr-iad-01",
-          "alias_confidence" => "high",
+          "alias_confidence" => 0.95,
           "asn" => 13_335,
           "as_org" => "Cloudflare, Inc.",
           "is_cloud" => true,
@@ -308,7 +308,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert hop.hop_ttl == 5
       assert hop.hop_ip == "198.51.100.5"
       assert hop.router_alias_id == "rtr-iad-01"
-      assert hop.alias_confidence == 1.0
+      assert hop.alias_confidence == 0.95
       assert hop.asn == 13_335
       assert hop.as_org == "Cloudflare, Inc."
       assert hop.is_cloud == true
@@ -319,17 +319,17 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert hop.effective_path_mtu == 1500
       assert hop.mtu_blackhole_detected == true
       assert hop.blackhole_hop_ttl == 6
-      assert hop.raw_data["alias_confidence"] == "high"
+      assert hop.raw_data["alias_confidence"] == 0.95
       assert hop.raw_data["round_id"] == "round-42"
 
       [encoded] = Rows.encode(:horizon_path_hops, [hop])
       assert encoded["round_id"] == "round-42"
-      assert encoded["alias_confidence"] == 1.0
+      assert encoded["alias_confidence"] == 0.95
       assert encoded["mtu_blackhole_detected"] == true
       assert {:ok, _json} = Jason.encode(encoded)
     end
 
-    test "handles horizon.path_hops timeout hops, nullable fields, coercions, dedupe, and malformed rows" do
+    test "handles horizon.path_hop timeout hops, nullable fields, coercions, dedupe, and malformed rows" do
       timeout_hop =
         ocsf_row(%{
           "id" => "horizon.path_hops:round-42:vantage-deadbeef:6:1763914500000",
@@ -339,6 +339,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
           "type_uid" => 100_801,
           "activity_id" => 1,
           "severity_id" => 1,
+          "log_name" => "horizon.path_hop",
           "log_provider" => "horizon.path_hops",
           "unmapped" => %{
             "source" => "horizon.path_hops",
@@ -354,25 +355,42 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
           }
         })
 
-      unix_ms_fallback_hop = %{
-        log_provider: "horizon.path_hops",
-        time: nil,
-        unmapped: %{
-          "observed_at_unix_ms" => 1_763_914_500_000,
-          "round_id" => "round-43",
-          "target_id" => "dns-cloudflare-1111",
-          "pop_id" => "vantage-12345678",
-          "hop_ttl" => "2",
-          "hop_ip" => "1.1.1.1",
-          "alias_confidence" => "medium",
-          "asn" => "AS13335",
-          "forwarding_loss_pct" => "0.5",
-          "avg_rtt_ms" => "4"
-        }
-      }
+      coerced_hop =
+        path_hop_row(%{
+          "id" => "horizon.path_hops:round-43:vantage-12345678:2:1763914500000",
+          "unmapped" => %{
+            "round_id" => "round-43",
+            "target_id" => "dns-example-01",
+            "pop_id" => "vantage-12345678",
+            "hop_ttl" => "2",
+            "hop_ip" => "203.0.113.2",
+            "alias_confidence" => "high",
+            "asn" => "AS64512",
+            "forwarding_loss_pct" => "0.5",
+            "avg_rtt_ms" => "4"
+          }
+        })
 
-      dup1 = path_hop_row(%{"unmapped" => %{"avg_rtt_ms" => 8.4, "alias_confidence" => "low"}})
-      dup2 = path_hop_row(%{"unmapped" => %{"avg_rtt_ms" => 9.1, "alias_confidence" => 0.85}})
+      provider_only_hop =
+        ocsf_row(%{
+          "id" => "horizon.path_hops:round-44:vantage-deadbeef:1:1763914500000",
+          "time" => "2026-11-23T16:15:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "severity_id" => 1,
+          "log_provider" => "horizon.path_hops",
+          "unmapped" => %{
+            "round_id" => "round-44",
+            "target_id" => "saas-github-web",
+            "pop_id" => "vantage-deadbeef",
+            "hop_ttl" => 1
+          }
+        })
+
+      dup1 = path_hop_row(%{"unmapped" => %{"avg_rtt_ms" => 8.4, "alias_confidence" => "0.75"}})
+      dup2 = path_hop_row(%{"unmapped" => %{"avg_rtt_ms" => 9.1, "alias_confidence" => "0.85"}})
 
       malformed_missing_ttl =
         ocsf_row(%{
@@ -396,7 +414,8 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       %{path_hops: hops} =
         HorizonProjection.build_projections([
           timeout_hop,
-          unix_ms_fallback_hop,
+          coerced_hop,
+          provider_only_hop,
           dup1,
           dup2,
           malformed_missing_ttl,
@@ -422,12 +441,13 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert t_hop.mtu_blackhole_detected == false
       assert t_hop.blackhole_hop_ttl == nil
 
-      fb_hop = by_key[{"round-43", 2}]
-      assert fb_hop.time == DateTime.from_unix!(1_763_914_500_000, :millisecond)
-      assert fb_hop.alias_confidence == 0.5
-      assert fb_hop.asn == 13_335
-      assert fb_hop.forwarding_loss_pct == 0.5
-      assert fb_hop.avg_rtt_ms == 4.0
+      c_hop = by_key[{"round-43", 2}]
+      assert c_hop.time == ~U[2026-11-23 16:15:00Z]
+      assert c_hop.alias_confidence == nil
+      assert c_hop.raw_data["alias_confidence"] == "high"
+      assert c_hop.asn == 64_512
+      assert c_hop.forwarding_loss_pct == 0.5
+      assert c_hop.avg_rtt_ms == 4.0
 
       deduped = by_key[{"round-42", 5}]
       assert deduped.avg_rtt_ms == 9.1
@@ -448,12 +468,29 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
           "log_name" => "events.ocsf.processed"
         })
 
+      provider_only =
+        ocsf_row(%{
+          "id" => Ecto.UUID.generate(),
+          "time" => "2026-11-23T16:00:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_provider" => "horizon.path_hops",
+          "unmapped" => %{
+            "round_id" => "round-99",
+            "target_id" => "saas-github-web",
+            "pop_id" => "vantage-deadbeef",
+            "hop_ttl" => 1
+          }
+        })
+
       load_fn = fn _dataset, _rows ->
         flunk("load_fn must not be called")
       end
 
       assert :ok ==
-               HorizonProjection.project_rows([non_horizon],
+               HorizonProjection.project_rows([non_horizon, provider_only],
                  starrocks_enabled: true,
                  load: load_fn
                )
@@ -698,7 +735,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
                  "pop_id" => "vantage-deadbeef",
                  "hop_ttl" => 5,
                  "hop_ip" => "198.51.100.5",
-                 "alias_confidence" => 1.0,
+                 "alias_confidence" => 0.95,
                  "asn" => 13_335,
                  "mtu_blackhole_detected" => true,
                  "blackhole_hop_ttl" => 6

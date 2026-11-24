@@ -5,11 +5,10 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   `serviceradar.horizon_bgp_zombies`, and `serviceradar.horizon_path_hops`.
 
   Called by `ServiceRadar.EventWriter.Processors.Events` after OCSF rows are
-  persisted. Batches containing no `horizon.*` `log_name`/`log_provider`
-  values—or running on an installation without StarRocks enabled—short-circuit
-  with zero loads. Each table load is isolated and fail-open so a projection
-  error never fails primary OCSF event ingestion or blocks sibling Horizon
-  tables.
+  persisted. Batches containing no `horizon.*` `log_name` values—or running on
+  an installation without StarRocks enabled—short-circuit with zero loads.
+  Each table load is isolated and fail-open so a projection error never fails
+  primary OCSF event ingestion or blocks sibling Horizon tables.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Destination
@@ -115,17 +114,11 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
       :ok
   end
 
-  defp horizon_event?(row) when is_map(row) do
-    starts_with_horizon?(Map.get(row, :log_name)) or
-      starts_with_horizon?(Map.get(row, :log_provider))
+  defp horizon_event?(%{log_name: log_name}) when is_binary(log_name) do
+    String.starts_with?(log_name, "horizon.")
   end
 
   defp horizon_event?(_row), do: false
-
-  defp starts_with_horizon?(value) when is_binary(value),
-    do: String.starts_with?(value, "horizon.")
-
-  defp starts_with_horizon?(_), do: false
 
   # Exact unmapped key names emitted by plugins/horizon-feed/src/ocsf.rs.
   defp project_row(%{log_name: "horizon.outage", time: time} = row) do
@@ -245,13 +238,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     end
   end
 
-  defp project_row(%{log_name: "horizon.path_hop"} = row), do: project_path_hop(row)
-
-  defp project_row(%{log_provider: "horizon.path_hops"} = row), do: project_path_hop(row)
-
-  defp project_row(_row), do: :ignore
-
-  defp project_path_hop(row) do
+  defp project_row(%{log_name: "horizon.path_hop", time: time} = row) do
     unmapped = unmapped_map(row)
     round_id = non_empty_string(unmapped["round_id"])
     target_id = non_empty_string(unmapped["target_id"])
@@ -264,14 +251,14 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     else
       {:path_hop,
        %{
-         time: normalize_path_hop_time(Map.get(row, :time), unmapped["observed_at_unix_ms"]),
+         time: normalize_time(time),
          round_id: round_id,
          target_id: target_id,
          pop_id: pop_id,
          hop_ttl: hop_ttl,
          hop_ip: non_empty_string(unmapped["hop_ip"]),
          router_alias_id: non_empty_string(unmapped["router_alias_id"]),
-         alias_confidence: parse_alias_confidence(unmapped["alias_confidence"]),
+         alias_confidence: parse_float(unmapped["alias_confidence"]),
          asn: parse_asn(unmapped["asn"]),
          as_org: non_empty_string(unmapped["as_org"]),
          is_cloud: parse_bool(unmapped["is_cloud"]),
@@ -286,6 +273,8 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
        }}
     end
   end
+
+  defp project_row(_row), do: :ignore
 
   defp unmapped_map(%{unmapped: map}) when is_map(map), do: map
   defp unmapped_map(_row), do: %{}
@@ -312,47 +301,6 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
 
   defp normalize_time(%DateTime{} = dt), do: dt
   defp normalize_time(other), do: FieldParser.parse_timestamp(other)
-
-  defp normalize_path_hop_time(nil, observed_at_unix_ms) do
-    case parse_unix_ms(observed_at_unix_ms) do
-      %DateTime{} = dt -> dt
-      nil -> normalize_time(nil)
-    end
-  end
-
-  defp normalize_path_hop_time("", observed_at_unix_ms),
-    do: normalize_path_hop_time(nil, observed_at_unix_ms)
-
-  defp normalize_path_hop_time(time, _observed_at_unix_ms), do: normalize_time(time)
-
-  defp parse_unix_ms(value) do
-    case parse_int(value) do
-      ms when is_integer(ms) ->
-        case DateTime.from_unix(ms, :millisecond) do
-          {:ok, dt} -> dt
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parse_alias_confidence(nil), do: nil
-  defp parse_alias_confidence(value) when is_float(value), do: value
-  defp parse_alias_confidence(value) when is_integer(value), do: value * 1.0
-
-  defp parse_alias_confidence(value) when is_binary(value) do
-    case value |> String.trim() |> String.downcase() do
-      "" -> nil
-      "high" -> 1.0
-      "medium" -> 0.5
-      "low" -> 0.25
-      other -> parse_float(other)
-    end
-  end
-
-  defp parse_alias_confidence(_), do: nil
 
   defp parse_optional_timestamp(nil), do: nil
   defp parse_optional_timestamp(""), do: nil
