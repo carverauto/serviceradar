@@ -1021,6 +1021,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
       what_if_policy_preview: &CameraRecordingSettings.what_if_policy_preview/3,
       list_storage_settings: &CameraRecordingSettings.list_storage_settings/1,
       save_storage_settings: &CameraRecordingSettings.save_storage_settings/3,
+      fetch_nvr_member_statuses: &CameraRecordingRuntime.member_statuses/1,
       load_recording_health: &CameraRecordingSettings.load_recording_health/2,
       request_quarantine_delete: &CameraRecordingSettings.request_quarantine_delete/3,
       request_quarantine_export: &CameraRecordingSettings.request_quarantine_export/3,
@@ -1236,9 +1237,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         if sid != "" and is_binary(name) and name != "", do: Map.put(acc, sid, name), else: acc
       end)
 
+    live_statuses =
+      case dependencies.fetch_nvr_member_statuses do
+        fun when is_function(fun, 1) -> safe_live_statuses(fun.(socket.assigns.runtime))
+        fun when is_function(fun, 0) -> safe_live_statuses(fun.())
+        _ -> %{}
+      end
+
+    member_measurements = CameraRecordingSettings.member_measurements_from_statuses(live_statuses)
+
     health_opts = [
       known_storage_ids: known_storage_ids,
-      member_by_storage_id: member_by_storage_id
+      member_by_storage_id: member_by_storage_id,
+      member_measurements: member_measurements
     ]
 
     raw_health_summary =
@@ -1255,7 +1266,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
       )
 
     health_summary =
-      CameraRecordingSettings.enrich_health_with_storage_rows(raw_health_summary, storage_rows)
+      raw_health_summary
+      |> CameraRecordingSettings.enrich_health_with_storage_rows(storage_rows)
+      |> CameraRecordingSettings.attach_live_statuses(live_statuses)
 
     next_st_form =
       if socket.assigns.storage_settings_form["storage_id"] == "" and storage_rows != [] do
@@ -1273,6 +1286,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     |> assign(:storage_rows, storage_rows)
     |> assign(:storage_settings_form, next_st_form)
   end
+
+  defp safe_live_statuses(%{} = statuses), do: statuses
+  defp safe_live_statuses(_), do: %{}
 
   defp runtime_members(socket) do
     socket.assigns

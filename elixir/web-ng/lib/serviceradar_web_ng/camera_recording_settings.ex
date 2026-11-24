@@ -1232,6 +1232,128 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   end
 
   @doc """
+  Converts raw live NVR `/v1/status` payloads keyed by `storage_id` into the
+  `:member_measurements` map consumed by `RecordingHealth.summary/1`.
+  """
+  @spec member_measurements_from_statuses(map() | nil) :: %{optional(String.t()) => map()}
+  def member_measurements_from_statuses(statuses) when is_map(statuses) do
+    Enum.reduce(statuses, %{}, fn {sid, status}, acc ->
+      key = sid |> to_string_or_empty() |> String.trim()
+
+      if key != "" and is_map(status) do
+        Map.put(acc, key, normalize_live_status_measurement(status))
+      else
+        acc
+      end
+    end)
+  end
+
+  def member_measurements_from_statuses(_), do: %{}
+
+  @doc """
+  Attaches live NVR `/v1/status` measurements onto `health_summary.storage_members`
+  and `health_summary.storage_by_id` for any member that has a reported status
+  and does not yet carry `:live_status`.
+  """
+  @spec attach_live_statuses(map(), map() | nil) :: map()
+  def attach_live_statuses(health_summary, live_statuses)
+      when is_map(health_summary) and is_map(live_statuses) and map_size(live_statuses) > 0 do
+    measurements_by_sid = member_measurements_from_statuses(live_statuses)
+
+    updated_members =
+      health_summary
+      |> Map.get(:storage_members, [])
+      |> Enum.map(fn member ->
+        sid = member |> Map.get(:storage_id) |> to_string_or_empty()
+
+        case Map.get(measurements_by_sid, sid) do
+          nil ->
+            member
+
+          measurement ->
+            if Map.get(member, :live_status_state) == :reported and is_map(Map.get(member, :live_status)) do
+              member
+            else
+              member
+              |> Map.put(:live_status_state, :reported)
+              |> Map.put(:ledger_state, measurement.ledger_state)
+              |> Map.put(:live_status, measurement)
+            end
+        end
+      end)
+
+    by_id = Map.new(updated_members, &{to_string(Map.get(&1, :storage_id)), &1})
+
+    health_summary
+    |> Map.put(:storage_members, updated_members)
+    |> Map.put(:storage_by_id, by_id)
+  end
+
+  def attach_live_statuses(health_summary, _live_statuses), do: health_summary
+
+  defp normalize_live_status_measurement(status) when is_map(status) do
+    capacity =
+      case fetch_map_or_struct(status, :capacity) do
+        %{} = cap -> cap
+        _ -> %{}
+      end
+
+    used_bytes = live_non_neg_int(status, capacity, :used_bytes)
+    max_spool_bytes = live_non_neg_int(status, capacity, :max_spool_bytes)
+    available_bytes = live_non_neg_int(status, capacity, :available_bytes)
+    reserve_bytes = live_non_neg_int(status, capacity, :reserve_bytes)
+    reserved_bytes = live_non_neg_int(status, capacity, :reserved_bytes)
+    reservations = live_non_neg_int(status, capacity, :reservations)
+    blocks = live_non_neg_int(status, capacity, :blocks)
+    max_blocks = live_non_neg_int(status, capacity, :max_blocks)
+    drift_count = non_neg_int_or_nil(fetch_map_or_struct(status, :drift_count))
+
+    used_percent =
+      if is_integer(used_bytes) and is_integer(max_spool_bytes) and max_spool_bytes > 0 do
+        used_bytes
+        |> Kernel.*(100.0)
+        |> Kernel./(max_spool_bytes)
+        |> min(100.0)
+        |> max(0.0)
+        |> Float.round(1)
+      end
+
+    inventory = fetch_map_or_struct(status, :inventory) || fetch_map_or_struct(status, :ledger_state)
+    ledger_state = fetch_map_or_struct(status, :ledger_state) || inventory || :unknown_until_nvr_status
+
+    recovery_state =
+      case fetch_map_or_struct(status, :recovery) do
+        %{} = rec -> fetch_map_or_struct(rec, :state)
+        _ -> fetch_map_or_struct(status, :recovery_state)
+      end
+
+    %{
+      used_bytes: used_bytes,
+      max_spool_bytes: max_spool_bytes,
+      used_percent: used_percent,
+      available_bytes: available_bytes,
+      reserve_bytes: reserve_bytes,
+      reserved_bytes: reserved_bytes,
+      reservations: reservations,
+      blocks: blocks,
+      max_blocks: max_blocks,
+      inventory: inventory,
+      ledger_state: ledger_state,
+      drift_count: drift_count,
+      recovery_state: recovery_state,
+      archive_busy: fetch_map_or_struct(status, :archive_busy),
+      release: fetch_map_or_struct(status, :release)
+    }
+  end
+
+  defp live_non_neg_int(status, capacity, key) do
+    non_neg_int_or_nil(fetch_map_or_struct(status, key) || fetch_map_or_struct(capacity, key))
+  end
+
+  defp non_neg_int_or_nil(val) when is_integer(val) and val >= 0, do: val
+  defp non_neg_int_or_nil(_), do: nil
+
+  @doc """
   Pure pre-save validation for `phx-change="preview_storage_settings"`.
   Performs zero database queries.
   """

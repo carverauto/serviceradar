@@ -706,6 +706,12 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       })
 
     has_live_measurements? = map_size(measurements) > 0
+    live_status = if has_live_measurements?, do: normalize_live_status(measurements)
+
+    ledger_state =
+      fetch_field(measurements, :ledger_state) ||
+        fetch_field(measurements, :inventory) ||
+        :unknown_until_nvr_status
 
     %{
       storage_id: sid,
@@ -729,11 +735,86 @@ defmodule ServiceRadar.Camera.RecordingHealth do
       reservations: member_reservations,
       live_status_state:
         if(has_live_measurements?, do: :reported, else: :unknown_until_nvr_status),
-      ledger_state: fetch_field(measurements, :ledger_state) || :unknown_until_nvr_status
+      ledger_state: ledger_state,
+      live_status: live_status
     }
   end
 
+  defp normalize_live_status(measurements) when is_map(measurements) do
+    capacity =
+      case fetch_field(measurements, :capacity) do
+        %{} = cap -> cap
+        _ -> %{}
+      end
+
+    used_bytes = fetch_int(measurements, :used_bytes) || fetch_int(capacity, :used_bytes)
+
+    max_spool_bytes =
+      fetch_int(measurements, :max_spool_bytes) || fetch_int(capacity, :max_spool_bytes)
+
+    available_bytes =
+      fetch_int(measurements, :available_bytes) || fetch_int(capacity, :available_bytes)
+
+    reserve_bytes = fetch_int(measurements, :reserve_bytes) || fetch_int(capacity, :reserve_bytes)
+
+    reserved_bytes =
+      fetch_int(measurements, :reserved_bytes) || fetch_int(capacity, :reserved_bytes)
+
+    reservations = fetch_int(measurements, :reservations) || fetch_int(capacity, :reservations)
+    blocks = fetch_int(measurements, :blocks) || fetch_int(capacity, :blocks)
+    max_blocks = fetch_int(measurements, :max_blocks) || fetch_int(capacity, :max_blocks)
+    drift_count = fetch_int(measurements, :drift_count)
+
+    used_percent =
+      if is_integer(used_bytes) and is_integer(max_spool_bytes) and max_spool_bytes > 0 do
+        used_bytes
+        |> Kernel.*(100.0)
+        |> Kernel./(max_spool_bytes)
+        |> min(100.0)
+        |> max(0.0)
+        |> Float.round(1)
+      end
+
+    recovery_state =
+      case fetch_field(measurements, :recovery) do
+        %{} = rec -> fetch_field(rec, :state)
+        _ -> fetch_field(measurements, :recovery_state)
+      end
+
+    %{
+      used_bytes: used_bytes,
+      max_spool_bytes: max_spool_bytes,
+      used_percent: used_percent,
+      available_bytes: available_bytes,
+      reserve_bytes: reserve_bytes,
+      reserved_bytes: reserved_bytes,
+      reservations: reservations,
+      blocks: blocks,
+      max_blocks: max_blocks,
+      inventory:
+        fetch_field(measurements, :inventory) || fetch_field(measurements, :ledger_state),
+      drift_count: drift_count,
+      recovery_state: recovery_state,
+      archive_busy: fetch_field(measurements, :archive_busy),
+      release: fetch_field(measurements, :release)
+    }
+  end
+
+  defp fetch_int(map, key) when is_map(map) do
+    case fetch_field(map, key) do
+      val when is_integer(val) and val >= 0 -> val
+      _ -> nil
+    end
+  end
+
   defp resolve_storage_effective_budget(desired, measurements) do
+    max_spool =
+      fetch_int(measurements, :max_spool_bytes) ||
+        case fetch_field(measurements, :capacity) do
+          %{} = cap -> fetch_int(cap, :max_spool_bytes)
+          _ -> nil
+        end
+
     cond do
       is_integer(fetch_field(measurements, :effective_budget_bytes)) and
           fetch_field(measurements, :effective_budget_bytes) > 0 ->
@@ -743,6 +824,9 @@ defmodule ServiceRadar.Camera.RecordingHealth do
         is_integer(fetch_field(desired, :budget_bytes)) and
           fetch_field(desired, :budget_bytes) > 0 ->
         fetch_field(desired, :budget_bytes)
+
+      is_integer(max_spool) and max_spool > 0 ->
+        max_spool
 
       is_integer(fetch_field(measurements, :volume_capacity_bytes)) and
           fetch_field(measurements, :volume_capacity_bytes) > 0 ->

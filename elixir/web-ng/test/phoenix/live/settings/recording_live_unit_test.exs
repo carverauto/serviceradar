@@ -65,6 +65,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         list_policies: fn _ -> flunk("disconnected mount must not read policies") end,
         what_if_policy_preview: fn _, _, _ -> flunk("disconnected mount must not run DB what-if") end,
         list_storage_settings: fn _ -> flunk("disconnected mount must not read storage settings") end,
+        fetch_nvr_member_statuses: fn _ -> flunk("disconnected mount must not probe NVR /v1/status") end,
         load_recording_health: fn _ -> flunk("disconnected mount must not read recording health") end
       }
 
@@ -2739,6 +2740,135 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert doc |> LazyHTML.query("#health-gap-reason-handover_overflow") |> LazyHTML.text() =~ "1"
       assert doc |> LazyHTML.query("#health-open-gaps-list") |> LazyHTML.text() =~ "nvr_spool_budget_exhausted"
       assert doc |> LazyHTML.query("#health-active-alerts-list") |> LazyHTML.text() =~ "archive_backlog_age"
+    end
+
+    test "renders live NVR /v1/status disk usage, free bytes, block count, and ok/degraded ledger state with unreachable fallback" do
+      now = ~U[2026-11-16 18:00:00Z]
+      sid_ok = "00000000-0000-4000-8000-000000000651"
+      sid_degraded = "00000000-0000-4000-8000-000000000652"
+      sid_offline = "00000000-0000-4000-8000-000000000653"
+
+      viewer_scope = scope_with_permissions(["settings.recording.view"])
+
+      live_statuses = %{
+        sid_ok => %{
+          storage_id: sid_ok,
+          recovery: %{state: :ready, generation: "00000000-0000-4000-8000-000000000099"},
+          inventory: :ready,
+          capacity: %{
+            used_bytes: 21_474_836_480,
+            max_spool_bytes: 85_899_345_920,
+            available_bytes: 64_424_509_440,
+            reserve_bytes: 1_073_741_824,
+            reserved_bytes: 33_554_432,
+            reservations: 2,
+            blocks: 148,
+            max_blocks: 10_000
+          },
+          max_sessions: 16,
+          archive_busy: false,
+          release: "1.2.3"
+        },
+        sid_degraded => %{
+          storage_id: sid_degraded,
+          recovery: %{state: :ready, generation: "00000000-0000-4000-8000-000000000099"},
+          inventory: :mismatch,
+          capacity: %{
+            used_bytes: 79_456_894_976,
+            max_spool_bytes: 85_899_345_920,
+            available_bytes: 6_442_450_944,
+            reserve_bytes: 1_073_741_824,
+            reserved_bytes: 0,
+            reservations: 0,
+            blocks: 512,
+            max_blocks: 10_000
+          },
+          max_sessions: 16,
+          archive_busy: false,
+          release: "1.2.3"
+        }
+      }
+
+      runtime = %{
+        recovery_gate: %{state: :open, generation: "00000000-0000-4000-8000-000000000099"},
+        core_elx: %{
+          reachability: :reachable,
+          node: :"core-elx@example.internal",
+          supervisor: :enabled,
+          nvr_installation: :installed,
+          members: [
+            %{member: "nvr-0", storage_id: sid_ok},
+            %{member: "nvr-1", storage_id: sid_degraded},
+            %{member: "nvr-2", storage_id: sid_offline}
+          ]
+        }
+      }
+
+      socket =
+        viewer_scope
+        |> mounted_with_runtime(runtime, %{
+          fetch_nvr_member_statuses: fn _runtime -> live_statuses end,
+          load_recording_health: fn scope, opts ->
+            {:ok, summary} =
+              RecordingHealth.summary(
+                Keyword.merge(
+                  [
+                    scope: scope,
+                    now: now,
+                    loaders: %{
+                      settings_loader: fn -> {:ok, %RecordingArchiveSettings{archive_enabled: false}} end,
+                      bindings_loader: fn -> {:ok, []} end,
+                      all_receipts_loader: fn -> {:ok, []} end,
+                      catalog_loader: fn -> {:ok, []} end,
+                      holds_loader: fn -> {:ok, []} end,
+                      blocks_loader: fn -> {:ok, []} end,
+                      policies_loader: fn -> {:ok, []} end,
+                      storage_settings_loader: fn -> {:ok, []} end,
+                      local_storage_bindings_loader: fn -> {:ok, []} end,
+                      gaps_loader: fn -> {:ok, []} end,
+                      dispositions_loader: fn -> {:ok, []} end,
+                      alerts_loader: fn -> {:ok, []} end
+                    }
+                  ],
+                  opts
+                )
+              )
+
+            summary
+          end
+        })
+        |> assign(:active_tab, "health")
+
+      doc = socket |> render_mounted() |> LazyHTML.from_fragment()
+
+      # 1. Healthy live NVR member: spool used / budget + %, free bytes, blocks, active writers, ledger ok
+      ok_card = doc |> LazyHTML.query("#health-storage-member-#{sid_ok}") |> LazyHTML.text() |> normalize_ws()
+      assert ok_card =~ "Spool used: 20 GiB / 80 GiB"
+      assert ok_card =~ "25%"
+      assert ok_card =~ "Free: 60 GiB (reserve 1 GiB)"
+      assert ok_card =~ "Ledger blocks: 148 / 10000"
+      assert ok_card =~ "Active writers: 2"
+      assert ok_card =~ "Disk & ledger: ok"
+      refute ok_card =~ "unknown until NVR /v1/status reports"
+      assert Enum.count(LazyHTML.query(doc, "#health-storage-member-spool-#{sid_ok}")) == 1
+
+      # 2. Degraded (mismatch) live NVR member: high watermark + degraded badge
+      degraded_card =
+        doc |> LazyHTML.query("#health-storage-member-#{sid_degraded}") |> LazyHTML.text() |> normalize_ws()
+
+      assert degraded_card =~ "Spool used: 74 GiB / 80 GiB"
+      assert degraded_card =~ "92.5%"
+      assert degraded_card =~ "Free: 6 GiB"
+      assert degraded_card =~ "Ledger blocks: 512 / 10000"
+      assert degraded_card =~ "Disk & ledger: degraded (mismatch)"
+      refute degraded_card =~ "unknown until NVR /v1/status reports"
+
+      # 3. Unreachable member falls back gracefully to unknown until NVR /v1/status reports
+      offline_card =
+        doc |> LazyHTML.query("#health-storage-member-#{sid_offline}") |> LazyHTML.text() |> normalize_ws()
+
+      assert offline_card =~ "Disk & ledger: unknown until NVR /v1/status reports"
+      assert Enum.empty?(LazyHTML.query(doc, "#health-storage-member-live-#{sid_offline}"))
     end
   end
 
