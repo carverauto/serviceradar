@@ -593,7 +593,7 @@ webNg:
     # plugins. Only this values file trusts it; its private key is held outside
     # the repository.
     PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=,serviceradar-demo-v1=KVPgZ+sTeTgFjsyNtMqoL3awEf0OcL0NDqsODepLaPM="
-    SERVICERADAR_CAMERA_VLM_MODEL: "Qwen/Qwen3.5-4B"
+    SERVICERADAR_CAMERA_VLM_MODEL: "Qwen3.5-4B"
   extraEnvValueFrom:
     # Authenticates GitHub API calls for the built-in plugin source and agent
     # release imports, which otherwise share the 60/hour anonymous limit.
@@ -1020,7 +1020,7 @@ core:
     SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION: "true"
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
-    SERVICERADAR_CAMERA_VLM_MODEL: "Qwen/Qwen3.5-4B"
+    SERVICERADAR_CAMERA_VLM_MODEL: "Qwen3.5-4B"
 
 # Keep mutable AWX callbacks disabled until a ServiceRadar-initiated live
 # preflight canary has passed and its redacted evidence is retained. The
