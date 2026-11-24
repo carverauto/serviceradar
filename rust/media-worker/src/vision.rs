@@ -19,8 +19,9 @@ use crate::tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serviceradar_media_core::{
-    CompressedFrameGateConfig, PixelMotionGate, PixelMotionGateConfig, ThumbnailConfig,
-    TwoTierFrameGate, classify_crop_colors, encode_jpeg_thumbnail, extract_visual_attributes,
+    CompressedFrameGateConfig, MotionGridMap, PixelMotionGate, PixelMotionGateConfig, RoiGridMask,
+    ThumbnailConfig, TwoTierFrameGate, classify_crop_colors, encode_jpeg_thumbnail,
+    extract_visual_attributes,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -32,6 +33,9 @@ const CROP_CONTEXT_MARGIN: f32 = 0.10;
 const NMS_IOU_THRESHOLD: f32 = 0.50;
 const DEFAULT_MIN_CONFIDENCE: f32 = 0.35;
 const MAX_QUERY_CHARS: usize = 256;
+/// Minimum normalized Euclidean centroid displacement across a clip for a `Vehicle` track
+/// with zero active pixel-motion overlap to be treated as moving rather than parked.
+const STATIONARY_VEHICLE_MIN_DISPLACEMENT: f32 = 0.025;
 
 /// Hard upper bound (48 KiB raw JPEG) on keyframe thumbnails attached to visual index results.
 pub const MAX_THUMBNAIL_JPEG_BYTES: usize = 48 * 1024;
@@ -452,18 +456,34 @@ impl VisionPipeline {
         &self,
         keyframes: &[ClipKeyframe<'_>],
     ) -> Result<ClipAnalysis, MediaWorkerError> {
-        self.process_sampled_keyframes(keyframes.iter().map(|kf| (kf.offset_ms, Some(kf.frame))))
+        self.process_clip_keyframes_with_roi(keyframes, None)
     }
 
-    pub(crate) fn process_sampled_keyframes<'a>(
+    /// Same as [`Self::process_clip_keyframes`], while enforcing an optional operator-configured
+    /// [`RoiGridMask`] ignore grid on both the motion gate and Stage 1 detections.
+    pub fn process_clip_keyframes_with_roi(
+        &self,
+        keyframes: &[ClipKeyframe<'_>],
+        roi_grid: Option<&RoiGridMask>,
+    ) -> Result<ClipAnalysis, MediaWorkerError> {
+        self.process_sampled_keyframes_with_roi(
+            keyframes.iter().map(|kf| (kf.offset_ms, Some(kf.frame))),
+            roi_grid,
+        )
+    }
+
+    pub(crate) fn process_sampled_keyframes_with_roi<'a>(
         &self,
         keyframes: impl ExactSizeIterator<Item = (u64, Option<&'a RgbFrame>)>,
+        roi_grid: Option<&RoiGridMask>,
     ) -> Result<ClipAnalysis, MediaWorkerError> {
-        let mut motion_gate = TwoTierFrameGate::new(
-            CompressedFrameGateConfig::default(),
-            PixelMotionGateConfig::default(),
-        )
-        .map_err(|err| MediaWorkerError::inference_failed(err.to_string()))?;
+        let mut tier1_cfg = PixelMotionGateConfig::default();
+        if let Some(grid) = roi_grid {
+            tier1_cfg = tier1_cfg.with_roi_grid(grid);
+        }
+        let mut motion_gate =
+            TwoTierFrameGate::new(CompressedFrameGateConfig::default(), tier1_cfg)
+                .map_err(|err| MediaWorkerError::inference_failed(err.to_string()))?;
         let mut tracker = ClipTracker::new(self.tracker_mode);
         let mut stage1_latencies_secs = Vec::with_capacity(keyframes.len());
         let mut stage2_latencies_secs = Vec::with_capacity(keyframes.len());
@@ -473,6 +493,8 @@ impl VisionPipeline {
             // Appearance-assisted modes (`botsort`, `deep_ocsort`) need Stage 2 crop embeddings
             // per frame to associate detections by appearance, then optionally deduplicate the
             // emitted crop embeddings to keep only the best crop per `track_id`.
+            let mut per_frame_motion_admitted = Vec::with_capacity(keyframes.len());
+            let mut per_frame_motion_maps = Vec::with_capacity(keyframes.len());
             let mut per_frame_scene_suppressed = Vec::with_capacity(keyframes.len());
             let mut per_frame_detections: Vec<Vec<DetectedSubject>> =
                 Vec::with_capacity(keyframes.len());
@@ -489,11 +511,11 @@ impl VisionPipeline {
                 let motion = motion_gate
                     .evaluate_rgb(offset_ms, frame.as_media_core_frame())
                     .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))?;
+                let motion_admitted = motion.decision.is_admitted();
+                per_frame_motion_admitted.push(motion_admitted);
+                per_frame_motion_maps.push(motion.motion_map);
 
-                if self.skip_unchanged_empty_scenes
-                    && !motion.decision.is_admitted()
-                    && !prev_had_detections
-                {
+                if self.skip_unchanged_empty_scenes && !motion_admitted && !prev_had_detections {
                     tracker.update_frame(frame.width(), frame.height(), offset_ms, &[], None);
                     per_frame_scene_suppressed.push(true);
                     per_frame_detections.push(Vec::new());
@@ -503,12 +525,14 @@ impl VisionPipeline {
 
                 let t_s1 = Instant::now();
                 let mut detections = self.detect_subjects_checked(frame)?;
+                if let Some(grid) = roi_grid {
+                    detections.retain(|det| !grid.bbox_center_ignored(det.bbox_norm()));
+                }
                 stage1_latencies_secs.push(t_s1.elapsed().as_secs_f64());
                 prev_had_detections = !detections.is_empty();
 
-                let scene_suppressed = self.skip_unchanged_empty_scenes
-                    && detections.is_empty()
-                    && !motion.decision.is_admitted();
+                let scene_suppressed =
+                    self.skip_unchanged_empty_scenes && detections.is_empty() && !motion_admitted;
 
                 let t_s2 = Instant::now();
                 let mut embeddings =
@@ -550,6 +574,15 @@ impl VisionPipeline {
                 per_frame_embeddings.push(embeddings);
             }
 
+            let suppressed_vehicle_tracks = suppress_stationary_vehicles_with_embeddings(
+                &mut per_frame_detections,
+                &mut per_frame_embeddings,
+                &mut per_frame_scene_suppressed,
+                &per_frame_motion_admitted,
+                &per_frame_motion_maps,
+                self.skip_unchanged_empty_scenes,
+            );
+
             if self.dedup_track_crops {
                 let best_by_track = select_best_crop_per_track(&per_frame_detections);
                 for (frame_idx, embeddings) in per_frame_embeddings.iter_mut().enumerate() {
@@ -590,7 +623,10 @@ impl VisionPipeline {
                 )
                 .collect();
 
-            let tracks = tracker.summaries();
+            let mut tracks = tracker.summaries();
+            if !suppressed_vehicle_tracks.is_empty() {
+                tracks.retain(|t| !suppressed_vehicle_tracks.contains(&t.track_id()));
+            }
             let (block_thumbnail_jpeg_b64, thumbnail_frame_order) = attach_budgeted_thumbnails(
                 &mut frames,
                 &frame_refs,
@@ -610,8 +646,11 @@ impl VisionPipeline {
 
         // Motion-only (`bytetrack`) or untracked (`off`) path:
         // Pass 1 runs Tier-1 PixelMotionGate -> Stage 1 -> tracking across all clip keyframes so
-        // best-crop deduplication avoids redundant Stage 2 vision-tower crop embedding calls.
-        let mut staged = Vec::with_capacity(keyframes.len());
+        // stationary-vehicle suppression and best-crop deduplication avoid redundant Stage 2
+        // vision-tower crop embedding calls.
+        let mut staged: Vec<(&'a RgbFrame, bool, bool, Vec<DetectedSubject>)> =
+            Vec::with_capacity(keyframes.len());
+        let mut motion_maps: Vec<MotionGridMap> = Vec::with_capacity(keyframes.len());
         let mut frame_refs: Vec<(u64, &'a RgbFrame)> = Vec::with_capacity(keyframes.len());
         for (offset_ms, frame) in keyframes {
             let Some(frame) = frame else {
@@ -622,24 +661,25 @@ impl VisionPipeline {
             let motion = motion_gate
                 .evaluate_rgb(offset_ms, frame.as_media_core_frame())
                 .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))?;
+            let motion_admitted = motion.decision.is_admitted();
+            motion_maps.push(motion.motion_map);
 
-            if self.skip_unchanged_empty_scenes
-                && !motion.decision.is_admitted()
-                && !prev_had_detections
-            {
+            if self.skip_unchanged_empty_scenes && !motion_admitted && !prev_had_detections {
                 tracker.update_frame(frame.width(), frame.height(), offset_ms, &[], None);
-                staged.push((frame, true, Vec::new()));
+                staged.push((frame, motion_admitted, true, Vec::new()));
                 continue;
             }
 
             let t_s1 = Instant::now();
             let mut detections = self.detect_subjects_checked(frame)?;
+            if let Some(grid) = roi_grid {
+                detections.retain(|det| !grid.bbox_center_ignored(det.bbox_norm()));
+            }
             stage1_latencies_secs.push(t_s1.elapsed().as_secs_f64());
             prev_had_detections = !detections.is_empty();
 
-            let scene_suppressed = self.skip_unchanged_empty_scenes
-                && detections.is_empty()
-                && !motion.decision.is_admitted();
+            let scene_suppressed =
+                self.skip_unchanged_empty_scenes && detections.is_empty() && !motion_admitted;
 
             let assigned =
                 tracker.update_frame(frame.width(), frame.height(), offset_ms, &detections, None);
@@ -647,12 +687,18 @@ impl VisionPipeline {
                 det.set_track_id(tid);
             }
 
-            staged.push((frame, scene_suppressed, detections));
+            staged.push((frame, motion_admitted, scene_suppressed, detections));
         }
+
+        let suppressed_vehicle_tracks = suppress_stationary_vehicles_staged(
+            &mut staged,
+            &motion_maps,
+            self.skip_unchanged_empty_scenes,
+        );
 
         let best_by_track = if self.dedup_track_crops && self.tracker_mode.is_enabled() {
             let det_slices: Vec<Vec<DetectedSubject>> =
-                staged.iter().map(|(_, _, d)| d.clone()).collect();
+                staged.iter().map(|(_, _, _, d)| d.clone()).collect();
             Some(select_best_crop_per_track(&det_slices))
         } else {
             None
@@ -660,7 +706,8 @@ impl VisionPipeline {
 
         let mut frames = Vec::with_capacity(staged.len());
         let mut track_reclassifications: HashMap<u64, ObjectClass> = HashMap::new();
-        for (frame_idx, (frame, scene_suppressed, mut detections)) in staged.into_iter().enumerate()
+        for (frame_idx, (frame, _motion_admitted, scene_suppressed, mut detections)) in
+            staged.into_iter().enumerate()
         {
             let selected_indices: Vec<usize> = match &best_by_track {
                 Some(best_map) => detections
@@ -715,6 +762,9 @@ impl VisionPipeline {
         }
 
         let mut tracks = tracker.summaries();
+        if !suppressed_vehicle_tracks.is_empty() {
+            tracks.retain(|t| !suppressed_vehicle_tracks.contains(&t.track_id()));
+        }
         if !track_reclassifications.is_empty() {
             for frame in &mut frames {
                 for det in &mut frame.detections {
@@ -1012,6 +1062,190 @@ impl serviceradar_media_core::ObjectDetector for BackendObjectDetector {
             })
             .collect())
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct VehicleTrackMotion {
+    first_centroid: (f32, f32),
+    max_displacement: f32,
+    overlaps_motion: bool,
+}
+
+fn bbox_centroid(bbox: [f32; 4]) -> (f32, f32) {
+    (0.5 * (bbox[0] + bbox[2]), 0.5 * (bbox[1] + bbox[3]))
+}
+
+fn euclidean_distance(a: (f32, f32), b: (f32, f32)) -> f32 {
+    let dx = a.0 - b.0;
+    let dy = a.1 - b.1;
+    (dx * dx + dy * dy).sqrt()
+}
+
+fn detection_overlaps_motion(
+    frame_idx: usize,
+    bbox: [f32; 4],
+    motion_maps: &[MotionGridMap],
+) -> bool {
+    if motion_maps
+        .get(frame_idx)
+        .is_some_and(|map| map.bbox_overlaps_motion(bbox))
+    {
+        return true;
+    }
+    // Frame 0 is the InitialAnchor (no prior frame to diff against); check the first post-anchor
+    // diff map so a vehicle that departs right after frame 0 is still recognized as moving while
+    // a parked vehicle remains at zero motion overlap.
+    if frame_idx == 0
+        && motion_maps
+            .get(1)
+            .is_some_and(|map| map.bbox_overlaps_motion(bbox))
+    {
+        return true;
+    }
+    false
+}
+
+fn analyze_vehicle_tracks(
+    per_frame_detections: &[&[DetectedSubject]],
+    motion_maps: &[MotionGridMap],
+) -> (HashMap<u64, VehicleTrackMotion>, HashSet<u64>) {
+    let mut track_stats: HashMap<u64, VehicleTrackMotion> = HashMap::new();
+    for (frame_idx, detections) in per_frame_detections.iter().enumerate() {
+        for det in *detections {
+            if det.object_class() != ObjectClass::Vehicle {
+                continue;
+            }
+            let Some(tid) = det.track_id() else {
+                continue;
+            };
+            let centroid = bbox_centroid(det.bbox_norm());
+            let overlaps = detection_overlaps_motion(frame_idx, det.bbox_norm(), motion_maps);
+            track_stats
+                .entry(tid)
+                .and_modify(|stats| {
+                    let dist = euclidean_distance(stats.first_centroid, centroid);
+                    if dist > stats.max_displacement {
+                        stats.max_displacement = dist;
+                    }
+                    stats.overlaps_motion |= overlaps;
+                })
+                .or_insert(VehicleTrackMotion {
+                    first_centroid: centroid,
+                    max_displacement: 0.0,
+                    overlaps_motion: overlaps,
+                });
+        }
+    }
+
+    let suppressed_tracks: HashSet<u64> = track_stats
+        .iter()
+        .filter(|(_, stats)| {
+            !stats.overlaps_motion && stats.max_displacement < STATIONARY_VEHICLE_MIN_DISPLACEMENT
+        })
+        .map(|(&tid, _)| tid)
+        .collect();
+
+    (track_stats, suppressed_tracks)
+}
+
+fn is_stationary_vehicle(
+    frame_idx: usize,
+    det: &DetectedSubject,
+    motion_maps: &[MotionGridMap],
+    track_stats: &HashMap<u64, VehicleTrackMotion>,
+) -> bool {
+    if det.object_class() != ObjectClass::Vehicle {
+        return false;
+    }
+    match det.track_id() {
+        Some(tid) => match track_stats.get(&tid) {
+            Some(stats) => {
+                !stats.overlaps_motion
+                    && stats.max_displacement < STATIONARY_VEHICLE_MIN_DISPLACEMENT
+            }
+            None => !detection_overlaps_motion(frame_idx, det.bbox_norm(), motion_maps),
+        },
+        None => !detection_overlaps_motion(frame_idx, det.bbox_norm(), motion_maps),
+    }
+}
+
+fn suppress_stationary_vehicles_staged(
+    staged: &mut [(&RgbFrame, bool, bool, Vec<DetectedSubject>)],
+    motion_maps: &[MotionGridMap],
+    skip_unchanged_empty_scenes: bool,
+) -> HashSet<u64> {
+    let slices: Vec<&[DetectedSubject]> = staged.iter().map(|(_, _, _, d)| d.as_slice()).collect();
+    let (track_stats, suppressed_tracks) = analyze_vehicle_tracks(&slices, motion_maps);
+
+    for (frame_idx, (_, motion_admitted, scene_suppressed, detections)) in
+        staged.iter_mut().enumerate()
+    {
+        detections.retain(|det| !is_stationary_vehicle(frame_idx, det, motion_maps, &track_stats));
+        if skip_unchanged_empty_scenes && detections.is_empty() && !*motion_admitted {
+            *scene_suppressed = true;
+        }
+    }
+
+    suppressed_tracks
+}
+
+fn suppress_stationary_vehicles_with_embeddings(
+    per_frame_detections: &mut [Vec<DetectedSubject>],
+    per_frame_embeddings: &mut [Vec<GeneratedEmbedding>],
+    per_frame_scene_suppressed: &mut [bool],
+    per_frame_motion_admitted: &[bool],
+    motion_maps: &[MotionGridMap],
+    skip_unchanged_empty_scenes: bool,
+) -> HashSet<u64> {
+    let slices: Vec<&[DetectedSubject]> = per_frame_detections.iter().map(Vec::as_slice).collect();
+    let (track_stats, suppressed_tracks) = analyze_vehicle_tracks(&slices, motion_maps);
+
+    for frame_idx in 0..per_frame_detections.len() {
+        let keep_flags: Vec<bool> = per_frame_detections[frame_idx]
+            .iter()
+            .map(|det| !is_stationary_vehicle(frame_idx, det, motion_maps, &track_stats))
+            .collect();
+
+        if keep_flags.iter().all(|&keep| keep) {
+            continue;
+        }
+
+        let mut flag_iter = keep_flags.iter().copied();
+        per_frame_detections[frame_idx].retain(|_| flag_iter.next().unwrap_or(true));
+
+        let motion_admitted = per_frame_motion_admitted
+            .get(frame_idx)
+            .copied()
+            .unwrap_or(true);
+        let now_empty = per_frame_detections[frame_idx].is_empty();
+        let drop_scene = skip_unchanged_empty_scenes && now_empty && !motion_admitted;
+        if drop_scene {
+            per_frame_scene_suppressed[frame_idx] = true;
+        }
+
+        let embeddings = &mut per_frame_embeddings[frame_idx];
+        let mut crop_idx = 0usize;
+        let mut next_region_idx = 1u32;
+        let mut kept = Vec::with_capacity(embeddings.len());
+        for mut emb in embeddings.drain(..) {
+            if emb.region_kind() == "scene" {
+                if !drop_scene {
+                    kept.push(emb);
+                }
+            } else {
+                let keep = keep_flags.get(crop_idx).copied().unwrap_or(true);
+                crop_idx += 1;
+                if keep {
+                    emb.region_index = next_region_idx;
+                    next_region_idx += 1;
+                    kept.push(emb);
+                }
+            }
+        }
+        *embeddings = kept;
+    }
+
+    suppressed_tracks
 }
 
 fn select_best_crop_per_track(

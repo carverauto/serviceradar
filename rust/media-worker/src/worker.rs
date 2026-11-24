@@ -24,6 +24,7 @@ use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
 use async_nats::{Client, ConnectOptions, HeaderMap, jetstream};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use serviceradar_media_core::RoiGridMask;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
@@ -86,6 +87,8 @@ pub struct VisualIndexJobEnvelope {
     embedding_dim: usize,
     #[serde(default)]
     sampled_fragment_sequences: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    roi_grid: Option<RoiGridMask>,
     #[serde(default = "default_budget_ms")]
     budget_ms: u64,
     #[serde(default)]
@@ -117,6 +120,7 @@ impl VisualIndexJobEnvelope {
             model_version: Some(models.embedder_model_version().to_string()),
             embedding_dim: models.embedding_dim(),
             sampled_fragment_sequences: Vec::new(),
+            roi_grid: None,
             budget_ms: 30_000,
             deadline_unix_ms: None,
         }
@@ -125,6 +129,15 @@ impl VisualIndexJobEnvelope {
     pub fn with_budget_ms(mut self, budget_ms: u64) -> Self {
         self.budget_ms = budget_ms;
         self
+    }
+
+    pub fn with_roi_grid(mut self, roi_grid: RoiGridMask) -> Self {
+        self.roi_grid = Some(roi_grid);
+        self
+    }
+
+    pub fn roi_grid(&self) -> Option<&RoiGridMask> {
+        self.roi_grid.as_ref()
     }
 
     pub fn job_id(&self) -> &str {
@@ -1007,7 +1020,9 @@ where
         let slots = sampled_frames
             .iter()
             .map(|(_, pts, frame)| (pts.saturating_sub(base_pts_ns) / 1_000_000, frame.as_ref()));
-        let clip_analysis = self.pipeline.process_sampled_keyframes(slots)?;
+        let clip_analysis = self
+            .pipeline
+            .process_sampled_keyframes_with_roi(slots, job.roi_grid())?;
         for &secs in clip_analysis.stage1_latencies_secs() {
             self.metrics.observe_stage1_latency(secs);
         }

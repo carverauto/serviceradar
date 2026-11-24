@@ -75,11 +75,11 @@ pub use serviceradar_media_core as media_core;
 pub use serviceradar_media_core::{
     ColorName, CompressedFrameGate, CompressedFrameGateConfig, Detection, DetectionEvent,
     DetectionEventKind, EncodedThumbnail, GateAdmitReason, GateDecision, LetterboxTransform,
-    LumaPlane, LumaPlaneView, MediaCoreError, MediaPipeline, MediaPipelineConfig,
+    LumaPlane, LumaPlaneView, MediaCoreError, MediaPipeline, MediaPipelineConfig, MotionGridMap,
     MultiObjectTracker, ObjectCategory, ObjectDetector, PipelineFrameOutput, PixelMotionGate,
-    PixelMotionGateConfig, PixelMotionMetrics, RoiMask, SyntheticDetector, ThumbnailConfig,
-    TrackState, TrackerConfig, TwoTierFrameGate, VisualAttributes, YoloxConfig, YoloxPostProcessor,
-    encode_jpeg_thumbnail, extract_visual_attributes,
+    PixelMotionGateConfig, PixelMotionMetrics, RoiGridMask, RoiMask, SyntheticDetector,
+    ThumbnailConfig, TrackState, TrackerConfig, TwoTierFrameGate, VisualAttributes, YoloxConfig,
+    YoloxPostProcessor, encode_jpeg_thumbnail, extract_visual_attributes,
 };
 pub use tokenizer::PureRustTokenizer;
 pub use tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score};

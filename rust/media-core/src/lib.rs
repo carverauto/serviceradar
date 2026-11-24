@@ -35,8 +35,9 @@ pub use detector::{
 pub use error::{MediaCoreError, MediaCoreErrorKind};
 pub use frame::{LumaPlane, LumaPlaneView, MAX_FRAME_DIMENSION, RgbFrame};
 pub use frame_gate::{
-    CompressedFrameGate, CompressedFrameGateConfig, GateAdmitReason, GateDecision, PixelMotionGate,
-    PixelMotionGateConfig, PixelMotionMetrics, RoiMask, TwoTierFrameGate,
+    CompressedFrameGate, CompressedFrameGateConfig, GateAdmitReason, GateDecision, MotionGridMap,
+    PixelMotionGate, PixelMotionGateConfig, PixelMotionMetrics, RoiGridMask, RoiMask,
+    TwoTierFrameGate,
 };
 pub use pipeline::{MediaPipeline, MediaPipelineConfig, PipelineFrameOutput};
 pub use thumbnail::{EncodedThumbnail, ThumbnailConfig, downscale_rgb_fit, encode_jpeg_thumbnail};

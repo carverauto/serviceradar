@@ -291,6 +291,79 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       refute Map.has_key?(decoded, "secret_access_key")
       refute Map.has_key?(decoded, "access_key_id")
       refute Map.has_key?(decoded, "media_bytes")
+      refute Map.has_key?(decoded, "roi_grid")
+    end
+
+    test "includes compact roi_grid in job envelope when camera source has detection_roi_grid ignore cells" do
+      descriptor = sample_descriptor()
+      sampled = VisualIndexDispatcher.sample_descriptor_fragments(descriptor, 2_000, 64)
+
+      job = %{
+        id: @job_id,
+        catalog_entry_id: @catalog_id,
+        camera_source_id: @cam_a,
+        stream_profile_id: @prof_a,
+        job_kind: :live,
+        attempt_count: 0,
+        max_attempts: 5,
+        detector_model_id: "yolox-s",
+        detector_model_version: "2026.1",
+        embedder_model_id: "siglip-b16-384",
+        embedder_model_version: "2026.1",
+        embedding_dim: 768,
+        sampled_fragments: sampled,
+        descriptor_sha256: @desc_sha
+      }
+
+      # 12x8 grid: cell 0 -> [0, 0], cell 13 -> [1, 1], cell 25 -> [2, 1] (also in focus so excluded)
+      source_with_roi = %{
+        id: @cam_a,
+        metadata: %{
+          "detection_roi_grid" => %{
+            "version" => 1,
+            "rows" => 8,
+            "cols" => 12,
+            "focus" => [25],
+            "ignore" => [13, 0, 25]
+          }
+        }
+      }
+
+      assert {:ok, _subject, payload_bin, decoded} =
+               VisualIndexDispatcher.build_envelope(job,
+                 now: ~U[2026-11-17 16:30:00Z],
+                 camera_source: source_with_roi
+               )
+
+      assert byte_size(payload_bin) <= 4_096
+
+      assert decoded["roi_grid"] == %{
+               "rows" => 8,
+               "cols" => 12,
+               "ignore_cells" => [[0, 0], [1, 1]]
+             }
+
+      # Empty ignore list omits roi_grid completely
+      source_focus_only = %{
+        id: @cam_a,
+        metadata: %{
+          "detection_roi_grid" => %{
+            "version" => 1,
+            "rows" => 8,
+            "cols" => 12,
+            "focus" => [0, 1],
+            "ignore" => []
+          }
+        }
+      }
+
+      assert {:ok, _subject, _bin, decoded_empty} =
+               VisualIndexDispatcher.build_envelope(job,
+                 now: ~U[2026-11-17 16:30:00Z],
+                 camera_source: source_focus_only
+               )
+
+      refute Map.has_key?(decoded_empty, "roi_grid")
     end
 
     test "a catalog lookup failure prevents live and backfill publication on initial dispatch and retry" do
