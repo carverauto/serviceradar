@@ -3071,14 +3071,30 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
         self.assertNotIn(self.secret.encode(), output)
 
 
+def _shard_tests(tests):
+    shard_status_file = os.environ.get("TEST_SHARD_STATUS_FILE")
+    if shard_status_file:
+        Path(shard_status_file).touch()
+    total_shards = int(os.environ.get("TEST_TOTAL_SHARDS", "1"))
+    shard_index = int(os.environ.get("TEST_SHARD_INDEX", "0"))
+    if total_shards <= 1:
+        return tests
+    if not 0 <= shard_index < total_shards:
+        raise ValueError(f"Invalid TEST_SHARD_INDEX={shard_index} for TEST_TOTAL_SHARDS={total_shards}")
+    ordered = sorted(tests, key=lambda test: test.id())
+    return [test for idx, test in enumerate(ordered) if idx % total_shards == shard_index]
+
+
 def load_tests(loader, _tests, _pattern):
     # The archive suite opens a real Longshore client and runs on the
     # longshore-qualification executor pool (see BUILD.bazel); the default suite
     # does not need that executor.
     if os.environ.get("NVR_RELEASE_SUITE") == "archive":
         names = [name for name in loader.getTestCaseNames(NVRArchiveReleaseTest) if name in vars(NVRArchiveReleaseTest)]
-        return unittest.TestSuite(NVRArchiveReleaseTest(name) for name in names)
-    return loader.loadTestsFromTestCase(NVRReleaseTest)
+        tests = [NVRArchiveReleaseTest(name) for name in names]
+    else:
+        tests = list(loader.loadTestsFromTestCase(NVRReleaseTest))
+    return unittest.TestSuite(_shard_tests(tests))
 
 
 if __name__ == "__main__":
