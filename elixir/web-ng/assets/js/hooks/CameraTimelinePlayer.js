@@ -375,7 +375,7 @@ export function createSerialFragmentLoader(BaseLoader = Hls.DefaultConfig.loader
   return TimelineFragmentLoader
 }
 
-const ADJACENT_PREFETCH_THRESHOLD_SECONDS = 15
+const ADJACENT_PREFETCH_THRESHOLD_SECONDS = 1.0
 
 export default {
   mounted() {
@@ -758,12 +758,13 @@ export default {
     if (this.advancingWindow) return
     if (this.el.dataset.hasAdjacentWindow !== "true") return
     if (!this.video) return
+    if (this.video.paused && !this.video.ended) return
 
     const duration = this.video.duration
     const currentTime = this.video.currentTime
     if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(currentTime)) return
 
-    if (duration - currentTime <= ADJACENT_PREFETCH_THRESHOLD_SECONDS) {
+    if (this.video.ended || duration - currentTime <= ADJACENT_PREFETCH_THRESHOLD_SECONDS) {
       this.advancingWindow = true
       this.pushEvent?.("advance_timeline_window", {
         window_end_us: this.el.dataset.windowEndUs || null,

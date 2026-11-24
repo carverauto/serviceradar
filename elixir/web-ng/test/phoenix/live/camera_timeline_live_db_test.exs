@@ -516,14 +516,23 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     motion_clip_id = "evt-#{motion_frame.id}-motion"
     suppressed_clip_id = "evt-#{suppressed_frame.id}-motion"
     assert has_element?(view, "#camera-timeline-event-clips-section")
+    # Defaults to Smart mode when smart detections exist in the window
+    assert has_element?(view, "#camera-clips-mode-smart[aria-pressed='true']")
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
     refute has_element?(view, "#camera-clip-card-#{person_clip_id} img")
+    refute has_element?(view, "#camera-clip-card-#{motion_clip_id}")
+    refute has_element?(view, "#camera-clip-card-#{suppressed_clip_id}")
+    refute has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
+    assert has_element?(view, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
+
+    # Switch to All -> shows person, motion, and recording fallbacks while keeping suppressed frames excluded
+    view |> element("#camera-clips-mode-all") |> render_click()
+    assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
     assert has_element?(view, "#camera-clip-card-#{motion_clip_id}")
     refute has_element?(view, "#camera-clip-card-#{suppressed_clip_id}")
     assert has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
-    assert has_element?(view, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
 
-    # Filter to Smart -> hides motion and recording fallbacks, keeps person detection
+    # Filter back to Smart -> hides motion and recording fallbacks, keeps person detection
     view |> element("#camera-clips-mode-smart") |> render_click()
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
     refute has_element?(view, "#camera-clip-card-#{motion_clip_id}")

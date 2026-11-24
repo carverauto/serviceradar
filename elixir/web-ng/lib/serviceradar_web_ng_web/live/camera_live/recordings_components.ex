@@ -2,6 +2,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.CameraLive.Recordings
+  alias ServiceRadarWebNGWeb.CameraRelayComponents
+
   attr :source, :any, required: true
   attr :items, :list, required: true
   attr :next_cursor, :string, default: nil
@@ -12,7 +15,20 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :can_view_recording_settings, :boolean, default: false
   attr :mode, :atom, default: :published
   attr :can_manage_holds, :boolean, default: false
+  attr :can_view_live, :boolean, default: true
+  attr :can_edit_detection_zones, :boolean, default: false
   attr :stream_profiles, :list, default: []
+  attr :live_mode?, :boolean, default: false
+  attr :live_tile, :map, default: nil
+  attr :roi_drawer_open?, :boolean, default: false
+  attr :roi_paint_mode, :string, default: "focus"
+  attr :roi_focus_cells, :any, default: nil
+  attr :roi_ignore_cells, :any, default: nil
+  attr :roi_saved_focus_cells, :any, default: nil
+  attr :roi_saved_ignore_cells, :any, default: nil
+  attr :roi_feedback, :string, default: nil
+  attr :roi_grid_cols, :integer, default: 12
+  attr :roi_grid_rows, :integer, default: 8
   attr :timeline_profile_id, :string, default: ""
   attr :timeline_span, :string, default: "1h"
   attr :timeline_source, :string, default: "auto"
@@ -38,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_event_markers, :list, default: []
   attr :timeline_clips_mode, :string, default: "all"
   attr :timeline_clips_category, :string, default: "all"
+  attr :timeline_min_confidence, :integer, default: 50
   attr :timeline_clips_page, :integer, default: 1
   attr :timeline_clips_total_count, :integer, default: 0
   attr :timeline_clips_total_pages, :integer, default: 1
@@ -78,7 +95,18 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   else: "Camera recordings"
                 )}
               </h1>
-              <span class="rounded-md border border-sr-line bg-sr-surface px-1.5 py-0.5 text-[11px] text-sr-muted">
+              <span
+                :if={@live_mode?}
+                id="camera-header-live-badge"
+                class="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+              >
+                <span class="size-1.5 animate-pulse rounded-full bg-white"></span>
+                <span>LIVE</span>
+              </span>
+              <span
+                :if={!@live_mode?}
+                class="rounded-md border border-sr-line bg-sr-surface px-1.5 py-0.5 text-[11px] text-sr-muted"
+              >
                 {if(@mode == :timeline, do: "Timeline", else: "Archive")}
               </span>
             </div>
@@ -160,7 +188,20 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timezone={@timezone}
         can_view_recording_settings={@can_view_recording_settings}
         can_manage_holds={@can_manage_holds}
+        can_view_live={@can_view_live}
+        can_edit_detection_zones={@can_edit_detection_zones}
         stream_profiles={@stream_profiles}
+        live_mode?={@live_mode?}
+        live_tile={@live_tile}
+        roi_drawer_open?={@roi_drawer_open?}
+        roi_paint_mode={@roi_paint_mode}
+        roi_focus_cells={@roi_focus_cells}
+        roi_ignore_cells={@roi_ignore_cells}
+        roi_saved_focus_cells={@roi_saved_focus_cells}
+        roi_saved_ignore_cells={@roi_saved_ignore_cells}
+        roi_feedback={@roi_feedback}
+        roi_grid_cols={@roi_grid_cols}
+        roi_grid_rows={@roi_grid_rows}
         timeline_profile_id={@timeline_profile_id}
         timeline_span={@timeline_span}
         timeline_source={@timeline_source}
@@ -186,6 +227,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_event_markers={@timeline_event_markers}
         timeline_clips_mode={@timeline_clips_mode}
         timeline_clips_category={@timeline_clips_category}
+        timeline_min_confidence={@timeline_min_confidence}
         timeline_clips_page={@timeline_clips_page}
         timeline_clips_total_count={@timeline_clips_total_count}
         timeline_clips_total_pages={@timeline_clips_total_pages}
@@ -359,7 +401,20 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timezone, :string, required: true
   attr :can_view_recording_settings, :boolean, default: false
   attr :can_manage_holds, :boolean, required: true
+  attr :can_view_live, :boolean, default: true
+  attr :can_edit_detection_zones, :boolean, default: false
   attr :stream_profiles, :list, required: true
+  attr :live_mode?, :boolean, default: false
+  attr :live_tile, :map, default: nil
+  attr :roi_drawer_open?, :boolean, default: false
+  attr :roi_paint_mode, :string, default: "focus"
+  attr :roi_focus_cells, :any, default: nil
+  attr :roi_ignore_cells, :any, default: nil
+  attr :roi_saved_focus_cells, :any, default: nil
+  attr :roi_saved_ignore_cells, :any, default: nil
+  attr :roi_feedback, :string, default: nil
+  attr :roi_grid_cols, :integer, default: 12
+  attr :roi_grid_rows, :integer, default: 8
   attr :timeline_profile_id, :string, required: true
   attr :timeline_span, :string, required: true
   attr :timeline_source, :string, required: true
@@ -385,6 +440,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_event_markers, :list, default: []
   attr :timeline_clips_mode, :string, default: "all"
   attr :timeline_clips_category, :string, default: "all"
+  attr :timeline_min_confidence, :integer, default: 50
   attr :timeline_clips_page, :integer, default: 1
   attr :timeline_clips_total_count, :integer, default: 0
   attr :timeline_clips_total_pages, :integer, default: 1
@@ -440,6 +496,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     other_switcher_cameras =
       Enum.reject(assigns.switcher_cameras || [], &(to_string(&1.id) == active_source_id))
 
+    is_ptz? = Recordings.ptz_camera?(assigns.source)
+    roi_focus_set = assigns.roi_focus_cells || MapSet.new()
+    roi_ignore_set = assigns.roi_ignore_cells || MapSet.new()
+    roi_saved_focus_set = assigns.roi_saved_focus_cells || MapSet.new()
+    roi_saved_ignore_set = assigns.roi_saved_ignore_cells || MapSet.new()
+    roi_active_count = MapSet.size(roi_focus_set) + MapSet.size(roi_ignore_set)
+    roi_dirty? = roi_focus_set != roi_saved_focus_set or roi_ignore_set != roi_saved_ignore_set
+    roi_preview_thumbnail = latest_clip_thumbnail_url(assigns.timeline_event_clips || [])
+    roi_total_cells = (assigns.roi_grid_cols || 12) * (assigns.roi_grid_rows || 8)
+
     assigns =
       assigns
       |> assign(:coverage, coverage)
@@ -466,6 +532,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:now_us, now_us)
       |> assign(:active_source_id, active_source_id)
       |> assign(:other_switcher_cameras, other_switcher_cameras)
+      |> assign(:is_ptz?, is_ptz?)
+      |> assign(:roi_focus_set, roi_focus_set)
+      |> assign(:roi_ignore_set, roi_ignore_set)
+      |> assign(:roi_active_count, roi_active_count)
+      |> assign(:roi_dirty?, roi_dirty?)
+      |> assign(:roi_preview_thumbnail, roi_preview_thumbnail)
+      |> assign(:roi_total_cells, roi_total_cells)
       |> assign(:time_basis_label, format_time_basis(time_basis, time_uncertainty))
       |> assign(:time_basis_short, to_string(time_basis))
       |> assign(:has_provisional?, any_provisional?(buckets, blocks))
@@ -628,15 +701,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         >
           <%!-- LIVE + Latest Edge Buttons --%>
           <div class="flex items-center gap-1">
-            <.link
-              :if={@source}
+            <button
+              :if={@source && @can_view_live}
               id="camera-timeline-live-button"
-              navigate={~p"/cameras/#{@source.id}"}
-              class="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-rose-500"
+              type="button"
+              phx-click="enter_live_mode"
+              aria-pressed={to_string(@live_mode?)}
+              title="Switch main stage to live camera stream"
+              class={[
+                "inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-white transition-colors",
+                if(@live_mode?,
+                  do: "bg-rose-600 ring-2 ring-rose-400/70",
+                  else: "bg-rose-600/90 hover:bg-rose-500"
+                )
+              ]}
             >
-              <span class="size-1.5 rounded-full bg-white"></span>
+              <span class={["size-1.5 rounded-full bg-white", @live_mode? && "animate-pulse"]}></span>
               <span>LIVE</span>
-            </.link>
+            </button>
             <button
               id="camera-timeline-latest-window"
               type="button"
@@ -1099,10 +1181,57 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             These local bytes remain evictable under local retention and are never counted as unarchived.
           </div>
 
-          <%!-- Full-Size 16:9 Video Player --%>
+          <%!-- Full-Size 16:9 Video Player (Live or Recorded Timeline) --%>
           <div id="camera-timeline-player-card" class="flex-1">
+            <%!-- In-Place Live Stream Stage --%>
             <div
-              :if={@timeline_playlist_path in [nil, ""]}
+              :if={@live_mode?}
+              id="camera-timeline-live-stage"
+              class="space-y-2"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs">
+                <div class="flex items-center gap-2">
+                  <span
+                    id="camera-timeline-live-indicator"
+                    class="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white"
+                  >
+                    <span class="size-1.5 animate-pulse rounded-full bg-white"></span> LIVE
+                  </span>
+                  <span class="font-medium text-sr-ink">
+                    {(@live_tile && @live_tile.detail) || "Live camera relay"}
+                  </span>
+                </div>
+                <button
+                  id="camera-timeline-exit-live"
+                  type="button"
+                  phx-click="exit_live_mode"
+                  class="inline-flex items-center gap-1 rounded-md border border-sr-line bg-sr-surface px-2.5 py-1 text-[11px] font-medium text-sr-ink transition-colors hover:border-sr-brand"
+                >
+                  <.icon name="hero-arrow-uturn-left" class="size-3.5" />
+                  <span>Back to Timeline</span>
+                </button>
+              </div>
+
+              <div class="overflow-hidden rounded-lg border border-sr-line bg-black">
+                <CameraRelayComponents.relay_player
+                  :if={@live_tile && @live_tile.session}
+                  session={@live_tile.session}
+                  id_prefix="camera-workspace-live-relay"
+                />
+                <div
+                  :if={!@live_tile || !@live_tile.session}
+                  id="camera-timeline-live-placeholder"
+                  role="status"
+                  class="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-zinc-950 p-6 text-center text-sm text-zinc-400"
+                >
+                  <.icon name="hero-video-camera" class="size-8 text-zinc-500" />
+                  <span>{(@live_tile && @live_tile.error) || "Opening live camera relay..."}</span>
+                </div>
+              </div>
+            </div>
+
+            <div
+              :if={!@live_mode? && @timeline_playlist_path in [nil, ""]}
               id="camera-timeline-empty-state"
               role="status"
               class="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sr-line bg-sr-canvas p-6 text-center text-sm"
@@ -1180,7 +1309,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               data-seek-offset-seconds={format_seek_offset_attr(@timeline_seek_offset_seconds)}
               data-highlight-frame-id={@timeline_highlight_frame_id || ""}
               data-overlay-detections={Jason.encode!(@timeline_overlay_detections)}
-              class={[@timeline_playlist_path in [nil, ""] && "hidden"]}
+              class={[(@live_mode? or @timeline_playlist_path in [nil, ""]) && "hidden"]}
             >
               <div
                 data-role="timeline-video-container"
@@ -1304,6 +1433,28 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               />
             </p>
             <div class="flex items-center gap-2">
+              <.ui_button
+                id="camera-timeline-roi-drawer-toggle"
+                type="button"
+                phx-click="toggle_roi_drawer"
+                variant="outline"
+                size="xs"
+              >
+                <.icon name="hero-squares-2x2" class="size-3.5" /> Detection Zones
+                <span
+                  :if={@is_ptz?}
+                  class="ml-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-600 dark:text-amber-300"
+                >
+                  PTZ
+                </span>
+                <span
+                  :if={!@is_ptz? && @roi_active_count > 0}
+                  id="camera-roi-active-count"
+                  class="ml-1 rounded-full bg-sr-canvas px-1.5 py-0.5 font-mono text-[10px]"
+                >
+                  {@roi_active_count}
+                </span>
+              </.ui_button>
               <.ui_button
                 id="camera-timeline-manage-drawer-toggle"
                 type="button"
@@ -1546,6 +1697,35 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 </span>
               </button>
             </div>
+
+            <%!-- Confidence Threshold Slider --%>
+            <form
+              id="camera-clips-confidence-form"
+              phx-change="set_min_confidence"
+              class="inline-flex items-center gap-1.5 rounded-lg border border-sr-line bg-sr-canvas px-2 py-0.5 text-[11px]"
+            >
+              <label for="camera-clips-confidence-slider" class="font-medium text-sr-muted">
+                Min conf
+              </label>
+              <input
+                id="camera-clips-confidence-slider"
+                type="range"
+                name="min_confidence"
+                min="30"
+                max="95"
+                step="5"
+                value={@timeline_min_confidence}
+                phx-debounce="100"
+                aria-label="Minimum detection confidence threshold"
+                class="h-1.5 w-20 cursor-pointer accent-emerald-500"
+              />
+              <span
+                id="camera-clips-confidence-value"
+                class="min-w-[2.2rem] text-right font-mono text-[10px] font-semibold text-sr-ink"
+              >
+                {@timeline_min_confidence}%
+              </span>
+            </form>
           </div>
 
           <%!-- Right-Aligned Compact Server-Side Pagination Controls --%>
@@ -1680,6 +1860,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               ]}>
                 <.icon name={clip_category_icon(clip.category)} class="size-2.5 shrink-0" />
                 <span>{clip.label}</span>
+                <span
+                  :if={is_number(Map.get(clip, :confidence))}
+                  class="font-mono text-[9px] opacity-85"
+                >
+                  {format_confidence_pct(clip.confidence)}
+                </span>
               </span>
             </div>
 
@@ -1998,9 +2184,236 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           </div>
         </aside>
       </div>
+
+      <%!-- Slide-Over Drawer: Non-PTZ Interactive Camera Scene Detection Zones (ROI Focus/Ignore Grid) --%>
+      <div
+        id="camera-timeline-roi-drawer"
+        aria-hidden={to_string(not @roi_drawer_open?)}
+        class={[
+          "fixed inset-0 z-50 flex justify-end",
+          if(@roi_drawer_open?, do: "", else: "hidden")
+        ]}
+      >
+        <div
+          id="camera-timeline-roi-drawer-backdrop"
+          phx-click="close_roi_drawer"
+          class="fixed inset-0 bg-black/50 backdrop-blur-xs"
+        >
+        </div>
+
+        <aside
+          aria-label="Detection zones"
+          class="relative z-10 flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-sr-line bg-sr-surface p-4 shadow-xl"
+        >
+          <div class="flex items-center justify-between gap-2 border-b border-sr-line pb-3">
+            <div>
+              <h2 class="text-sm font-semibold text-sr-ink">Detection Zones</h2>
+              <p class="text-xs text-sr-muted">
+                Mark scene cells to prioritize (Focus) or suppress (Ignore) smart detections.
+              </p>
+            </div>
+            <.ui_button
+              id="camera-timeline-roi-drawer-close"
+              type="button"
+              phx-click="close_roi_drawer"
+              variant="ghost"
+              size="xs"
+            >
+              <.icon name="hero-x-mark" class="size-4" />
+            </.ui_button>
+          </div>
+
+          <div class="mt-4 space-y-4">
+            <%= if @is_ptz? do %>
+              <div
+                id="camera-roi-ptz-notice"
+                role="status"
+                class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-sr-ink"
+              >
+                <div class="flex items-center gap-2 font-semibold">
+                  <.icon name="hero-exclamation-triangle" class="size-4 text-amber-500" />
+                  <span>Not applicable for PTZ cameras</span>
+                </div>
+                <p class="mt-1 text-sr-muted">
+                  Fixed scene Focus/Ignore detection grids require a stationary camera view.
+                  Pan-tilt-zoom cameras move their field of view, so static cell masks are disabled.
+                </p>
+              </div>
+            <% else %>
+              <%!-- Paint Mode Selector + Counts --%>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div
+                  id="camera-roi-paint-modes"
+                  role="group"
+                  aria-label="Zone paint mode"
+                  class="inline-flex items-center gap-1 rounded-lg border border-sr-line bg-sr-canvas p-0.5"
+                >
+                  <button
+                    :for={
+                      {mode_val, mode_label, active_cls} <- [
+                        {"focus", "Focus", "bg-emerald-600 text-white"},
+                        {"ignore", "Ignore", "bg-rose-600 text-white"},
+                        {"erase", "Erase", "bg-sr-ink text-sr-surface"}
+                      ]
+                    }
+                    id={"camera-roi-mode-#{mode_val}"}
+                    type="button"
+                    phx-click="roi_set_paint_mode"
+                    phx-value-mode={mode_val}
+                    aria-pressed={to_string(@roi_paint_mode == mode_val)}
+                    class={[
+                      "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                      if(@roi_paint_mode == mode_val,
+                        do: active_cls,
+                        else: "text-sr-muted hover:text-sr-ink"
+                      )
+                    ]}
+                  >
+                    {mode_label}
+                  </button>
+                </div>
+
+                <div class="flex items-center gap-2 text-[11px]">
+                  <span
+                    id="camera-roi-focus-count"
+                    class="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-emerald-700 dark:text-emerald-300"
+                  >
+                    Focus: {MapSet.size(@roi_focus_set)}
+                  </span>
+                  <span
+                    id="camera-roi-ignore-count"
+                    class="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5 font-mono text-rose-700 dark:text-rose-300"
+                  >
+                    Ignore: {MapSet.size(@roi_ignore_set)}
+                  </span>
+                </div>
+              </div>
+
+              <%!-- Interactive 12x8 Scene ROI Grid Overlaid on Latest Camera Frame --%>
+              <div class="relative aspect-video w-full overflow-hidden rounded-xl border border-sr-line bg-zinc-950">
+                <%= if is_binary(@roi_preview_thumbnail) and @roi_preview_thumbnail != "" do %>
+                  <img
+                    id="camera-roi-preview-image"
+                    src={@roi_preview_thumbnail}
+                    alt="Camera scene preview for detection zones"
+                    class="h-full w-full object-cover opacity-80"
+                  />
+                <% else %>
+                  <div class="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-900 text-xs text-zinc-500">
+                    <span>Camera scene preview ({@roi_grid_cols} &times; {@roi_grid_rows} grid)</span>
+                  </div>
+                <% end %>
+
+                <div
+                  id="camera-roi-grid"
+                  role="grid"
+                  aria-label="Camera scene detection zone grid"
+                  style={"grid-template-columns: repeat(#{@roi_grid_cols}, minmax(0, 1fr)); grid-template-rows: repeat(#{@roi_grid_rows}, minmax(0, 1fr));"}
+                  class="absolute inset-0 grid"
+                >
+                  <button
+                    :for={idx <- 0..(@roi_total_cells - 1)}
+                    id={"camera-roi-cell-#{idx}"}
+                    type="button"
+                    phx-click="roi_toggle_cell"
+                    phx-value-cell={idx}
+                    data-roi-state={roi_cell_state(idx, @roi_focus_set, @roi_ignore_set)}
+                    aria-label={"Zone cell #{idx + 1}: #{roi_cell_state(idx, @roi_focus_set, @roi_ignore_set)}"}
+                    class={[
+                      "border border-white/15 transition-colors hover:border-white/50 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-white",
+                      roi_cell_color_class(roi_cell_state(idx, @roi_focus_set, @roi_ignore_set))
+                    ]}
+                  ></button>
+                </div>
+              </div>
+
+              <p class="text-[11px] text-sr-muted">
+                Click cells to toggle
+                <strong class="text-emerald-600 dark:text-emerald-400">Focus</strong>
+                or <strong class="text-rose-600 dark:text-rose-400">Ignore</strong>
+                regions.
+                Saved under camera source metadata (<code class="font-mono">detection_roi_grid</code>).
+              </p>
+
+              <div
+                :if={@roi_feedback}
+                id="camera-roi-feedback"
+                role="status"
+                class="rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-xs text-sr-ink"
+              >
+                {@roi_feedback}
+              </div>
+
+              <%!-- Actions Footer --%>
+              <div class="flex flex-wrap items-center justify-between gap-2 border-t border-sr-line pt-3">
+                <div class="flex items-center gap-1.5">
+                  <.ui_button
+                    id="camera-roi-clear"
+                    type="button"
+                    phx-click="roi_clear_grid"
+                    variant="outline"
+                    size="xs"
+                  >
+                    Clear
+                  </.ui_button>
+                  <.ui_button
+                    id="camera-roi-reset"
+                    type="button"
+                    phx-click="roi_reset_grid"
+                    disabled={not @roi_dirty?}
+                    variant="ghost"
+                    size="xs"
+                  >
+                    Reset
+                  </.ui_button>
+                </div>
+
+                <.ui_button
+                  id="camera-roi-save"
+                  type="button"
+                  phx-click="roi_save_grid"
+                  disabled={not @can_edit_detection_zones}
+                  variant="primary"
+                  size="xs"
+                >
+                  Save Zones
+                </.ui_button>
+              </div>
+            <% end %>
+          </div>
+        </aside>
+      </div>
     </div>
     """
   end
+
+  defp latest_clip_thumbnail_url(clips) when is_list(clips) do
+    Enum.find_value(clips, fn clip ->
+      url = Map.get(clip, :thumbnail_url)
+      if is_binary(url) and url != "", do: url
+    end)
+  end
+
+  defp latest_clip_thumbnail_url(_), do: nil
+
+  defp roi_cell_state(idx, focus_set, ignore_set) do
+    cond do
+      MapSet.member?(focus_set, idx) -> "focus"
+      MapSet.member?(ignore_set, idx) -> "ignore"
+      true -> "neutral"
+    end
+  end
+
+  defp roi_cell_color_class("focus"), do: "bg-emerald-500/35 border-emerald-400/70"
+  defp roi_cell_color_class("ignore"), do: "bg-rose-500/35 border-rose-400/70"
+  defp roi_cell_color_class(_), do: "bg-transparent hover:bg-white/10"
+
+  defp format_confidence_pct(conf) when is_number(conf) do
+    pct = if conf <= 1.0, do: round(conf * 100), else: round(conf)
+    "#{pct}%"
+  end
+
+  defp format_confidence_pct(_), do: ""
 
   defp camera_subtitle(cam) when is_map(cam) do
     site =

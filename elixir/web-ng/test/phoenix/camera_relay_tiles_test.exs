@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayTilesTest do
   @moduletag :db_free
 
   setup_all do
+    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+
     if !Process.whereis(ServiceRadar.PubSub) do
       start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
     end
