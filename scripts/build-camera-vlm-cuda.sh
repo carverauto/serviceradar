@@ -7,14 +7,16 @@
 # needs no GPU and no credentials. Subcommands:
 #
 #   fetch-inputs <dir>      Download the pinned Rust components and the pinned Crane
-#                           source tarball, vendor its crates with cargo, and write the
-#                           archives to <dir> (needs curl, git, and cargo; run on a
-#                           runner that has them -- the CUDA devel image does not).
+#                           source tarball, pre-populate a self-contained CARGO_HOME
+#                           via `cargo fetch`, and write the archives to <dir> (needs
+#                           curl, git, and cargo; run on a runner that has them --
+#                           the CUDA devel image does not).
 #   build <inputs-dir> <out-dir>
-#                           Install the toolchain into $HOME, unpack the vendored Crane
-#                           source, build `crane-serve` with `--features cuda --offline
-#                           --locked`, and write the binary, the CUDA runtime libraries
-#                           it needs, third-party notices, manifest.json, and SHA256SUMS.
+#                           Install the toolchain into $HOME, unpack the Crane source
+#                           and pre-populated CARGO_HOME, build `crane-serve` with
+#                           `--features cuda --offline --locked`, and write the binary,
+#                           the CUDA runtime libraries it needs, third-party notices,
+#                           manifest.json, and SHA256SUMS.
 #
 # Environment:
 #   CUDA_BUILDER_IMAGE the builder image reference, recorded in manifest.json.
@@ -35,7 +37,7 @@ CRANE_REPO="https://github.com/lucasjinreal/Crane"
 CRANE_COMMIT="55835189af0848a180e6ed70313d59272e7c92a1"
 CRANE_TARBALL_URL="${CRANE_REPO}/archive/${CRANE_COMMIT}.tar.gz"
 CRANE_TARBALL_SHA256="07a2abbdff4cb78c5e7bf9da535213121417f99cd5afe064d5e53c3e3c75288b"
-CRANE_VENDORED_ARCHIVE="crane-vendored-${CRANE_COMMIT}.tar.gz"
+CRANE_INPUTS_ARCHIVE="crane-inputs-${CRANE_COMMIT}.tar.gz"
 
 # CUDA libraries the binary loads besides libcuda.so.1, which the NVIDIA container
 # runtime injects from the host driver. Anything else `ldd` resolves under the CUDA
@@ -118,13 +120,14 @@ fetch_inputs() {
   src_dir="${work}/Crane-${CRANE_COMMIT}"
   [[ -d "${src_dir}" ]] || die "expected Crane-${CRANE_COMMIT} directory in source tarball"
 
-  mkdir -p "${src_dir}/.cargo"
+  mkdir -p "${work}/cargo-home"
   (
     cd "${src_dir}"
-    cargo vendor --versioned-dirs vendor > .cargo/config.toml
+    CARGO_HOME="${work}/cargo-home" cargo fetch
+    CARGO_HOME="${work}/cargo-home" cargo metadata --offline --locked --format-version 1 >/dev/null
   )
-  tar -czf "${dir}/${CRANE_VENDORED_ARCHIVE}" -C "${work}" "Crane-${CRANE_COMMIT}"
-  echo "fetched Rust ${RUST_VERSION} (${RUST_HOST}) and vendored Crane ${CRANE_COMMIT} into ${dir}"
+  tar -czf "${dir}/${CRANE_INPUTS_ARCHIVE}" -C "${work}" "Crane-${CRANE_COMMIT}" "cargo-home"
+  echo "fetched Rust ${RUST_VERSION} (${RUST_HOST}) and Crane ${CRANE_COMMIT} inputs into ${dir}"
 }
 
 install_toolchain() {
@@ -217,18 +220,20 @@ build() (
   local prefix="${HOME}/rust-${RUST_VERSION}"
   install_toolchain "${inputs_dir}" "${prefix}"
   export PATH="${prefix}/bin:${PATH}"
-  export CARGO_HOME="${HOME}/cargo-home"
   rustc --version | grep -qF "rustc ${RUST_VERSION} " || die "installed rustc is not ${RUST_VERSION}"
 
-  local vendored_tar="${inputs_dir}/${CRANE_VENDORED_ARCHIVE}"
-  [[ -f "${vendored_tar}" ]] || die "missing vendored Crane source archive: ${vendored_tar}"
+  local crane_inputs_tar="${inputs_dir}/${CRANE_INPUTS_ARCHIVE}"
+  [[ -f "${crane_inputs_tar}" ]] || die "missing Crane inputs archive: ${crane_inputs_tar}"
 
   local src_work src_dir
   src_work="$(mktemp -d "${HOME}/camera-vlm-cuda-src.XXXXXXXX")"
   trap 'rm -rf -- "${src_work}"' EXIT
-  tar -xzf "${vendored_tar}" -C "${src_work}"
+  tar -xzf "${crane_inputs_tar}" -C "${src_work}"
   src_dir="${src_work}/Crane-${CRANE_COMMIT}"
-  [[ -d "${src_dir}" ]] || die "expected Crane-${CRANE_COMMIT} directory in ${vendored_tar}"
+  [[ -d "${src_dir}" ]] || die "expected Crane-${CRANE_COMMIT} directory in ${crane_inputs_tar}"
+  [[ -d "${src_work}/cargo-home" ]] || die "expected cargo-home directory in ${crane_inputs_tar}"
+  export CARGO_HOME="${src_work}/cargo-home"
+  export CARGO_NET_GIT_FETCH_WITH_CLI=false
 
   if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
     export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=cc
