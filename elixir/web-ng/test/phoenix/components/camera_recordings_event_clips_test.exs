@@ -646,6 +646,17 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert text_of(doc, "#select-timeline-semantic-hit-0 [data-role='semantic-hit-object-class']") == "Animal"
     refute has_selector?(doc, "#select-timeline-semantic-hit-1 img")
     assert text_of(doc, "#select-timeline-semantic-hit-1 [data-role='semantic-hit-object-class']") == "Person"
+
+    # Vertical timeline search-hit pills stay confined to the 10px track bar without crossing left-7 thumbnails
+    hit_markers = LazyHTML.query(doc, "#camera-timeline-coverage-bar [data-role='semantic-hit-marker']")
+    assert Enum.count(hit_markers) == 2
+
+    for marker_class <- LazyHTML.attribute(hit_markers, "class") do
+      classes = String.split(marker_class)
+      assert "left-[6px]" in classes
+      assert "w-[14px]" in classes
+      refute "inset-x-0" in classes
+    end
   end
 
   test "renders centered clip playback modal with native dialog, metadata header, HLS player, scrubber, and transport controls" do

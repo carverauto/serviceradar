@@ -1124,7 +1124,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 phx-value-frame_id={marker.frame_id}
                 title={marker.title}
                 style={"top: #{marker.top_pct}%"}
-                class="absolute inset-x-0 z-10 h-1.5 -translate-y-1/2 rounded-full bg-amber-400 ring-1 ring-black/60 hover:scale-y-150"
+                class="absolute left-[6px] z-[9] h-2 w-[14px] -translate-y-1/2 rounded-full bg-amber-400 shadow-xs ring-1 ring-black/70 transition-all hover:scale-125 hover:ring-white"
               >
                 <span class="sr-only">{marker.title}</span>
               </button>
