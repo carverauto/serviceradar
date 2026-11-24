@@ -3,15 +3,21 @@ import {afterEach, describe, expect, it, vi} from "vitest"
 import CameraTimelinePlayer, {
   buildOverlaySvgMarkup,
   buildScrubberEventSegments,
+  buildScrubberHoverMarkup,
+  clampHoverTooltipPercent,
   computeScrubberFraction,
   computeVideoContentRect,
   createSerialFragmentLoader,
   escapeOverlayText,
   extractRecordingCopy,
+  findNearestScrubberThumbnail,
   formatScrubberTime,
+  isSafeThumbnailUrl,
+  isSmartScrubberCategory,
   normalizeEventCategory,
   parseOverlayDetections,
   parseScrubberEvents,
+  parseScrubberThumbnails,
   projectDetectionBox,
 } from "./CameraTimelinePlayer"
 
@@ -601,7 +607,7 @@ describe("CameraTimelinePlayer hook", () => {
     hook.destroyed()
   })
 
-  it("renders colored event highlight pills on the horizontal scrubber, updates playhead/buffered, and seeks on click/drag", () => {
+  it("renders Smart-only highlight bars (dropping raw motion), filmstrip thumbnails, and live hover thumbnail preview card", () => {
     vi.stubGlobal("window", {addEventListener: vi.fn()})
 
     expect(normalizeEventCategory("Person")).toBe("person")
@@ -609,31 +615,80 @@ describe("CameraTimelinePlayer hook", () => {
     expect(normalizeEventCategory("dog")).toBe("animal")
     expect(normalizeEventCategory("package")).toBe("package")
     expect(normalizeEventCategory("motion")).toBe("motion")
+    expect(isSmartScrubberCategory("person")).toBe(true)
+    expect(isSmartScrubberCategory("animal")).toBe(true)
+    expect(isSmartScrubberCategory("vehicle")).toBe(true)
+    expect(isSmartScrubberCategory("package")).toBe(true)
+    expect(isSmartScrubberCategory("motion")).toBe(false)
+    expect(isSafeThumbnailUrl("/api/cameras/cam-1/timeline/thumbnails/frame/f1.jpg")).toBe(true)
+    expect(isSafeThumbnailUrl("https://thumbnails.example.com/frame-1.jpg")).toBe(true)
+    expect(isSafeThumbnailUrl("javascript:alert(1)")).toBe(false)
+    expect(isSafeThumbnailUrl("//evil.example.com/x.jpg")).toBe(false)
     expect(formatScrubberTime(75)).toBe("01:15")
     expect(formatScrubberTime(3665)).toBe("1:01:05")
     expect(computeScrubberFraction(250, {left: 100, width: 300})).toBe(0.5)
+    expect(clampHoverTooltipPercent(0.01, 400, 144)).toBe(18)
+    expect(clampHoverTooltipPercent(0.99, 400, 144)).toBe(82)
+    expect(clampHoverTooltipPercent(0.5, 400, 144)).toBe(50)
 
     const parsedWindowEvents = parseScrubberEvents(
       JSON.stringify([
         {category: "motion", label: "Motion", start_offset_seconds: 40, end_offset_seconds: 44},
+        {
+          category: "vehicle",
+          label: "Vehicle",
+          start_offset_seconds: 45,
+          end_offset_seconds: 48,
+          confidence: 0.88,
+          thumbnail_url: "/api/cameras/cam-1/timeline/thumbnails/frame/v1.jpg",
+        },
       ])
     )
+    // Raw motion is dropped; only Smart object detections remain
+    expect(parsedWindowEvents).toHaveLength(1)
+    expect(parsedWindowEvents[0].category).toBe("vehicle")
+    expect(parsedWindowEvents[0].thumbnailUrl).toBe("/api/cameras/cam-1/timeline/thumbnails/frame/v1.jpg")
+
     const segments = buildScrubberEventSegments(
       [
         {offsetSeconds: 10, objectClass: "person", score: 0.91},
         {offsetSeconds: 11.5, objectClass: "person", score: 0.95},
         {offsetSeconds: 30, objectClass: "animal", score: 0.82},
+        {offsetSeconds: 20, objectClass: "motion", score: 0.99},
       ],
       parsedWindowEvents,
       60
     )
     expect(segments).toHaveLength(3)
-    expect(segments.map(s => s.category)).toEqual(["person", "animal", "motion"])
+    expect(segments.map(s => s.category)).toEqual(["person", "animal", "vehicle"])
     expect(segments[0].tooltip).toBe("Person · 00:10 · 95%")
     expect(segments[1].tooltip).toBe("Animal · 00:30 · 82%")
-    expect(segments[2].tooltip).toBe("Motion · 00:40")
+    expect(segments[2].tooltip).toBe("Vehicle · 00:45 · 88%")
+
+    const parsedThumbs = parseScrubberThumbnails(
+      JSON.stringify([
+        {offset_seconds: 5, thumbnail_url: "/api/cameras/cam-1/timeline/thumbnails/block/b1.jpg", label: null},
+        {offset_seconds: 30, thumbnail_url: "/api/cameras/cam-1/timeline/thumbnails/frame/a1.jpg", label: "Animal"},
+        {offset_seconds: 55, thumbnail_url: "javascript:bad()", label: "Bad"},
+      ])
+    )
+    expect(parsedThumbs).toHaveLength(2)
+    expect(findNearestScrubberThumbnail(parsedThumbs, segments, 30.2, 60)).toEqual({
+      thumbnailUrl: "/api/cameras/cam-1/timeline/thumbnails/frame/a1.jpg",
+      label: "Animal",
+      category: "animal",
+    })
+    expect(
+      buildScrubberHoverMarkup({
+        hoverSec: 30,
+        thumbnailUrl: "/api/cameras/cam-1/timeline/thumbnails/frame/a1.jpg",
+        label: "Animal",
+      })
+    ).toContain('data-role="scrubber-hover-thumb"')
 
     const trackListeners = new Map()
+    const filmstripListeners = new Map()
+    const tooltipListeners = new Map()
     const scrubberAttrs = new Map()
     const scrubber = {
       setAttribute: vi.fn((k, v) => scrubberAttrs.set(k, v)),
@@ -645,13 +700,22 @@ describe("CameraTimelinePlayer hook", () => {
       setPointerCapture: vi.fn(),
       releasePointerCapture: vi.fn(),
     }
+    const scrubberFilmstrip = {
+      innerHTML: "",
+      addEventListener: vi.fn((ev, fn) => filmstripListeners.set(ev, fn)),
+    }
     const scrubberBuffered = {style: {width: "0%"}}
     const scrubberProgress = {style: {width: "0%"}}
     const scrubberPlayhead = {style: {left: "0%"}}
     const scrubberEvents = {innerHTML: ""}
     const scrubberTicks = {innerHTML: ""}
     const scrubberHoverLine = {style: {left: "0%"}, hidden: true}
-    const scrubberHoverTooltip = {style: {left: "0%"}, textContent: "", hidden: true}
+    const scrubberHoverTooltip = {
+      style: {left: "0%"},
+      innerHTML: "",
+      hidden: true,
+      addEventListener: vi.fn((ev, fn) => tooltipListeners.set(ev, fn)),
+    }
 
     const {el, video} = makeElement({
       windowStartUs: "1000000000",
@@ -669,6 +733,18 @@ describe("CameraTimelinePlayer hook", () => {
     })
     el.dataset.windowEvents = JSON.stringify([
       {category: "motion", label: "Motion", start_offset_seconds: 45, end_offset_seconds: 48},
+      {
+        category: "person",
+        label: "Person",
+        start_offset_seconds: 12,
+        end_offset_seconds: 15,
+        confidence: 0.93,
+        thumbnail_url: "/api/cameras/cam-1/timeline/thumbnails/frame/p1.jpg",
+      },
+    ])
+    el.dataset.windowThumbnails = JSON.stringify([
+      {offset_seconds: 12, thumbnail_url: "/api/cameras/cam-1/timeline/thumbnails/frame/p1.jpg", label: "Person"},
+      {offset_seconds: 30, thumbnail_url: "/api/cameras/cam-1/timeline/thumbnails/block/b2.jpg", label: null},
     ])
     video.buffered = {length: 1, end: () => 30}
 
@@ -676,6 +752,7 @@ describe("CameraTimelinePlayer hook", () => {
     el.querySelector = selector => {
       if (selector === "[data-role='playback-scrubber']") return scrubber
       if (selector === "[data-role='scrubber-track']") return scrubberTrack
+      if (selector === "[data-role='scrubber-filmstrip']") return scrubberFilmstrip
       if (selector === "[data-role='scrubber-buffered']") return scrubberBuffered
       if (selector === "[data-role='scrubber-progress']") return scrubberProgress
       if (selector === "[data-role='scrubber-playhead']") return scrubberPlayhead
@@ -692,12 +769,19 @@ describe("CameraTimelinePlayer hook", () => {
     hook.hlsClass = FakeHls
     hook.mounted()
 
-    // Event highlight pills and time ticks rendered
+    // Smart-only highlight bars rendered (NO motion blobs!) + filmstrip thumbnails + time ticks
     expect(scrubberEvents.innerHTML).toContain('data-role="scrubber-event-segment"')
     expect(scrubberEvents.innerHTML).toContain('data-event-category="person"')
-    expect(scrubberEvents.innerHTML).toContain('data-event-category="motion"')
+    expect(scrubberEvents.innerHTML).not.toContain('data-event-category="motion"')
+    expect(scrubberFilmstrip.innerHTML).toContain('data-role="scrubber-filmstrip-thumb"')
+    expect(scrubberFilmstrip.innerHTML).toContain("/api/cameras/cam-1/timeline/thumbnails/frame/p1.jpg")
     expect(scrubberTicks.innerHTML).toContain("00:00")
     expect(scrubberTicks.innerHTML).toContain("01:00")
+
+    // Broken image error listener hides failed thumbnails cleanly
+    const brokenImg = {tagName: "IMG", hidden: false}
+    filmstripListeners.get("error")({target: brokenImg})
+    expect(brokenImg.hidden).toBe(true)
 
     // Progress & buffered range sync on timeupdate
     video.currentTime = 15
@@ -706,7 +790,7 @@ describe("CameraTimelinePlayer hook", () => {
     expect(scrubberProgress.style.width).toBe("25.000%")
     expect(scrubberBuffered.style.width).toBe("50.00%")
 
-    // Clicking directly on an event pill seeks immediately to that pill's start second
+    // Clicking directly on an event bar seeks immediately to that bar's start second
     trackListeners.get("pointerdown")({
       clientX: 200,
       pointerId: 1,
@@ -719,7 +803,7 @@ describe("CameraTimelinePlayer hook", () => {
     })
     expect(video.currentTime).toBe(12)
 
-    // Dragging across the scrubber track seeks continuously and updates hover tooltip
+    // Dragging/hovering across the scrubber track renders live thumbnail preview card with timestamp
     trackListeners.get("pointermove")({
       clientX: 300,
       target: {closest: () => null},
@@ -727,7 +811,16 @@ describe("CameraTimelinePlayer hook", () => {
     expect(video.currentTime).toBe(30)
     expect(scrubberHoverLine.hidden).toBe(false)
     expect(scrubberHoverTooltip.hidden).toBe(false)
-    expect(scrubberHoverTooltip.textContent).toBe("00:30")
+    expect(scrubberHoverTooltip.innerHTML).toContain('data-role="scrubber-hover-card"')
+    expect(scrubberHoverTooltip.innerHTML).toContain("/api/cameras/cam-1/timeline/thumbnails/block/b2.jpg")
+    expect(scrubberHoverTooltip.innerHTML).toContain("00:30")
+
+    // Hovering near the far-left edge clamps the preview card inside the scrubber track bounds
+    trackListeners.get("pointermove")({
+      clientX: 102,
+      target: {closest: () => null},
+    })
+    expect(scrubberHoverTooltip.style.left).toBe("18%")
 
     trackListeners.get("pointerup")({pointerId: 1})
     trackListeners.get("pointerleave")()
