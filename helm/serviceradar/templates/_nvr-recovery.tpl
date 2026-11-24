@@ -86,6 +86,100 @@ credential can neither record nor archive. */ -}}
 {{- end -}}
 {{- end }}
 
+{{- /* The dedicated analysis-read listener for serviceradar-media-worker: its
+own port (default 8445), client certificate pin, bearer token, and read pool,
+completely isolated from both core ingest (8443) and web-ng playback (8444). */ -}}
+{{- define "serviceradar.validateNvrAnalysisRead" -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $analysis := default (dict) $nvr.analysisRead -}}
+{{- if and $nvr.enabled $analysis.enabled -}}
+{{- $ingest := default (dict) $nvr.ingest -}}
+{{- $ingestClient := default (dict) $ingest.client -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- $readClient := default (dict) $read.client -}}
+{{- $port := int (default 8445 $analysis.port) -}}
+{{- if or (lt $port 1) (gt $port 65535) (eq $port 8095) (and $ingest.enabled (eq $port (int (default 8443 $ingest.port)))) (and $read.enabled (eq $port (int (default 8444 $read.port)))) -}}
+{{- fail "nvr.analysisRead.port must be in 1..65535 and distinct from the health (8095), ingest, and playback read ports" -}}
+{{- end -}}
+{{- $slots := int (default 4 $analysis.analysisReadSlots) -}}
+{{- if or (lt $slots 1) (gt $slots 64) -}}
+{{- fail "nvr.analysisRead.analysisReadSlots must be from 1 through 64" -}}
+{{- end -}}
+{{- $_ := required "nvr.analysisRead.configSecretName is required when nvr.analysisRead.enabled" $analysis.configSecretName -}}
+{{- $token := required "nvr.analysisRead.tokenSecretName is required when nvr.analysisRead.enabled" $analysis.tokenSecretName -}}
+{{- $serverTLS := required "nvr.analysisRead.tlsSecretName is required when nvr.analysisRead.enabled" $analysis.tlsSecretName -}}
+{{- $client := default (dict) $analysis.client -}}
+{{- $clientToken := required "nvr.analysisRead.client.tokenSecretName is required when nvr.analysisRead.enabled" $client.tokenSecretName -}}
+{{- $clientTLS := required "nvr.analysisRead.client.tlsSecretName is required when nvr.analysisRead.enabled" $client.tlsSecretName -}}
+{{- if eq $serverTLS $clientTLS -}}
+{{- fail "nvr.analysisRead server and client TLS Secrets must be distinct" -}}
+{{- end -}}
+{{- $otherTokens := list $ingest.tokenSecretName $ingestClient.tokenSecretName $read.tokenSecretName $readClient.tokenSecretName -}}
+{{- if or (has $token $otherTokens) (has $clientToken $otherTokens) -}}
+{{- fail "nvr.analysisRead must use an analysis-read token Secret distinct from the ingest and playback read tokens" -}}
+{{- end -}}
+{{- $otherTLS := list $ingest.tlsSecretName $ingestClient.tlsSecretName $read.tlsSecretName $readClient.tlsSecretName -}}
+{{- if has $clientTLS $otherTLS -}}
+{{- fail "nvr.analysisRead.client.tlsSecretName must be distinct from the ingest and playback read TLS Secrets" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- define "serviceradar.nvrAnalysisReadClientEnv" -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $analysis := default (dict) $nvr.analysisRead -}}
+{{- if and $nvr.enabled $analysis.enabled (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") }}
+{{- $nvrName := printf "%s-nvr" (include "serviceradar.fullname" .) }}
+- name: SERVICERADAR_MEDIA_WORKER_NVR_SCHEME
+  value: "https"
+- name: SERVICERADAR_MEDIA_WORKER_NVR_HOST_SUFFIX
+  value: {{ printf ".%s.%s.svc.cluster.local" $nvrName .Release.Namespace | quote }}
+- name: SERVICERADAR_MEDIA_WORKER_NVR_TLS_CA_FILE
+  value: /etc/serviceradar/nvr-analysis-read/tls/ca.crt
+- name: SERVICERADAR_MEDIA_WORKER_NVR_TLS_CERT_FILE
+  value: /etc/serviceradar/nvr-analysis-read/tls/tls.crt
+- name: SERVICERADAR_MEDIA_WORKER_NVR_TLS_KEY_FILE
+  value: /etc/serviceradar/nvr-analysis-read/tls/tls.key
+- name: SERVICERADAR_MEDIA_WORKER_NVR_AUTH_TOKEN_FILE
+  value: /etc/serviceradar/nvr-analysis-read/auth/analysis-read-token
+{{- end }}
+{{- end }}
+
+{{- define "serviceradar.nvrAnalysisReadClientMounts" -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $analysis := default (dict) $nvr.analysisRead -}}
+{{- if and $nvr.enabled $analysis.enabled (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") }}
+- name: nvr-analysis-read-auth
+  mountPath: /etc/serviceradar/nvr-analysis-read/auth
+  readOnly: true
+- name: nvr-analysis-read-tls
+  mountPath: /etc/serviceradar/nvr-analysis-read/tls
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "serviceradar.nvrAnalysisReadClientVolumes" -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $analysis := default (dict) $nvr.analysisRead -}}
+{{- if and $nvr.enabled $analysis.enabled (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") }}
+{{- $client := default (dict) $analysis.client }}
+- name: nvr-analysis-read-auth
+  secret:
+    secretName: {{ $client.tokenSecretName | quote }}
+    defaultMode: 0440
+    items:
+      - {key: analysis-read-token, path: analysis-read-token}
+- name: nvr-analysis-read-tls
+  secret:
+    secretName: {{ $client.tlsSecretName | quote }}
+    defaultMode: 0440
+    items:
+      - {key: tls.crt, path: tls.crt}
+      - {key: tls.key, path: tls.key}
+      - {key: ca.crt, path: ca.crt}
+{{- end }}
+{{- end }}
+
 {{- define "serviceradar.nvrReadClientEnv" -}}
 {{- $nvr := default (dict) .Values.nvr -}}
 {{- $read := default (dict) $nvr.read -}}

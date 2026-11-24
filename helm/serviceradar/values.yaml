@@ -502,8 +502,10 @@ archiveReader:
 # as undecodable. See README.md, Camera semantic search worker.
 mediaWorker:
   enabled: false
-  # 0 is honoured (scaled to zero). A GPU worker is replaced with the Recreate
-  # strategy, since a pool without a spare GPU cannot surge; cpu_explicit rolls.
+  # 0 is honoured (scaled to zero). A single-replica GPU worker uses Recreate
+  # (a pool without a spare GPU cannot surge); multi-replica GPU workers
+  # (replicas > 1) use RollingUpdate with maxSurge: 0 and maxUnavailable: 1 so
+  # one GPU replica rolls at a time without needing a spare GPU. cpu_explicit rolls.
   replicas: 1
   image:
     # Empty selects the release's CPU build, image.registry/serviceradar-media-worker
@@ -556,6 +558,10 @@ mediaWorker:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  # Optional override for pod topology spread constraints. When left empty and
+  # replicas > 1 (or global topologySpread.enabled is true), the chart spreads
+  # pods across kubernetes.io/hostname (maxSkew: 1, ScheduleAnyway).
+  topologySpreadConstraints: []
   resources:
     requests:
       cpu: "500m"
@@ -608,10 +614,9 @@ mediaWorker:
     # web-ng ingress exception for it, so your policies must also admit the
     # worker to web-ng on webNg.controlPlaneRuntime.port (4001 by default).
     operatorManaged: false
-    # Network preparation only: opens the worker's egress to the NVR pods, and
-    # their ingress from it, on nvrReadPort for local (not yet archived)
-    # recordings. The NVR has no analysis-read listener yet, so local reads
-    # still fail until it does.
+    # Opens the worker's egress to the NVR pods, and their ingress from it, on
+    # nvrReadPort for local (not yet archived) visual indexing reads against the
+    # NVR's dedicated analysisRead listener (nvr.analysisRead.port, default 8445).
     allowNvrRead: false
     nvrReadPort: 8444
     s3EgressCidrs:
@@ -3472,6 +3477,21 @@ nvr:
     tlsSecretName: ""
     client:
       configSecretName: ""
+      tokenSecretName: ""
+      tlsSecretName: ""
+  analysisRead:
+    # Private HTTPS analysis-read listener per NVR replica for serviceradar-media-worker
+    # local visual indexing before S3 archive verification completes. Separate port,
+    # client certificate pin, bearer token, and read pool from both ingest (8443) and
+    # web-ng playback read (8444). Keys: config Secret config.json, token Secret
+    # analysis-read-token, TLS Secret tls.crt/tls.key/ca.crt.
+    enabled: false
+    port: 8445
+    analysisReadSlots: 4
+    configSecretName: ""
+    tokenSecretName: ""
+    tlsSecretName: ""
+    client:
       tokenSecretName: ""
       tlsSecretName: ""
   archive:
