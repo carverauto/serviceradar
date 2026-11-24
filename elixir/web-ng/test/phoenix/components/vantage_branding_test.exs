@@ -17,35 +17,28 @@ defmodule ServiceRadarWebNGWeb.VantageBrandingTest do
 
   @camera_id "00000000-0000-4000-8000-000000000701"
 
-  test "vantage_logo renders canonical SVG mark with unique gradient IDs per instance" do
-    first =
+  test "vantage_logo renders ServiceRadar Vantage PNG mark with data-role" do
+    doc =
       (&CoreComponents.vantage_logo/1)
       |> render_component(id: "logo-a", class: "size-6")
       |> LazyHTML.from_fragment()
 
-    second =
-      (&CoreComponents.vantage_logo/1)
-      |> render_component(id: "logo-b", class: "size-8")
-      |> LazyHTML.from_fragment()
+    logo = LazyHTML.query(doc, "img#logo-a[data-role='vantage-logo']")
 
-    assert LazyHTML.attribute(LazyHTML.query(first, "svg#logo-a[data-role='vantage-logo']"), "viewbox") ==
-             ["0 0 32 32"]
-
-    assert LazyHTML.attribute(LazyHTML.query(first, "radialgradient"), "id") ==
-             ["vantage-iris-glow-logo-a"]
-
-    assert LazyHTML.attribute(LazyHTML.query(second, "radialgradient"), "id") ==
-             ["vantage-iris-glow-logo-b"]
+    assert LazyHTML.attribute(logo, "src") == ["/images/vantage-mark.png"]
+    assert LazyHTML.attribute(logo, "alt") == ["ServiceRadar Vantage"]
+    assert LazyHTML.attribute(logo, "width") == ["32"]
+    assert LazyHTML.attribute(logo, "height") == ["32"]
+    assert LazyHTML.attribute(logo, "class") == ["object-contain shrink-0 size-6"]
   end
 
-  test "static vantage-logo.svg asset exists, is strictly ASCII, and has no script tags" do
+  test "static vantage-mark.png asset exists as a valid PNG and replaces vantage-logo.svg" do
+    png_path = Application.app_dir(:serviceradar_web_ng, "priv/static/images/vantage-mark.png")
     svg_path = Application.app_dir(:serviceradar_web_ng, "priv/static/images/vantage-logo.svg")
-    svg = File.read!(svg_path)
 
-    assert svg =~ ~s(viewBox="0 0 32 32")
-    assert svg =~ ~s(id="vantage-iris-glow")
-    refute String.downcase(svg) =~ "<script"
-    assert Enum.all?(String.to_charlist(svg), &(&1 < 128))
+    assert File.exists?(png_path)
+    assert <<0x89, "PNG", 0x0D, 0x0A, 0x1A, 0x0A, _rest::binary>> = File.read!(png_path)
+    refute File.exists?(svg_path)
   end
 
   test "Layouts.app renders Vantage branding and logo in ops topbar on /cameras and /cameras/:id/recordings" do
@@ -82,7 +75,7 @@ defmodule ServiceRadarWebNGWeb.VantageBrandingTest do
     assert dashboard_doc |> LazyHTML.query("#ops-topbar #vantage-topbar-logo") |> Enum.count() == 0
   end
 
-  test "CameraLive.Index mounts with Vantage page_title and renders ServiceRadar Vantage header with SVG logo" do
+  test "CameraLive.Index mounts with Vantage page_title and renders ServiceRadar Vantage header with Vantage logo" do
     {:ok, socket} = CameraIndex.mount(%{}, %{}, base_socket(synthetic_scope()))
 
     assert socket.assigns.page_title == "Vantage"

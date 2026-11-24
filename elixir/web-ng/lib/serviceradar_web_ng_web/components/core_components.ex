@@ -589,83 +589,24 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   end
 
   @doc """
-  Renders the ServiceRadar Vantage SVG brand mark.
-
-  Derives a deterministic gradient ID from `id` (or `gradient_id`) so multiple
-  instances on the same page do not collide in SVG `<defs>`.
+  Renders the ServiceRadar Vantage brand mark.
   """
   attr :id, :string, default: nil
   attr :class, :string, default: "size-6"
-  attr :gradient_id, :string, default: nil
   attr :rest, :global
 
   def vantage_logo(assigns) do
-    gradient_id =
-      assigns.gradient_id ||
-        case assigns.id do
-          id when is_binary(id) and id != "" -> "vantage-iris-glow-#{id}"
-          _ -> "vantage-iris-glow"
-        end
-
-    assigns = assign(assigns, :resolved_gradient_id, gradient_id)
-
     ~H"""
-    <svg
-      id={@id}
+    <img
+      src="/images/vantage-mark.png"
+      alt="ServiceRadar Vantage"
       data-role="vantage-logo"
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 32 32"
+      id={@id}
       width="32"
       height="32"
-      fill="none"
-      aria-hidden="true"
-      class={@class}
+      class={["object-contain shrink-0", @class]}
       {@rest}
-    >
-      <defs>
-        <radialGradient id={@resolved_gradient_id} cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35" />
-          <stop offset="65%" stop-color="#10b981" stop-opacity="0.16" />
-          <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
-        </radialGradient>
-      </defs>
-      <path
-        d="M4 10V6.5C4 5.12 5.12 4 6.5 4H10"
-        stroke="#10b981"
-        stroke-width="2"
-        stroke-linecap="round"
-      />
-      <path
-        d="M22 4H25.5C26.88 4 28 5.12 28 6.5V10"
-        stroke="#10b981"
-        stroke-width="2"
-        stroke-linecap="round"
-      />
-      <path
-        d="M28 22V25.5C28 26.88 26.88 28 25.5 28H22"
-        stroke="#10b981"
-        stroke-width="2"
-        stroke-linecap="round"
-      />
-      <path
-        d="M10 28H6.5C5.12 28 4 26.88 4 25.5V22"
-        stroke="#10b981"
-        stroke-width="2"
-        stroke-linecap="round"
-      />
-      <circle
-        cx="16"
-        cy="16"
-        r="9"
-        fill={"url(##{@resolved_gradient_id})"}
-        stroke="#10b981"
-        stroke-opacity="0.35"
-        stroke-width="1.5"
-      />
-      <circle cx="16" cy="16" r="5" stroke="#34d399" stroke-width="1.75" />
-      <circle cx="16" cy="16" r="1.75" fill="#38bdf8" />
-      <circle cx="18.25" cy="13.75" r="0.9" fill="#ffffff" fill-opacity="0.85" />
-    </svg>
+    />
     """
   end
 
