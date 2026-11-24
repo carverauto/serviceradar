@@ -21,6 +21,7 @@ pub enum Entity {
     HorizonBgp,
     HorizonZombies,
     HorizonPaths,
+    HorizonIspAccountability,
     MtrHops,
     MtrTraces,
     FieldSurveySessions,

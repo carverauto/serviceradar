@@ -151,6 +151,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::HorizonBgp => horizon::bgp_events(),
         Entity::HorizonZombies => horizon::bgp_zombies(),
         Entity::HorizonPaths => horizon::path_hops(),
+        Entity::HorizonIspAccountability => horizon::isp_accountability(),
         Entity::MtrHops => observability::mtr_hops(),
         Entity::MtrTraces => observability::mtr_traces(),
         Entity::FieldSurveySessions => fieldsurvey::sessions(),

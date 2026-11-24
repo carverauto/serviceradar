@@ -32,6 +32,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "horizon_bgp" => Ok(Entity::HorizonBgp),
         "horizon_zombies" => Ok(Entity::HorizonZombies),
         "horizon_paths" => Ok(Entity::HorizonPaths),
+        "horizon_isp_accountability" => Ok(Entity::HorizonIspAccountability),
         "mtr_hops" | "mtr_hop_stats" => Ok(Entity::MtrHops),
         "mtr_traces" => Ok(Entity::MtrTraces),
         "field_survey_sessions" | "fieldsurvey_sessions" | "survey_sessions" => {

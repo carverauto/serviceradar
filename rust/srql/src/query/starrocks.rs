@@ -85,7 +85,11 @@ fn translate_inner(
     }
     if matches!(
         plan.entity,
-        Entity::HorizonOutages | Entity::HorizonBgp | Entity::HorizonZombies | Entity::HorizonPaths
+        Entity::HorizonOutages
+            | Entity::HorizonBgp
+            | Entity::HorizonZombies
+            | Entity::HorizonPaths
+            | Entity::HorizonIspAccountability
     ) {
         return horizon::translate(plan, database);
     }

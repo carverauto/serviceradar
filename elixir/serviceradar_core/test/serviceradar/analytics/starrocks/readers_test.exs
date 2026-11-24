@@ -329,4 +329,42 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end
   end
+
+  test "Horizon ISP accountability requires StarRocks and never falls back to CNPG" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, false) |> Keyword.put(:cutover_datasets, [])
+      )
+
+      assert Readers.dataset_for_entity("horizon_isp_accountability") ==
+               :horizon_isp_accountability
+
+      assert Readers.mode_for("horizon_isp_accountability") == {:error, :starrocks_required}
+      assert Readers.backend(:horizon_isp_accountability) == {:error, :starrocks_required}
+
+      assert Readers.fetch("horizon_isp_accountability", %{
+               cnpg: fn -> flunk("horizon_isp_accountability must never read CNPG") end,
+               starrocks: fn -> :starrocks_branch end
+             }) == {:error, :starrocks_required}
+
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
+
+      assert Readers.mode_for("horizon_isp_accountability") == "starrocks"
+      assert Readers.backend(:horizon_isp_accountability) == :starrocks
+
+      assert "in:horizon_isp_accountability time:last_24h limit:10"
+             |> Readers.entity_for_query()
+             |> Readers.mode_for() == "starrocks"
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
 end

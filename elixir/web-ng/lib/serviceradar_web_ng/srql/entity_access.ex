@@ -117,6 +117,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       horizon_outages
       horizon_bgp
       horizon_zombies
+      horizon_isp_accountability
     ),
     "observability.netflow.view" => ~w(
       flows flow network_activity

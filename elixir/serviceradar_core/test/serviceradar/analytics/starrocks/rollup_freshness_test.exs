@@ -96,7 +96,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
   # `REFRESH ASYNC EVERY` each view has in the shipped DDL.
   test "each scheduled view is trusted for exactly its DDL cadence plus slack" do
     schedules = ddl_refresh_seconds()
-    assert map_size(schedules) == 7
+    assert map_size(schedules) == 8
 
     for {view, cadence} <- schedules do
       dataset = RollupFreshness.dataset_for_sql("SELECT 1 FROM #{Env.table(view)}")
@@ -302,7 +302,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
       traces_stats: {"otel_traces", "timestamp", 300},
       traces_red: {"otel_traces", "timestamp", 3_600},
       mtr_hops: {"mtr_hops", "time", 3_600},
-      mtr_destination: {"mtr_traces", "time", 3_600}
+      mtr_destination: {"mtr_traces", "time", 3_600},
+      horizon_isp_accountability: {"horizon_path_hops", "time", 3_600}
     ]
 
     # An unbounded MAX reads every partition the table retains, which on a
@@ -324,15 +325,18 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
         RollupFreshness.fresh?(dataset, query: healthy_refresh(probe))
         sqls = drain_probes()
 
+        mv_bucket = if(dataset == :horizon_isp_accountability, do: "bucket_hour", else: "bucket")
+        mv_prefix = "SELECT MAX(`#{mv_bucket}`) FROM "
+
         source_sql = Enum.find(sqls, &String.starts_with?(&1, raw_sql(table, column)))
-        view_sql = Enum.find(sqls, &String.starts_with?(&1, "SELECT MAX(`bucket`) FROM "))
+        view_sql = Enum.find(sqls, &String.starts_with?(&1, mv_prefix))
 
         source_since = lower_bound!(source_sql, "#{raw_sql(table, column)} WHERE `#{column}` >= ")
 
         assert view_sql =~ " WHERE `day` >= '",
                "#{dataset} view probe does not bound its day partitions: #{view_sql}"
 
-        view_since = lower_bound!(view_sql, "SELECT MAX(`bucket`) FROM ")
+        view_since = lower_bound!(view_sql, mv_prefix)
 
         # The window covers the threshold plus a bucket, so a dataset idle for
         # less than that is still compared, and stays within two days.
@@ -610,6 +614,11 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
            ) ==
              :mtr_destination
 
+    assert RollupFreshness.dataset_for_sql(
+             "SELECT bucket_hour FROM #{Env.table("horizon_isp_accountability_mv")}"
+           ) ==
+             :horizon_isp_accountability
+
     # The raw-hop fallback names no rollup, so it is never gated.
     assert RollupFreshness.dataset_for_sql("SELECT `time` FROM #{Env.table("mtr_hops")}") == nil
 
@@ -622,5 +631,16 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
            ) == nil
 
     assert RollupFreshness.dataset_for_sql(nil) == nil
+  end
+
+  test "MV-only horizon_isp_accountability settles directly on starrocks without retranslating" do
+    translation = %{
+      "sql" => "SELECT bucket_hour FROM #{Env.table("horizon_isp_accountability_mv")}"
+    }
+
+    assert {:ok, ^translation, "starrocks"} =
+             RollupFreshness.settle(translation, "starrocks", fn mode ->
+               flunk("MV-only dataset must not retranslate to #{mode}")
+             end)
   end
 end

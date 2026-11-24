@@ -1040,8 +1040,9 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
     # 17 and 22 are the earlier rollups; 25 and 28 create the MTR rollups; 40
     # rebuilds all of them with one bucket per day; 41 recreates the two span
-    # rollups after widening the span columns.
-    assert waiting == [17, 22, 25, 28, 40, 41]
+    # rollups after widening the span columns; 45 creates the Horizon ISP
+    # accountability materialized view.
+    assert waiting == [17, 22, 25, 28, 40, 41, 45]
   end
 
   test "a column change waits for a running optimize job on the table before altering" do
