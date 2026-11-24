@@ -1844,6 +1844,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                         style={:compact}
                       />
                     </div>
+                    <p
+                      :if={
+                        is_binary(Map.get(hit, :caption_text)) and
+                          String.trim(Map.get(hit, :caption_text)) != ""
+                      }
+                      data-role="semantic-hit-caption"
+                      class="mt-1 line-clamp-2 text-[11px] leading-snug text-sr-muted"
+                    >
+                      {hit.caption_text}
+                    </p>
                   </div>
                 </button>
               </li>

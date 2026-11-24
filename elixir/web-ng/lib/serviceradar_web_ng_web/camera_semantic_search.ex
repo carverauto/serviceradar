@@ -227,6 +227,30 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       |> List.wrap()
       |> Enum.filter(&is_map/1)
 
+    caption_text =
+      case fetch_val(hit, :caption_text) do
+        text when is_binary(text) ->
+          trimmed = String.trim(text)
+          if trimmed == "", do: nil, else: trimmed
+
+        _ ->
+          nil
+      end
+
+    action_tags =
+      hit
+      |> fetch_val(:action_tags)
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+
+    match_sources =
+      hit
+      |> fetch_val(:match_sources)
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+
     timeline_path =
       build_timeline_path(
         camera_source_id,
@@ -254,6 +278,9 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       dominant_colors: dominant_colors,
       bbox: bbox,
       frame_detections: frame_detections,
+      caption_text: caption_text,
+      action_tags: action_tags,
+      match_sources: match_sources,
       timeline_path: timeline_path
     }
   end
