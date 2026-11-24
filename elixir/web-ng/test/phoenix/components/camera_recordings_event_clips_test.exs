@@ -275,6 +275,16 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert has_selector?(live_doc, "#camera-timeline-live-indicator")
     assert attr_of(live_doc, "#camera-timeline-exit-live", "phx-click") == ["exit_live_mode"]
     assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id}")
+    assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} [data-role='relay-compact-bar']")
+
+    assert has_selector?(
+             live_doc,
+             "#camera-workspace-live-relay-#{live_session.id} [data-role='relay-diagnostics-details']"
+           )
+
+    assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} [data-role='transport-status']")
+    assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} [data-role='viewer-count']")
+    refute has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} .sr-camera-relay-meta")
     refute has_selector?(live_doc, "#camera-timeline-player")
 
     # Confidence threshold slider
@@ -534,6 +544,69 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert text_of(doc, "#select-timeline-semantic-hit-0 [data-role='semantic-hit-object-class']") == "Animal"
     refute has_selector?(doc, "#select-timeline-semantic-hit-1 img")
     assert text_of(doc, "#select-timeline-semantic-hit-1 [data-role='semantic-hit-object-class']") == "Person"
+  end
+
+  test "renders centered clip playback modal with native dialog, metadata header, HLS player, scrubber, and transport controls" do
+    modal = %{
+      kind: :clip,
+      clip_id: "evt-person-1",
+      camera_name: "Synthetic South Gate",
+      category: :person,
+      label: "Person",
+      confidence: 0.94,
+      timestamp_us: @base_us + 60_000_000,
+      started_at: DateTime.from_unix!(@base_us + 60_000_000, :microsecond),
+      start_us: @base_us + 60_000_000,
+      end_us: @base_us + 72_000_000,
+      play_from_us: @base_us + 55_000_000,
+      play_to_us: @base_us + 82_000_000,
+      playlist_origin_us: @base_us + 55_000_000,
+      playlist_path: "/api/cameras/#{@source_id}/timeline/playlist.m3u8?from=1&to=2&source=auto",
+      seek_us: @base_us + 64_000_000,
+      seek_offset_seconds: 9.0,
+      highlight_frame_id: "frame-1",
+      overlay_detections: [
+        %{
+          visual_frame_id: "frame-1",
+          offset_seconds: 9.0,
+          object_class: "person",
+          score: 0.94,
+          bbox: [0.1, 0.1, 0.4, 0.8]
+        }
+      ],
+      clip: nil
+    }
+
+    doc =
+      %{clip_modal: modal}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert has_selector?(
+             doc,
+             "dialog#camera-clip-playback-modal[phx-hook='DialogTopLayer'][data-cancel='close_clip_modal']"
+           )
+
+    assert text_of(doc, "#camera-clip-modal-title") == "Synthetic South Gate"
+    assert text_of(doc, "#camera-clip-modal-class-badge") =~ "Person"
+    assert text_of(doc, "#camera-clip-modal-confidence") == "94%"
+    assert has_selector?(doc, "#camera-clip-modal-time")
+    assert attr_of(doc, "#camera-clip-modal-open-timeline", "phx-click") == ["open_clip_in_timeline"]
+    assert attr_of(doc, "#camera-clip-modal-close", "phx-click") == ["close_clip_modal"]
+
+    assert has_selector?(
+             doc,
+             "#camera-clip-modal-player[phx-hook='CameraTimelinePlayer'][data-has-adjacent-window='false']"
+           )
+
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='playback-scrubber']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='semantic-bbox-overlay']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-back-10']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-play-pause']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-fwd-10']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-mute']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='transport-fullscreen']")
+    assert has_selector?(doc, "#camera-clip-modal-player [data-role='toggle-bbox-overlay']")
   end
 
   test "renders sticky camera switcher rail and explicit empty states for single-camera and zero-match filters" do

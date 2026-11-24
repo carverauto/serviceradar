@@ -373,13 +373,21 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       socket = mount_connected(@camera_id, deps, refresh_interval_ms: 15_000, debounce_ms: 0)
       on_exit(fn -> cancel_timers(socket) end)
 
-      # User selects a specific event clip, locking their playback window.
-      {:noreply, selected_socket} =
+      # User selects a specific event clip (opens modal), then clicks View in Timeline to lock playback window.
+      {:noreply, modal_socket} =
         Recordings.handle_event("select_event_clip", %{"clip_id" => "clip-selected-1"}, socket)
+
+      assert modal_socket.assigns.timeline_selected_clip_id == "clip-selected-1"
+      assert is_map(modal_socket.assigns.clip_modal)
+      assert is_binary(modal_socket.assigns.clip_modal.playlist_path)
+
+      {:noreply, selected_socket} =
+        Recordings.handle_event("open_clip_in_timeline", %{}, modal_socket)
 
       orig_play_from = selected_socket.assigns.timeline_play_from_us
       orig_play_to = selected_socket.assigns.timeline_play_to_us
       orig_playlist_path = selected_socket.assigns.timeline_playlist_path
+      assert selected_socket.assigns.clip_modal == nil
       assert selected_socket.assigns.timeline_selected_clip_id == "clip-selected-1"
       assert is_binary(orig_playlist_path)
 
@@ -1288,9 +1296,16 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       refute Enum.any?(socket.assigns.timeline_event_clips, &(&1.id == off_page_clip_id))
       assert Enum.any?(socket.assigns.timeline_event_markers, &(&1.id == off_page_clip_id))
 
-      {:noreply, focused} =
+      {:noreply, modal_socket} =
         Recordings.handle_event("select_event_clip", %{"clip_id" => off_page_clip_id}, socket)
 
+      assert modal_socket.assigns.timeline_selected_clip_id == off_page_clip_id
+      assert modal_socket.assigns.clip_modal.highlight_frame_id == off_page_frame_id
+      assert modal_socket.assigns.clip_modal.play_from_us == oldest_entry.timeline_start_us + 5_000_000
+      assert modal_socket.assigns.clip_modal.play_to_us == oldest_entry.timeline_start_us + 24_000_000
+
+      {:noreply, focused} = Recordings.handle_event("open_clip_in_timeline", %{}, modal_socket)
+      assert focused.assigns.clip_modal == nil
       assert focused.assigns.timeline_selected_clip_id == off_page_clip_id
       assert focused.assigns.timeline_highlight_frame_id == off_page_frame_id
       assert focused.assigns.timeline_play_from_us == oldest_entry.timeline_start_us + 5_000_000
@@ -1387,17 +1402,23 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       # Switch to "all" to display the :recording fallback segment alongside smart detections
       {:noreply, socket} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "all"}, socket)
 
-      # Recording segment opens exact [start_us, end_us] without pre/post-roll padding
-      {:noreply, rec_selected} =
+      # Recording segment opens exact [start_us, end_us] without pre/post-roll padding in clip modal & timeline
+      {:noreply, rec_modal} =
         Recordings.handle_event("select_event_clip", %{"clip_id" => "rec-seg-exact"}, socket)
 
+      assert rec_modal.assigns.clip_modal.play_from_us == rec_start
+      assert rec_modal.assigns.clip_modal.play_to_us == rec_end
+      {:noreply, rec_selected} = Recordings.handle_event("open_clip_in_timeline", %{}, rec_modal)
       assert rec_selected.assigns.timeline_play_from_us == rec_start
       assert rec_selected.assigns.timeline_play_to_us == rec_end
 
-      # Smart detection clip retains 5s pre-roll and 10s post-roll context padding
-      {:noreply, det_selected} =
+      # Smart detection clip retains 5s pre-roll and 10s post-roll context padding in clip modal & timeline
+      {:noreply, det_modal} =
         Recordings.handle_event("select_event_clip", %{"clip_id" => "evt-person-pad"}, socket)
 
+      assert det_modal.assigns.clip_modal.play_from_us == det_start - 5_000_000
+      assert det_modal.assigns.clip_modal.play_to_us == det_end + 10_000_000
+      {:noreply, det_selected} = Recordings.handle_event("open_clip_in_timeline", %{}, det_modal)
       assert det_selected.assigns.timeline_play_from_us == det_start - 5_000_000
       assert det_selected.assigns.timeline_play_to_us == det_end + 10_000_000
     end
@@ -1669,13 +1690,18 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       refute_received {:frame_overlay_queried, _, _}
       assert socket.assigns.timeline_overlay_detections == [window_det_1, window_det_2]
 
-      # 2. Selecting smart event clip loads window overlays and skips redundant
-      #    get_frame_overlay when frame_1_id is in window
-      {:noreply, smart_selected} =
+      # 2. Selecting smart event clip loads window overlays in clip modal and skips redundant
+      #    get_frame_overlay when frame_1_id is in window; open_clip_in_timeline focuses main stage
+      {:noreply, smart_modal} =
         Recordings.handle_event("select_event_clip", %{"clip_id" => "evt-person-window"}, socket)
 
       expected_smart_from = det_start - 5_000_000
       expected_smart_to = det_end + 10_000_000
+      assert_receive {:window_overlays_queried, @camera_id, ^expected_smart_from, ^expected_smart_to, ""}
+      refute_received {:frame_overlay_queried, _, _}
+      assert smart_modal.assigns.clip_modal.overlay_detections == [window_det_1, window_det_2]
+
+      {:noreply, smart_selected} = Recordings.handle_event("open_clip_in_timeline", %{}, smart_modal)
       assert_receive {:window_overlays_queried, @camera_id, ^expected_smart_from, ^expected_smart_to, ""}
       refute_received {:frame_overlay_queried, _, _}
       assert smart_selected.assigns.timeline_overlay_detections == [window_det_1, window_det_2]
@@ -1692,20 +1718,20 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       # 4. Selecting :recording segment (visual_frame_id == nil) still loads window overlays across [rec_start, rec_end]
       {:noreply, refreshed_all} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "all"}, refreshed)
 
-      {:noreply, rec_selected} =
+      {:noreply, rec_modal} =
         Recordings.handle_event("select_event_clip", %{"clip_id" => "rec-seg-window"}, refreshed_all)
 
       assert_receive {:window_overlays_queried, @camera_id, ^rec_start, ^rec_end, ""}
-      assert rec_selected.assigns.timeline_overlay_detections == [window_det_1, window_det_2, extra_live_det]
+      assert rec_modal.assigns.clip_modal.overlay_detections == [window_det_1, window_det_2, extra_live_det]
 
       # 5. When highlight_frame_id is not present in window overlays, get_frame_overlay is invoked and merged
-      {:noreply, highlight_selected} =
-        Recordings.handle_event("select_event_clip", %{"clip_id" => "evt-missing-highlight"}, rec_selected)
+      {:noreply, highlight_modal} =
+        Recordings.handle_event("select_event_clip", %{"clip_id" => "evt-missing-highlight"}, rec_modal)
 
       assert_receive {:window_overlays_queried, @camera_id, _, _, ""}
       assert_receive {:frame_overlay_queried, @camera_id, ^missing_highlight_id}
 
-      assert highlight_selected.assigns.timeline_overlay_detections == [
+      assert highlight_modal.assigns.clip_modal.overlay_detections == [
                highlight_det,
                window_det_1,
                window_det_2,
@@ -1966,9 +1992,25 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       {:noreply, after_seek} = Recordings.handle_event("seek_timeline_fraction", %{"fraction" => 0.5}, live_seek)
       refute after_seek.assigns.live_mode?
 
-      # Clicking an event clip card exits live mode and disables adjacent-window auto-advance
+      # Clicking an event clip card while in live mode opens the clip modal WITHOUT hijacking live mode
       {:noreply, live_clip} = Recordings.handle_event("enter_live_mode", %{}, after_seek)
-      {:noreply, after_clip} = Recordings.handle_event("select_event_clip", %{"clip_id" => clip.id}, live_clip)
+      {:noreply, modal_over_live} = Recordings.handle_event("select_event_clip", %{"clip_id" => clip.id}, live_clip)
+      assert modal_over_live.assigns.live_mode? == true
+      assert modal_over_live.assigns.live_tile == live_clip.assigns.live_tile
+      assert is_map(modal_over_live.assigns.clip_modal)
+      assert modal_over_live.assigns.clip_modal.clip_id == clip.id
+
+      # Closing the clip modal leaves live mode untouched
+      {:noreply, closed_over_live} = Recordings.handle_event("close_clip_modal", %{}, modal_over_live)
+      assert closed_over_live.assigns.clip_modal == nil
+      assert closed_over_live.assigns.live_mode? == true
+
+      # Clicking View in Timeline from the clip modal exits live mode and disables adjacent-window auto-advance
+      {:noreply, reopened_modal} =
+        Recordings.handle_event("select_event_clip", %{"clip_id" => clip.id}, closed_over_live)
+
+      {:noreply, after_clip} = Recordings.handle_event("open_clip_in_timeline", %{}, reopened_modal)
+      assert after_clip.assigns.clip_modal == nil
       refute after_clip.assigns.live_mode?
       assert after_clip.assigns.timeline_has_adjacent_window == false
 
@@ -1978,8 +2020,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       assert refreshed_clip.assigns.timeline_has_adjacent_window == false
 
-      # Selecting a semantic hit also disables adjacent-window auto-advance
-      {:noreply, after_hit} =
+      # Selecting a semantic hit opens the clip modal and View in Timeline disables adjacent-window auto-advance
+      {:noreply, hit_modal} =
         Recordings.handle_event(
           "select_timeline_semantic_hit",
           %{
@@ -1991,6 +2033,9 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
           refreshed_clip
         )
 
+      assert hit_modal.assigns.clip_modal.kind == :semantic_hit
+      {:noreply, after_hit} = Recordings.handle_event("open_clip_in_timeline", %{}, hit_modal)
+      assert after_hit.assigns.clip_modal == nil
       assert after_hit.assigns.timeline_has_adjacent_window == false
     end
 
@@ -2190,7 +2235,10 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       clip_end_us = clip_start_us + 10_000_000
       seek_us = clip_start_us + 4_000_000
 
-      {:noreply, focused} =
+      orig_from = socket.assigns.timeline_play_from_us
+      orig_to = socket.assigns.timeline_play_to_us
+
+      {:noreply, modal_socket} =
         Recordings.handle_event(
           "select_timeline_semantic_hit",
           %{
@@ -2202,7 +2250,17 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
           socket
         )
 
-      # Tight clip window: [clip_start_us - 5s, clip_end_us + 10s] = 25 seconds total
+      # Main stage timeline window is untouched while clip modal holds tight padded 25s window
+      assert modal_socket.assigns.timeline_play_from_us == orig_from
+      assert modal_socket.assigns.timeline_play_to_us == orig_to
+      assert modal_socket.assigns.clip_modal.play_from_us == clip_start_us - 5_000_000
+      assert modal_socket.assigns.clip_modal.play_to_us == clip_end_us + 10_000_000
+      assert modal_socket.assigns.clip_modal.seek_us == seek_us
+      assert modal_socket.assigns.clip_modal.play_to_us - modal_socket.assigns.clip_modal.play_from_us == 25_000_000
+
+      # View in Timeline closes modal and focuses main stage onto that exact tight clip window
+      {:noreply, focused} = Recordings.handle_event("open_clip_in_timeline", %{}, modal_socket)
+      assert focused.assigns.clip_modal == nil
       assert focused.assigns.timeline_play_from_us == clip_start_us - 5_000_000
       assert focused.assigns.timeline_play_to_us == clip_end_us + 10_000_000
       assert focused.assigns.timeline_seek_us == seek_us

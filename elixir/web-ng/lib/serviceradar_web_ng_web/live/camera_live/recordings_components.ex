@@ -61,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_clips_total_pages, :integer, default: 1
   attr :timeline_clips_counts, :map, default: %{}
   attr :timeline_selected_clip_id, :string, default: nil
+  attr :clip_modal, :map, default: nil
   attr :gaps_page, :integer, default: 1
   attr :gaps_per_page, :integer, default: 10
   attr :timeline_manage_drawer_open?, :boolean, default: false
@@ -235,6 +236,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_clips_total_pages={@timeline_clips_total_pages}
         timeline_clips_counts={@timeline_clips_counts}
         timeline_selected_clip_id={@timeline_selected_clip_id}
+        clip_modal={@clip_modal}
         gaps_page={@gaps_page}
         gaps_per_page={@gaps_per_page}
         timeline_manage_drawer_open?={@timeline_manage_drawer_open?}
@@ -449,6 +451,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_clips_total_pages, :integer, default: 1
   attr :timeline_clips_counts, :map, default: %{}
   attr :timeline_selected_clip_id, :string, default: nil
+  attr :clip_modal, :map, default: nil
   attr :gaps_page, :integer, default: 1
   attr :gaps_per_page, :integer, default: 10
   attr :timeline_manage_drawer_open?, :boolean, default: false
@@ -1338,6 +1341,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   :if={@live_tile && @live_tile.session}
                   session={@live_tile.session}
                   id_prefix="camera-workspace-live-relay"
+                  compact={true}
                 />
                 <div
                   :if={!@live_tile || !@live_tile.session}
@@ -2604,7 +2608,301 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           </div>
         </aside>
       </div>
+
+      <.clip_playback_modal
+        :if={@clip_modal}
+        modal={@clip_modal}
+        timezone={@timezone}
+        timeline_event_markers={@timeline_event_markers}
+      />
     </div>
+    """
+  end
+
+  attr :modal, :map, required: true
+  attr :timezone, :string, required: true
+  attr :timeline_event_markers, :list, default: []
+
+  defp clip_playback_modal(assigns) do
+    modal = assigns.modal
+
+    modal_scrubber_events =
+      build_window_scrubber_events(
+        assigns.timeline_event_markers || [],
+        Map.get(modal, :playlist_origin_us) || Map.get(modal, :play_from_us),
+        Map.get(modal, :play_to_us)
+      )
+
+    assigns = assign(assigns, :modal_scrubber_events, modal_scrubber_events)
+
+    ~H"""
+    <dialog
+      id="camera-clip-playback-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_clip_modal"
+      aria-labelledby="camera-clip-modal-title"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl relative border border-sr-line bg-sr-surface p-0 text-sr-ink shadow-sr-raised">
+        <%!-- Modal Header --%>
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-sr-line px-4 py-3">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
+            <h1
+              id="camera-clip-modal-title"
+              class="truncate text-sm font-semibold text-sr-ink sm:text-base"
+            >
+              {@modal.camera_name || "Camera"}
+            </h1>
+            <span
+              id="camera-clip-modal-class-badge"
+              class={[
+                "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium leading-none text-white",
+                clip_badge_bg_class(@modal.category)
+              ]}
+            >
+              <.icon name={clip_category_icon(@modal.category)} class="size-3 shrink-0" />
+              <span>{@modal.label}</span>
+              <span
+                :if={is_number(Map.get(@modal, :confidence))}
+                id="camera-clip-modal-confidence"
+                class="font-mono text-[10px] opacity-90"
+              >
+                {format_confidence_pct(@modal.confidence)}
+              </span>
+            </span>
+            <span
+              :if={Map.get(@modal, :started_at)}
+              class="text-xs text-sr-muted"
+            >
+              <.user_time
+                id="camera-clip-modal-time"
+                value={@modal.started_at}
+                timezone={@timezone}
+              />
+            </span>
+          </div>
+
+          <div class="flex shrink-0 items-center gap-1.5">
+            <.ui_button
+              id="camera-clip-modal-open-timeline"
+              type="button"
+              phx-click="open_clip_in_timeline"
+              variant="outline"
+              size="xs"
+            >
+              <.icon name="hero-clock" class="size-3.5" />
+              <span>View in Timeline</span>
+            </.ui_button>
+            <.ui_icon_button
+              id="camera-clip-modal-close"
+              type="button"
+              phx-click="close_clip_modal"
+              variant="ghost"
+              size="sm"
+              aria-label="Close clip player"
+            >
+              <.icon name="hero-x-mark" class="size-4" />
+            </.ui_icon_button>
+          </div>
+        </div>
+
+        <%!-- Modal Body: 16:9 HLS Clip Player --%>
+        <div class="p-4">
+          <div
+            :if={@modal.playlist_path in [nil, ""]}
+            id="camera-clip-modal-empty"
+            role="status"
+            class="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-sr-line bg-sr-canvas p-6 text-center text-sm text-sr-muted"
+          >
+            <.icon name="hero-video-camera-slash" class="size-6 text-sr-muted" />
+            <span>No playable footage in this clip window.</span>
+          </div>
+
+          <div
+            id="camera-clip-modal-player"
+            phx-hook="CameraTimelinePlayer"
+            phx-update="ignore"
+            data-playlist-path={@modal.playlist_path || ""}
+            data-has-adjacent-window="false"
+            data-window-start-us={@modal.playlist_origin_us || @modal.play_from_us}
+            data-window-end-us={@modal.play_to_us}
+            data-seek-offset-seconds={format_seek_offset_attr(@modal.seek_offset_seconds)}
+            data-highlight-frame-id={@modal.highlight_frame_id || ""}
+            data-overlay-detections={Jason.encode!(@modal.overlay_detections || [])}
+            data-window-events={Jason.encode!(@modal_scrubber_events)}
+            class={[@modal.playlist_path in [nil, ""] && "hidden"]}
+          >
+            <div
+              data-role="timeline-video-container"
+              class="relative overflow-hidden rounded-lg bg-black"
+            >
+              <video
+                data-role="timeline-video"
+                controls
+                playsinline
+                class="aspect-video w-full bg-black"
+                aria-label="Clip playback"
+              ></video>
+              <svg
+                data-role="semantic-bbox-overlay"
+                aria-hidden="true"
+                class="pointer-events-none absolute inset-0 h-full w-full overflow-hidden"
+              ></svg>
+            </div>
+
+            <%!-- Event-Highlighted Interactive Horizontal Playback Scrubber --%>
+            <div
+              id="camera-clip-modal-scrubber"
+              data-role="playback-scrubber"
+              role="slider"
+              aria-label="Clip playback scrubber"
+              aria-valuemin="0"
+              aria-valuenow="0"
+              aria-valuemax="0"
+              tabindex="0"
+              class="mt-2 select-none rounded-lg border border-sr-line bg-zinc-950/90 px-2.5 pt-2 pb-1.5"
+            >
+              <div
+                data-role="scrubber-track"
+                class="relative h-6 w-full cursor-pointer rounded-md bg-zinc-800/80"
+              >
+                <div
+                  data-role="scrubber-buffered"
+                  style="width: 0%"
+                  class="pointer-events-none absolute inset-y-0 left-0 rounded-md bg-zinc-700/60"
+                >
+                </div>
+                <div
+                  data-role="scrubber-progress"
+                  style="width: 0%"
+                  class="pointer-events-none absolute inset-y-0 left-0 rounded-l-md bg-sky-500/25"
+                >
+                </div>
+                <div
+                  data-role="scrubber-events"
+                  class="absolute inset-0 z-[4]"
+                >
+                </div>
+                <div
+                  data-role="scrubber-hover-line"
+                  hidden
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-y-0 z-[8] w-px bg-white/75"
+                >
+                </div>
+                <div
+                  data-role="scrubber-hover-tooltip"
+                  hidden
+                  aria-hidden="true"
+                  class="pointer-events-none absolute -top-6 z-[12] -translate-x-1/2 whitespace-nowrap rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-medium text-white shadow-md ring-1 ring-white/15"
+                >
+                </div>
+                <div
+                  data-role="scrubber-playhead"
+                  style="left: 0%"
+                  aria-hidden="true"
+                  class="pointer-events-none absolute -top-0.5 -bottom-0.5 z-[10] w-0.5 -translate-x-1/2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.95)]"
+                >
+                  <span class="absolute -top-1 left-1/2 size-2 -translate-x-1/2 rounded-full bg-sky-400 ring-1 ring-white"></span>
+                </div>
+              </div>
+
+              <div
+                data-role="scrubber-ticks"
+                class="mt-1 flex items-center justify-between font-mono text-[9px] text-zinc-400"
+              >
+              </div>
+            </div>
+
+            <%!-- Compact Player Transport Bar --%>
+            <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sr-line bg-sr-canvas px-2.5 py-1.5 text-xs">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <button
+                  id="camera-clip-modal-back-10"
+                  type="button"
+                  data-role="transport-back-10"
+                  class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 font-mono text-[11px] font-medium text-sr-ink hover:border-sr-brand"
+                >
+                  -10s
+                </button>
+                <button
+                  id="camera-clip-modal-play-pause"
+                  type="button"
+                  data-role="transport-play-pause"
+                  aria-pressed="false"
+                  autofocus
+                  class="rounded border border-sr-line bg-sr-ink px-2.5 py-0.5 text-[11px] font-medium text-sr-surface hover:opacity-90"
+                >
+                  Play
+                </button>
+                <button
+                  id="camera-clip-modal-fwd-10"
+                  type="button"
+                  data-role="transport-fwd-10"
+                  class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 font-mono text-[11px] font-medium text-sr-ink hover:border-sr-brand"
+                >
+                  +10s
+                </button>
+                <span
+                  data-role="transport-current-time"
+                  class="ml-1 font-mono text-[11px] text-sr-muted"
+                >
+                  00:00
+                </span>
+                <span data-role="timeline-status" role="status" class="text-[11px] text-sr-muted">
+                  Preparing clip...
+                </span>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span
+                  id="camera-clip-modal-served-copy-badge"
+                  data-role="served-copy-badge"
+                  data-served-copy=""
+                  class="inline-flex items-center rounded border border-sr-line bg-sr-surface px-1.5 py-0.5 font-mono text-[10px] text-sr-ink"
+                >
+                  Serving: —
+                </span>
+                <button
+                  id="camera-clip-modal-mute"
+                  type="button"
+                  data-role="transport-mute"
+                  aria-pressed="false"
+                  class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 text-[11px] text-sr-ink hover:border-sr-brand"
+                >
+                  Mute
+                </button>
+                <button
+                  id="camera-clip-modal-fullscreen"
+                  type="button"
+                  data-role="transport-fullscreen"
+                  class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 text-[11px] text-sr-ink hover:border-sr-brand"
+                >
+                  Fullscreen
+                </button>
+                <button
+                  id="camera-clip-modal-toggle-bbox-overlay"
+                  type="button"
+                  data-role="toggle-bbox-overlay"
+                  aria-pressed="true"
+                  class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 text-[11px] font-medium text-sr-ink hover:border-sr-brand"
+                >
+                  AI boxes: On
+                </button>
+                <button
+                  type="button"
+                  data-role="timeline-retry"
+                  class="sr-ops-button text-xs"
+                  hidden
+                >
+                  Retry playback
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </dialog>
     """
   end
 
