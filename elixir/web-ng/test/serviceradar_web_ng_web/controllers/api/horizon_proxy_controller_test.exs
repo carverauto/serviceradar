@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
   alias ServiceRadarWebNG.HorizonProxy
   alias ServiceRadarWebNGWeb.Api.HorizonProxyController
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
+  alias ServiceRadarWebNGWeb.Router
 
   @endpoint ServiceRadarWebNGWeb.Endpoint
   @moduletag :db_free
@@ -180,6 +181,22 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       refute_received {:upstream_request, _}
     end
 
+    test "does not route or allowlist PUT and PATCH requests" do
+      for method <- ["PUT", "PATCH"] do
+        error =
+          assert_raise Phoenix.Router.NoRouteError, fn ->
+            method
+            |> Plug.Test.conn("/api/horizon/v1/bgp/watchlist")
+            |> Router.call(Router.init([]))
+          end
+
+        assert Plug.Exception.status(error) == 404
+
+        assert {:error, :not_found} =
+                 HorizonProxy.resolve_route(method, "v1", ["bgp", "watchlist"], "/api/horizon/v1/bgp/watchlist")
+      end
+    end
+
     test "rejects token query parameter with 400", %{admin_scope: admin_scope} do
       conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist?token=leaked", admin_scope)
 
@@ -256,6 +273,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
       assert req_opts[:redirect] == false
       assert req_opts[:retry] == false
+      assert req_opts[:decode_body] == false
     end
 
     test "proxies POST /api/horizon/v1/bgp/watchlist to /api/v2/bgp/watchlist and preserves 201", %{
@@ -341,6 +359,18 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert_receive {:upstream_request, delete_req}
       assert delete_req[:method] == :delete
       assert delete_req[:url] == "#{@upstream_base}/api/v2/reports/isp-accountability/rep-42"
+    end
+
+    test "defaults non-JSON response content-type and normalizes nil body", %{admin_scope: admin_scope} do
+      stub_http_client(fn _req_opts ->
+        {:ok, %Req.Response{status: 200, headers: %{"content-type" => ["text/plain"]}, body: nil}}
+      end)
+
+      conn = call_proxy(:get, "/api/horizon/v1/feeds/status", admin_scope)
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
+      assert conn.resp_body == ""
     end
 
     test "handles upstream timeout cleanly without leaking secrets", %{admin_scope: admin_scope} do

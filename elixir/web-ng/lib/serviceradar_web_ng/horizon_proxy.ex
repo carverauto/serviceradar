@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   @type route_match :: %{
           upstream_path: String.t(),
           required_permission: String.t(),
-          method: atom()
+          method: :get | :post | :delete
         }
 
   @type upstream_config :: Upstream.config()
@@ -128,10 +128,6 @@ defmodule ServiceRadarWebNG.HorizonProxy do
            body: normalize_response_body(resp_body)
          }}
 
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        Logger.warning("Horizon proxy upstream request timed out for #{route.upstream_path}")
-        {:error, :upstream_timeout}
-
       {:error, %{reason: :timeout}} ->
         Logger.warning("Horizon proxy upstream request timed out for #{route.upstream_path}")
         {:error, :upstream_timeout}
@@ -234,8 +230,6 @@ defmodule ServiceRadarWebNG.HorizonProxy do
     case String.upcase(method) do
       "GET" -> {:ok, :get}
       "POST" -> {:ok, :post}
-      "PUT" -> {:ok, :put}
-      "PATCH" -> {:ok, :patch}
       "DELETE" -> {:ok, :delete}
       _ -> {:error, :unsupported_method}
     end
@@ -275,13 +269,13 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   defp build_upstream_url(base_url, upstream_path, ""), do: base_url <> upstream_path
   defp build_upstream_url(base_url, upstream_path, qs), do: base_url <> upstream_path <> "?" <> qs
 
-  defp maybe_put_content_type(headers, method, body) when method in [:post, :put, :patch] and is_binary(body) do
+  defp maybe_put_content_type(headers, :post, body) when is_binary(body) do
     [{"content-type", "application/json"} | headers]
   end
 
   defp maybe_put_content_type(headers, _method, _body), do: headers
 
-  defp maybe_put_body(opts, method, body) when method in [:post, :put, :patch] and is_binary(body) do
+  defp maybe_put_body(opts, :post, body) when is_binary(body) do
     Keyword.put(opts, :body, body)
   end
 
@@ -289,8 +283,12 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   defp extract_json_content_type(headers) when is_map(headers) do
     ct =
-      Enum.find_value(headers, fn {k, v} ->
-        if String.downcase(to_string(k)) == "content-type", do: first_header_value(v)
+      Enum.find_value(headers, fn
+        {k, [v | _]} when is_binary(v) ->
+          if String.downcase(to_string(k)) == "content-type", do: v
+
+        _ ->
+          nil
       end)
 
     if is_binary(ct) and String.contains?(String.downcase(ct), "json") do
@@ -300,21 +298,9 @@ defmodule ServiceRadarWebNG.HorizonProxy do
     end
   end
 
-  defp extract_json_content_type(headers) when is_list(headers) do
-    headers
-    |> Map.new()
-    |> extract_json_content_type()
-  end
-
   defp extract_json_content_type(_), do: "application/json; charset=utf-8"
 
-  defp first_header_value([v | _]) when is_binary(v), do: v
-  defp first_header_value(v) when is_binary(v), do: v
-  defp first_header_value(_), do: nil
-
   defp normalize_response_body(body) when is_binary(body), do: body
-  defp normalize_response_body(nil), do: ""
-  defp normalize_response_body(body) when is_map(body) or is_list(body), do: Jason.encode!(body)
   defp normalize_response_body(_), do: ""
 
   defp sanitize_error(%{__struct__: struct, reason: reason}), do: "#{inspect(struct)}(#{inspect(reason)})"
