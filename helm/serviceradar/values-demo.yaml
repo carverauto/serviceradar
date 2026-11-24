@@ -797,8 +797,8 @@ mediaWorker:
     # commit that includes the worker's dedicated NATS inbox support (older
     # builds are denied their NATS replies). Left empty, the chart refuses to
     # render the worker.
-    tag: "sha-2d3d0bba84cd5809685a0d700877cae156ba58de"
-    digest: "sha256:fcf3816dee27d64164d8573e73086d59e9fa4ecd9dcd20dfb3037a93091d2631"
+    tag: "sha-4f93de323d8483b54a0f8509ee303981e9d082fd"
+    digest: "sha256:e136b90a3a72db7b0597408e72823b398007dba1b928583ede929c9d9a8b7ab2"
   executionProvider: cuda
   runtimeClassName: nvidia
   gpuResourceName: nvidia.com/gpu
