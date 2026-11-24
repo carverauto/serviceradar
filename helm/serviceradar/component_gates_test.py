@@ -43,6 +43,10 @@ HASKEY_GATE = re.compile(r'hasKey\s+\$(\w+)\s+"enabled"')
 # `{{- if $gateway.enabled -}}` / `{{- if .Values.foo.enabled }}` -- absent means DISABLED.
 VAR_GATE = re.compile(r"\{\{-?\s*if\s+\$(\w+)\.enabled")
 VALUES_GATE = re.compile(r"\{\{-?\s*if\s+\.Values\.(\w+)\.enabled")
+# `{{- if eq (include "serviceradar.fooEnabled" .) "true" }}` -- strictBool helper gate.
+HELPER_GATE = re.compile(
+    r'\{\{-?\s*if\s+eq\s+\(include\s+"serviceradar\.(\w+)Enabled"\s+\.\)\s+"true"'
+)
 
 # `{{- $gateway := default (dict) .Values.agentGateway -}}` -- resolve a gate var to its key.
 VAR_BINDING = r"\$%s\s*:=[^\n]*\.Values\.(\w+)"
@@ -132,7 +136,9 @@ class ComponentGatesTest(unittest.TestCase):
 
     def _gate_index(self, text):
         for i, line in enumerate(text.splitlines()):
-            if re.search(r"\{\{-?\s*if\b", line) and ".enabled" in line:
+            if (re.search(r"\{\{-?\s*if\b", line) and ".enabled" in line) or (
+                HELPER_GATE.search(line)
+            ):
                 return i
         return None
 
@@ -147,6 +153,10 @@ class ComponentGatesTest(unittest.TestCase):
         return None
 
     def _gate_key(self, text):
+        m = HELPER_GATE.search(text)
+        if m:
+            return m.group(1)
+
         m = VALUES_GATE.search(text)
         if m:
             return m.group(1)
