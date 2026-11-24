@@ -254,7 +254,7 @@ in-cluster GPU pod.
 {{- $url := $externalUrl -}}
 {{- if $enabled -}}
 {{- $port := include "serviceradar.cameraVlmPort" . -}}
-{{- $url = printf "http://serviceradar-camera-vlm.%s.svc.cluster.local:%s" .Release.Namespace $port -}}
+{{- $url = printf "http://serviceradar-camera-vlm.%s.svc.cluster.local:%s/v1/chat/completions" .Release.Namespace $port -}}
 {{- end }}
 - name: SERVICERADAR_CAMERA_VLM_ENABLED
   value: "true"
