@@ -812,7 +812,7 @@ mediaWorker:
   models:
     existingClaim: serviceradar-media-worker-models
     detectorPath: "/var/lib/serviceradar-media-worker/models/detector_yolox_x.safetensors"
-    detectorConfigPath: "/var/lib/serviceradar-media-worker/models/detector_yolox_x_config.json"
+    detectorConfigPath: "/var/lib/serviceradar-media-worker/models/detector_config.json"
     detectorSha256: "46f9962db0da82ca6284ad7cb2e522f9489f73b0f96cc32686d944ce54c1a6be"
   auth:
     existingSecret: serviceradar-media-worker-auth
