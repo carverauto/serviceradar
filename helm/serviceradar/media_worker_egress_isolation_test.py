@@ -281,6 +281,37 @@ class MediaWorkerEgressIsolationTest(unittest.TestCase):
                     with self.subTest(overlay=overlay, ip_rule=rule):
                         self.assertTrue(ip_block_rule_is_https_only(rule))
 
+    def test_the_workers_s3_ip_blocks_match_ip_family_and_include_ipv6(self):
+        for overlay, policies in self.policies.items():
+            if overlay in OPERATOR_MANAGED:
+                continue
+            with self.subTest(overlay=overlay):
+                (own,) = [
+                    doc for doc in policies
+                    if is_kubernetes_policy(doc) and doc["metadata"]["name"] == WORKER_POLICY
+                ]
+                egress = own["spec"].get("egress") or []
+                ip_blocks = [
+                    peer["ipBlock"]
+                    for rule in egress
+                    for peer in (rule.get("to") or [])
+                    if "ipBlock" in peer
+                ]
+                self.assertTrue(ip_blocks, "expected at least one S3 ipBlock rule")
+                for block in ip_blocks:
+                    cidr = block["cidr"]
+                    is_v6 = ":" in cidr
+                    for exc in block.get("except") or []:
+                        self.assertEqual(
+                            ":" in exc,
+                            is_v6,
+                            f"except CIDR {exc!r} does not match IP family of ipBlock {cidr!r}",
+                        )
+                if overlay in ("default", "demo"):
+                    cidrs = {block["cidr"] for block in ip_blocks}
+                    self.assertIn("0.0.0.0/0", cidrs)
+                    self.assertIn("::/0", cidrs)
+
     def test_the_overlays_exercise_the_broad_policies(self):
         # The demo overlay renders both match-all policies the worker must stay out
         # of; without them the isolation check above would pass vacuously.
