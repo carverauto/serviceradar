@@ -7,6 +7,13 @@ description: Edge-native IP camera VMS and local GPU visual intelligence unified
 
 # ServiceRadar Vantage (VMS)
 
+<div style={{display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem'}}>
+  <img src="/img/vantage-logo.svg" alt="ServiceRadar Vantage brand mark" width="36" height="36" style={{flexShrink: 0}} />
+  <div>
+    <strong>ServiceRadar Vantage</strong> -- Edge-native IP camera VMS and local GPU visual intelligence
+  </div>
+</div>
+
 Conventional IP camera deployments split physical security video into a separate
 appliance or cloud subscription, disconnected from switch ports, identity rules,
 and telemetry pipelines. **ServiceRadar Vantage** is an edge-native Video
