@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 270" width="820" height="270" role="img" aria-label="Hybrid Reciprocal Rank Fusion semantic action search pipeline across lexical BM25, caption embedding cosine, and SigLIP visual cosine">
+  <defs>
+    <style>
+      .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    </style>
+  </defs>
+
+  <!-- Outer dark slate Swiss frame -->
+  <rect x="1" y="1" width="818" height="268" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+
+  <!-- Top editorial header strip -->
+  <line x1="1" y1="30" x2="819" y2="30" stroke="#1e293b" stroke-width="1"/>
+  <text x="16" y="19" fill="#94a3b8" font-size="9.5" font-weight="600" letter-spacing="0.08em" class="mono">FIG 02 // HYBRID RRF SEMANTIC ACTION SEARCH</text>
+  <text x="804" y="19" text-anchor="end" fill="#38bdf8" font-size="9.5" font-weight="600" letter-spacing="0.06em" class="mono">3 PARALLEL SIGNALS  |  IN-CLUSTER GPU</text>
+
+  <!-- Subtle vertical stage dividers -->
+  <line x1="196" y1="38" x2="196" y2="258" stroke="#1e293b" stroke-width="1" stroke-dasharray="4 4"/>
+  <line x1="462" y1="38" x2="462" y2="258" stroke="#1e293b" stroke-width="1" stroke-dasharray="4 4"/>
+  <line x1="636" y1="38" x2="636" y2="258" stroke="#1e293b" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <!-- Stage column headers -->
+  <text x="18" y="47" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">01 / QUERY</text>
+  <text x="218" y="47" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">02 / PARALLEL SCORING LANES</text>
+  <text x="486" y="47" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">03 / FUSION</text>
+  <text x="652" y="47" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">04 / PLAYBACK</text>
+
+  <!-- ==================== COL 1: QUERY INPUT ==================== -->
+  <rect x="18" y="102" width="160" height="96" rx="3" fill="#1e293b" stroke="#38bdf8" stroke-width="1.2"/>
+  <rect x="18" y="102" width="160" height="3" rx="1" fill="#38bdf8"/>
+  <text x="98" y="122" text-anchor="middle" fill="#38bdf8" font-size="8.8" font-weight="600" letter-spacing="0.06em" class="mono">NATURAL LANGUAGE</text>
+  <text x="98" y="146" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">"person walking dog"</text>
+  <line x1="30" y1="159" x2="166" y2="159" stroke="#334155" stroke-width="1"/>
+  <text x="98" y="175" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">camera / site filter</text>
+  <text x="98" y="189" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">local text + SigLIP</text>
+
+  <!-- Fan-out connectors: Query -> 3 Lanes -->
+  <line x1="178" y1="150" x2="202" y2="150" stroke="#64748b" stroke-width="1.2"/>
+  <line x1="202" y1="84" x2="202" y2="216" stroke="#64748b" stroke-width="1.2"/>
+  <line x1="202" y1="84" x2="214" y2="84" stroke="#10b981" stroke-width="1.2"/>
+  <polygon points="212,80.5 218,84 212,87.5" fill="#10b981"/>
+  <line x1="202" y1="150" x2="214" y2="150" stroke="#f59e0b" stroke-width="1.2"/>
+  <polygon points="212,146.5 218,150 212,153.5" fill="#f59e0b"/>
+  <line x1="202" y1="216" x2="214" y2="216" stroke="#38bdf8" stroke-width="1.2"/>
+  <polygon points="212,212.5 218,216 212,219.5" fill="#38bdf8"/>
+
+  <!-- ==================== COL 2: 3 PARALLEL SCORING LANES ==================== -->
+  <!-- Lane 1: Lexical BM25 -->
+  <rect x="218" y="58" width="224" height="52" rx="3" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <rect x="218" y="58" width="3" height="52" rx="1" fill="#10b981"/>
+  <text x="230" y="78" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">Caption tsvector BM25</text>
+  <text x="432" y="78" text-anchor="end" fill="#10b981" font-size="9" font-weight="600" class="mono">rank_1</text>
+  <text x="230" y="96" fill="#94a3b8" font-size="9.2" class="mono">exact labels, terms &amp; attrs</text>
+
+  <!-- Lane 2: Caption Embedding Cosine -->
+  <rect x="218" y="124" width="224" height="52" rx="3" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <rect x="218" y="124" width="3" height="52" rx="1" fill="#f59e0b"/>
+  <text x="230" y="144" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">Caption Embedding Cosine</text>
+  <text x="432" y="144" text-anchor="end" fill="#f59e0b" font-size="9" font-weight="600" class="mono">rank_2</text>
+  <text x="230" y="162" fill="#94a3b8" font-size="9.2" class="mono">Qwen3.5-4B scene captions</text>
+
+  <!-- Lane 3: SigLIP Visual Cosine -->
+  <rect x="218" y="190" width="224" height="52" rx="3" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <rect x="218" y="190" width="3" height="52" rx="1" fill="#38bdf8"/>
+  <text x="230" y="210" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">SigLIP Visual Cosine</text>
+  <text x="432" y="210" text-anchor="end" fill="#38bdf8" font-size="9" font-weight="600" class="mono">rank_3</text>
+  <text x="230" y="228" fill="#94a3b8" font-size="9.2" class="mono">cross-modal frame vectors</text>
+
+  <!-- Fan-in connectors: 3 Lanes -> RRF -->
+  <line x1="442" y1="84" x2="466" y2="84" stroke="#10b981" stroke-width="1.2"/>
+  <line x1="442" y1="150" x2="466" y2="150" stroke="#f59e0b" stroke-width="1.2"/>
+  <line x1="442" y1="216" x2="466" y2="216" stroke="#38bdf8" stroke-width="1.2"/>
+  <line x1="466" y1="84" x2="466" y2="216" stroke="#64748b" stroke-width="1.2"/>
+  <line x1="466" y1="150" x2="482" y2="150" stroke="#f59e0b" stroke-width="1.4"/>
+  <polygon points="480,146.5 486,150 480,153.5" fill="#f59e0b"/>
+
+  <!-- ==================== COL 3: RECIPROCAL RANK FUSION ==================== -->
+  <rect x="486" y="96" width="136" height="108" rx="3" fill="#1e293b" stroke="#f59e0b" stroke-width="1.4"/>
+  <text x="554" y="116" text-anchor="middle" fill="#f59e0b" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">RECIPROCAL RANK</text>
+  <text x="554" y="129" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Fusion (RRF)</text>
+  <rect x="496" y="140" width="116" height="28" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="554" y="158" text-anchor="middle" fill="#f8fafc" font-size="9.5" font-weight="600" class="mono">sum 1 / (k + rank)</text>
+  <text x="554" y="184" text-anchor="middle" fill="#94a3b8" font-size="8.8" class="mono">scale-invariant</text>
+  <text x="554" y="196" text-anchor="middle" fill="#94a3b8" font-size="8.8" class="mono">multi-signal score</text>
+
+  <!-- Connector: RRF -> Playback -->
+  <line x1="622" y1="150" x2="648" y2="150" stroke="#10b981" stroke-width="1.4"/>
+  <polygon points="646,146.5 652,150 646,153.5" fill="#10b981"/>
+
+  <!-- ==================== COL 4: RANKED CLIPS & HLS OVERLAY ==================== -->
+  <!-- Top box: Ranked Action Clips -->
+  <rect x="652" y="60" width="152" height="76" rx="3" fill="#f8fafc"/>
+  <text x="728" y="81" text-anchor="middle" fill="#0f172a" font-size="11.5" font-weight="700" class="sans">Ranked Action Clips</text>
+  <text x="728" y="99" text-anchor="middle" fill="#334155" font-size="9.2" class="mono">peak-frame seek</text>
+  <text x="728" y="114" text-anchor="middle" fill="#334155" font-size="9.2" class="mono">timeline rail hits</text>
+  <text x="728" y="128" text-anchor="middle" fill="#047857" font-size="8.8" font-weight="600" class="mono">RBAC-scoped VOD</text>
+
+  <!-- Vertical connector -->
+  <line x1="728" y1="136" x2="728" y2="154" stroke="#10b981" stroke-width="1.2"/>
+  <polygon points="724.5,152 731.5,152 728,158" fill="#10b981"/>
+
+  <!-- Bottom box: HLS Frame-Accurate Overlay -->
+  <rect x="652" y="158" width="152" height="84" rx="3" fill="#1e293b" stroke="#10b981" stroke-width="1.2"/>
+  <text x="728" y="177" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">HLS Overlay Sync</text>
+  <text x="728" y="195" text-anchor="middle" fill="#10b981" font-size="8.8" class="mono">#EXT-X-PROGRAM-</text>
+  <text x="728" y="207" text-anchor="middle" fill="#10b981" font-size="8.8" class="mono">DATE-TIME</text>
+  <text x="728" y="224" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">frame-accurate AI</text>
+  <text x="728" y="235" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">bbox track overlay</text>
+</svg>

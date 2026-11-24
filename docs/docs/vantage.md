@@ -7,178 +7,161 @@ description: Edge-native IP camera VMS and local GPU visual intelligence unified
 
 # ServiceRadar Vantage (VMS)
 
-ServiceRadar Vantage is an edge-native IP camera Video Management System (VMS)
-and visual intelligence engine built directly into ServiceRadar. Cameras are
-managed as first-class inventory assets alongside routers, switches, and hosts,
-inheriting the same network observability, unified credentials, SRQL
-queryability, alerting, and Role-Based Access Control (RBAC).
+Conventional IP camera deployments split physical security video into a separate
+appliance or cloud subscription, disconnected from switch ports, identity rules,
+and telemetry pipelines. **ServiceRadar Vantage** is an edge-native Video
+Management System (VMS) and local GPU visual intelligence engine built directly
+into ServiceRadar. Cameras are first-class inventory assets alongside routers,
+switches, and hosts, sharing the same unified credentials, SRQL query surface,
+OCSF alerting, and per-request Role-Based Access Control (RBAC).
 
-- **Camera Fleet & Live Console**: `/cameras`
-- **Unified Timeline, Clips & Holds**: `/cameras/:camera_source_id/recordings`
-- **Recording & Storage Settings**: `/settings/recording`
-- **Unified Credentials**: `/settings/networks/credentials`
+| Surface | Route |
+| --- | --- |
+| Camera Fleet & Live Console | `/cameras` |
+| Unified Timeline, Clips & Legal Holds | `/cameras/:camera_source_id/recordings` |
+| Recording, Spool & Archive Settings | `/settings/recording` |
+| Unified Credentials & Rules | `/settings/networks/credentials` |
 
-## Overview
+## Design Rules
 
-Vantage unifies physical security video with infrastructure operations so teams
-do not run a separate appliance or cloud subscription for IP cameras:
+Every subsystem in Vantage enforces four architectural invariants:
 
-- **Multi-vendor camera ingestion**: Supports **UniFi Protect** controllers,
-  **Axis** cameras, and generic **RTSP / RTSPS** streams through edge agent
-  plugins and stream relays. Camera credentials stay encrypted in
-  `platform.network_credential_secrets` and are brokered to agents via
-  credential rules rather than stored in plugin forms or Helm values. See
-  [UniFi Protect](./unifi-protect.md) and [Credential Management](./credentials.md).
-- **Unified inventory & network correlation**: Every camera source links to its
-  underlying network device in ServiceRadar inventory, letting operators
-  correlate PoE switch port health, link flaps, latency, and recording gaps in
-  one place.
-- **Zero-trust RBAC & auditability**: Live video (`devices.cameras.view`),
-  historical playback (`devices.cameras.recordings.view`), and legal holds
-  (`devices.cameras.recordings.hold`) are enforced separately per request, with
-  every playback playlist access recorded in `RecordingAccessAudit`. See
-  [Roles & Permissions](./rbac-and-roles.md).
-- **Local GPU visual intelligence**: Object detection, visual embeddings, and
-  Vision-Language Model (VLM) captioning run on in-cluster GPU workloads with
-  zero external cloud video egress.
+1. **Plane isolation by default.** Media capture, durable fMP4 spooling, GPU
+   visual indexing, and operator playback run in separate planes. A GPU worker
+   restart or queue spike never interrupts continuous recording or live viewing.
+2. **Zero external cloud egress.** Object detection, visual embeddings, scene
+   captioning, and semantic search run on in-cluster GPU workloads. No video
+   frames, thumbnails, or search prompts leave the cluster.
+3. **Zero database credentials in media workers.** GPU and external ML workers
+   fetch sealed blocks over an isolated `:8445` analysis endpoint using
+   short-lived Fragment Read Grants and publish results exclusively to NATS
+   JetStream (`media.results.>`). Only `core-elx` `EventWriter` writes to CNPG.
+4. **Zero-trust credentials and auditability.** Camera credentials stay
+   encrypted in `platform.network_credential_secrets` and are brokered to edge
+   agents via credential rules. Live viewing (`devices.cameras.view`),
+   historical playback (`devices.cameras.recordings.view`), and legal holds
+   (`devices.cameras.recordings.hold`) are gated separately, with every playlist
+   access recorded in `RecordingAccessAudit`.
 
 ## Architecture and Data Flow
 
-Vantage separates media capture, durable fMP4 storage, GPU visual indexing, and
-operator playback into isolated planes so ML worker restarts or saturation never
-disrupt continuous recording or live viewing.
+![ServiceRadar Vantage four-strata architecture: Edge, Storage, GPU Inference, and Control Plane](/img/vantage-architecture-strata.svg)
 
-```mermaid
-flowchart LR
-  Cam["IP Cameras (UniFi Protect / Axis / RTSP)"] --> Agent["Edge Agent & Relay"]
-  Agent --> NVR["serviceradar-nvr (Local fMP4 Spool)"]
-  NVR --> Archive["S3 / Object Store Archive (Retention & Legal Holds)"]
-  NVR --> Worker["serviceradar-media-worker (Rust Candle CUDA: YOLOX-x + SigLIP)"]
-  NVR --> VLM["serviceradar-camera-vlm (crane-serve: Qwen3.5-4B)"]
-  Worker --> NATS["NATS JetStream (media.results.>)"]
-  VLM --> NATS
-  NATS --> Core["core-elx EventWriter"]
-  Core --> Console["Vantage Console (Live WebRTC, Timeline, Search)"]
-```
+*Figure 1 -- Four isolated strata from multi-vendor camera capture to CNPG projections and the Vantage Console.*
 
-| Stage | Component | Responsibility |
-| --- | --- | --- |
-| **Edge capture** | `serviceradar-agent` + camera plugins | Discovers cameras, negotiates RTSP/RTSPS media sessions using brokered credentials, and relays H.264/H.265 streams into the cluster over mTLS. |
-| **Local spool & archive** | `serviceradar-nvr` StatefulSet | Seals fragmented MP4 (`init.mp4`, `media.m4s`, `descriptor.json`) blocks on replicated local storage, optionally uploads readback-verified copies to S3-compatible object storage, and enforces retention watermarks and legal holds (`RecordingHold`). See [Camera Recording & NVR](./camera-recording.md). |
-| **Visual indexing (Stage 1)** | `serviceradar-media-worker` | Pure-Rust Candle CUDA worker that decodes sealed blocks via scoped Fragment Read Grants, runs **YOLOX-x** object detection (`Person`, `Vehicle`, `Animal`, `Package`) and **SigLIP** visual embedding extraction, and publishes structured frame results to NATS JetStream (`media.results.>`). |
-| **Scene reasoning (Stage 2)** | `serviceradar-camera-vlm` | In-cluster Vision-Language Model service (`crane-serve` running **Qwen3.5-4B**) that generates natural-language scene captions, caption embeddings, and structured JSON answers for declarative Vantage ML pipelines. |
-| **Ingestion & projection** | `core-elx` `EventWriter` | Consumes `media.results.>` from NATS JetStream and persists searchable visual frames, embeddings, and Vantage observations into CNPG. Media workers never hold database credentials. |
-| **Operator UI** | `web-ng` Vantage Console | Serves live WebRTC/WebSocket playback, multi-block HLS v7 VOD playlists, hybrid semantic search, detection zone editing, and legal hold management. |
+### Component & Model Stack
 
-## Playback and Investigation Console
+| Stratum | Component | Runtime / Model | Responsibility |
+| --- | --- | --- | --- |
+| **Edge** | `serviceradar-agent` + camera plugins | UniFi Protect, Axis, RTSP/RTSPS | Discovers cameras, negotiates media sessions with brokered CNPG credentials, and relays H.264/H.265 streams over mTLS. See [UniFi Protect](./unifi-protect.md) and [Credential Management](./credentials.md). |
+| **Storage** | `serviceradar-nvr` StatefulSet | Local fMP4 spool + S3 archive | Seals `init.mp4`, `media.m4s`, and `descriptor.json` blocks; verifies S3 uploads via readback; serves scoped `:8445` analysis reads; enforces retention watermarks and `RecordingHold`. See [Camera Recording & NVR](./camera-recording.md). |
+| **GPU Inference (Stage 1)** | `serviceradar-media-worker` | Pure-Rust Candle CUDA (`YOLOX-x` + `SigLIP`) | Decodes sealed blocks via Fragment Read Grants, runs object detection (`Person`, `Vehicle`, `Animal`, `Package`) and `SigLIP` frame embeddings, and publishes to `media.results.>`. |
+| **GPU Inference (Stage 2)** | `serviceradar-camera-vlm` | `crane-serve` (`Qwen3.5-4B`) | Generates natural-language scene captions, caption embeddings, and structured JSON answers for declarative Vantage ML pipelines. |
+| **Control Plane** | `core-elx` `EventWriter` + `web-ng` | NATS JetStream -> CNPG + LiveView | Projects `media.results.>` into searchable CNPG tables and serves live WebRTC/WebSocket video, HLS v7 VOD playlists, hybrid search, ROI zones, and legal holds. |
 
-The Vantage console combines live situational awareness with frame-accurate
-forensic playback on `/cameras/:camera_source_id/recordings`:
+### Storage and Retention Guarantees
 
-- **Unified Live WebRTC view**: Streams low-latency live video directly from
-  the camera relay with automatic WebSocket fallback when a browser cannot reach
-  the cluster peer directly. See [WebRTC TURN Relay](./webrtc-turn-relay.md).
-- **Vertical Precision Timeline**: Newest-at-top coverage scrubber displaying
-  local, archived, pending-archive, gap, and retention-deleted intervals across
-  configurable spans (`15m`, `1h`, `6h`, `24h`, `7d`) with `+`/`-` zoom,
-  timezone-aware timestamp jumps, and explicit `received` time-basis provenance.
-- **Horizontal Thumbnail Filmstrip Scrubber**: Visual strip of sampled frame
-  thumbnails synchronized with the playback head for rapid scrubbing across
-  hours of footage without waiting for full segment buffering.
+| Guarantee | Mechanism |
+| --- | --- |
+| **Crash-safe media sealing** | Fragmented MP4 blocks (`init.mp4`, `media.m4s`, `descriptor.json`) are sealed on replicated local storage before indexing or archival. |
+| **Readback-verified S3 archive** | Archived objects are verified on readback before local spool watermarks can reclaim capacity. |
+| **Immutable legal holds** | `RecordingHold` pins matching intervals across both local spool and S3 archive, blocking retention eviction until explicitly released. |
+| **Audit provenance** | Timeline intervals carry explicit `received` time-basis provenance, and every playback playlist request logs a `RecordingAccessAudit` entry. |
+| **Network correlation** | Every camera source links to its underlying ServiceRadar inventory device so PoE port health, link flaps, and recording gaps correlate in one view. |
+
+## Playback, Timeline, and Noise Reduction
+
+The investigation console at `/cameras/:camera_source_id/recordings` pairs
+low-latency live video with frame-accurate forensic scrubbing:
+
+- **Live WebRTC with WebSocket fallback**: Streams directly from the camera
+  relay and falls back automatically when a browser cannot reach the cluster
+  peer. See [WebRTC TURN Relay](./webrtc-turn-relay.md).
+- **Vertical Precision Timeline & Filmstrip**: Newest-at-top coverage scrubber
+  rendering local, archived, pending-archive, gap, and retention-deleted spans
+  (`15m`, `1h`, `6h`, `24h`, `7d`) alongside a synchronized horizontal thumbnail
+  filmstrip and `+`/`-` zoom.
 - **Tiered Smart / Motion Event Rail**: Coalesces detections into **Smart**
   (`Person`, `Vehicle`, `Animal`, `Package`) and **Basic** (`Motion`,
-  `Recording`) clips with separate server-side budgets so high-volume motion
-  never crowds out smart detections. Clicking any rail marker or clip card seeks
-  directly to the peak frame.
-- **Native Clip Modal with Frame-Accurate Overlays**: Opens focused clip windows
-  backed by HLS v7 playlists carrying `#EXT-X-PROGRAM-DATE-TIME` tags. The
-  player aligns each decoded video frame timestamp against indexed bounding
-  boxes so `AI boxes` overlays track moving subjects frame-accurately during
-  playback, pause, and stepping.
+  `Recording`) clips under separate server-side budgets so high-volume motion
+  never crowds out smart events.
+- **Frame-Accurate HLS Clip Overlays**: Clips play from HLS v7 playlists
+  carrying `#EXT-X-PROGRAM-DATE-TIME` tags. The player locks each decoded video
+  frame timestamp to indexed bounding boxes so `AI boxes` track moving subjects
+  during play, pause, and frame-stepping.
+- **12x8 Detection Zones ROI Grid (Non-PTZ)**: Operators paint **Focus** and
+  **Ignore** cells directly on a camera snapshot to suppress roadways or
+  foliage before clip promotion and alerting.
+- **Stationary-Vehicle Suppression**: Combines **motion-overlap** checks with
+  **centroid-displacement gating** across consecutive frames so parked cars do
+  not emit repeated `Vehicle` events while arriving or departing vehicles still
+  trigger normally.
 
 ## Hybrid Semantic Action Search
 
-Operators can search recorded footage across a camera or site using plain
-natural-language descriptions (for example, `"white delivery van backing into
-loading bay"` or `"person carrying a box near cam-north-gate-01"`).
+Operators query recorded footage with plain natural language (for example,
+`"person walking dog"` or `"white delivery van backing into loading bay"`).
+Vantage fuses three independent retrieval signals with **Reciprocal Rank Fusion
+(RRF)** so lexical precision, semantic intent, and visual similarity reinforce
+one another without brittle score calibration.
 
-Vantage executes a **Hybrid Semantic Search** that fuses three independent
-retrieval signals using **Reciprocal Rank Fusion (RRF)**:
+![Hybrid RRF semantic action search across BM25, caption embeddings, and SigLIP visual embeddings](/img/vantage-hybrid-rrf-search.svg)
 
-1. **Lexical full-text (`tsvector`)**: Matches exact object labels, scene
-   caption keywords, and structured Vantage observation attributes.
-2. **Caption semantic similarity (`caption_embedding`)**: Matches natural-language
-   intent against embeddings generated from `serviceradar-camera-vlm`
-   (`Qwen3.5-4B`) scene descriptions.
-3. **Visual-text cross-modal similarity (`SigLIP`)**: Matches the text query
-   vector directly against **SigLIP** visual frame embeddings produced by
-   `serviceradar-media-worker`, surfacing scenes even when a specific detail was
-   not spelled out in a caption.
+*Figure 2 -- Three parallel local scoring lanes merged via Reciprocal Rank Fusion into peak-frame clips and `#EXT-X-PROGRAM-DATE-TIME` bounding-box playback.*
 
-All embedding, vision, and VLM inference runs locally on in-cluster GPU nodes.
-No video frames, thumbnails, or search prompts are sent to external cloud APIs.
-
-## Noise Reduction and Detection Zones
-
-Fixed outdoor cameras frequently face busy roadways, swaying foliage, or parked
-vehicles that generate alert fatigue if left unfiltered. Vantage provides two
-controls to keep event rails and alerts focused on real activity:
-
-- **12x8 Detection Zones ROI Grid (Non-PTZ Cameras)**: Operators draw **Focus**
-  and **Ignore** cells directly on a camera snapshot using a `12x8`
-  region-of-interest grid. Detections falling exclusively inside ignored cells
-  (such as a public street or tree line) are masked before clip promotion and
-  alerting, while focus cells prioritize entryways, gates, and loading docks.
-- **Stationary-Vehicle Suppression**: Combines **motion-overlap** checks with
-  **centroid-displacement gating** across consecutive frames. A parked vehicle
-  whose bounding box remains stationary and lacks overlapping pixel motion is
-  suppressed from generating repeated `Vehicle` events while still allowing a
-  newly arriving or departing vehicle in the same frame to trigger normally.
+| Lane | Signal | Source | Strength |
+| --- | --- | --- | --- |
+| **01** | `tsvector` BM25 | Indexed object labels, scene captions, and observation attributes | Exact keyword, plate text, and structured attribute recall. |
+| **02** | Caption Embedding Cosine | `serviceradar-camera-vlm` (`Qwen3.5-4B`) scene descriptions | Natural-language action and intent matching. |
+| **03** | `SigLIP` Visual Cosine | `serviceradar-media-worker` visual frame embeddings | Cross-modal visual recall for details not named in captions. |
 
 ## Vantage ML Extensibility and `serviceradar-sdk-vantage`
 
-Beyond built-in detection and semantic search, Vantage supports custom vertical
-video analytics (such as Automatic License Plate Recognition (ALPR), PPE
-compliance, hazard monitoring, or bay approach guidance) packaged and
-distributed as signed **Solution Packs** (`pack_format_version: 1`).
+Custom vertical video analytics -- such as Automatic License Plate Recognition
+(ALPR), PPE compliance, hazard monitoring, or bay guidance -- ship as signed
+**Solution Packs** (`pack_format_version: 1`). Pipelines declare selectors,
+Stage 1 triggers, ROI zones, and rate limits in `vantage_pipelines/*.json`
+(`ServiceRadar.Camera.VantagePipeline`) and emit structured results solely
+through `media.results.vantage.v1` -> `core-elx` `EventWriter` ->
+`platform.camera_vantage_observations`.
 
-Custom pipelines declare selectors, Stage 1 triggers, ROI zones, and rate limits
-in `vantage_pipelines/*.json` (`ServiceRadar.Camera.VantagePipeline`) and write
-structured results exclusively through NATS JetStream
-(`media.results.vantage.v1` -> Core `EventWriter`) into
-`platform.camera_vantage_observations`. Observations are retention-coupled to
-their source recording blocks, indexed for full-text and SRQL queries, and
-rendered automatically on Vantage's timeline rail, clip overlays, and search.
+![Three progressive Vantage compute ramps converging into JetStream observations and signed Solution Packs](/img/vantage-sdk-three-ramps.svg)
+
+*Figure 3 -- Progressive compute ramps sharing one canonical JetStream subject, CNPG observation schema, SRQL entity, and signed `.srpack` distribution format.*
 
 ### Three Progressive Compute Ramps
 
-All three ramps produce the same canonical observation contract and ship inside
-standard Solution Packs:
+| Ramp | Execution Model | Media Access | Credentials | Best For |
+| --- | --- | --- | --- | --- |
+| **Ramp 1: Declarative VLM** | Zero-code JSON pipeline executed by `serviceradar-camera-vlm` (`Qwen3.5-4B` or OpenAI-compatible VLM) on **full-resolution cropped IDR keyframes** with multi-frame track consensus. | In-cluster crop extraction (avoids `480x270` thumbnail ceiling) | None | Rapid prototyping, OCR/ALPR, PPE checks, and scene classification with no custom container. |
+| **Ramp 2: External Worker (`vantage.worker.v1`)** | Out-of-process Rust or Python worker built with `serviceradar-sdk-vantage` (Rust core crate + PyO3 bindings + synthetic dev harness). | Scoped **Fragment Read Grants** (`POST /v1/media/workers/read-grants`) with SHA-256 verification; supports `:recorded_block` and `:live_keyframe_tap`. | Zero DB credentials | High-throughput or specialized models (Candle, ONNX, TensorRT, PyTorch) isolated across a process/network boundary. |
+| **Ramp 3: WASM Action Bridge** | Sandboxed `wazero` plugin (`serviceradar-sdk-go` / `serviceradar-sdk-rust`) consuming observations and OCSF events. | Observation & event payloads | Brokered CNPG credentials only | Deterministic watchlist matching, webhook signing, ticket creation, and gate/relay triggers. |
 
-| Ramp | Execution Model | Best For |
-| --- | --- | --- |
-| **Ramp 1: Declarative VLM Prompt Pipelines** | Zero-code JSON pipeline definitions executed by `serviceradar-camera-vlm` (`Qwen3.5-4B` or configured OpenAI-compatible VLM) on **full-resolution cropped IDR keyframes** around Stage 1 detections (avoiding the readability ceiling of `480x270` full-scene thumbnails) with multi-frame track consensus. | Fast prototyping, OCR/ALPR, PPE checks, and scene classification with no custom container to build or host. |
-| **Ramp 2: External Vantage Workers (`vantage.worker.v1`)** | Out-of-process Rust or Python workers built with **`serviceradar-sdk-vantage`** (Rust core crate wrapping `serviceradar-media-core` + Python PyO3 bindings + synthetic local dev harness). Workers pull jobs from JetStream, fetch sealed H.264 blocks via execution-time scoped **Fragment Read Grants** (`POST /v1/media/workers/read-grants`) with SHA-256 verification, and run with **zero database credentials**. | High-throughput or specialized models (Candle, ONNX, TensorRT, PyTorch) and third-party CV engines isolated across a process/network boundary. |
-| **Ramp 3: WASM Action Bridges** | Connects Vantage observations and OCSF events to sandboxed `wazero` Wasm plugins (`serviceradar-sdk-go` / `serviceradar-sdk-rust`) for deterministic post-processing, external watchlist/API enrichment via brokered CNPG credentials, and northbound actions (such as gate or relay triggers). | Watchlist matching, ticket creation, webhook signing, and physical access/relay automation. |
+### Reference ALPR Solution Pack (`io.serviceradar.vantage-alpr`)
 
-The `vantage.worker.v1` frame envelope supports both `:recorded_block` (sealed
-NVR blocks via Fragment Read Grants) and `:live_keyframe_tap` (bounded
-camera-sharded live keyframe tap) so the same worker handler scales from
-post-seal analytics to sub-second operational guidance without redesigning the
-SDK or Solution Pack format.
+ServiceRadar ships an Apache-2.0 reference pack, `io.serviceradar.vantage-alpr`,
+bundling `vantage_pipelines/`, `signal_schemas/`, OCSF alert rules, and an
+optional Dashboard SDK camera module in one ed25519-signed `.srpack`:
+
+- **Starts on Ramp 1**: Triggers on Stage 1 `vehicle` detections, crops
+  full-resolution IDR keyframes, and runs structured JSON extraction against
+  `serviceradar-camera-vlm` with multi-frame track consensus.
+- **Upgrades to Ramp 2 with zero downstream changes**: Deploying a compatible
+  `vantage.alpr.v1` external worker routes pipeline jobs to the worker
+  automatically while preserving the exact same SRQL queries, timeline markers,
+  and alert rules.
 
 ### Querying Observations with SRQL (`in:camera_observations`)
 
-Every Vantage pipeline observation is queryable in SRQL alongside network and
-security telemetry:
+| Use Case | SRQL Query |
+| --- | --- |
+| Recent ALPR reads on a gate camera | `in:camera_observations pipeline:"alpr" camera:"cam-north-gate-01" time:last_24h` |
+| High-confidence reads across a site | `in:camera_observations site:"site-a" signal_type:"license_plate_read" confidence:>=0.90` |
+| Exact synthetic plate lookup | `in:camera_observations pipeline:"vantage-alpr" plate_text:"ABC-1234" time:last_7d` |
 
-```text
-in:camera_observations pipeline:"alpr" camera:"cam-north-gate-01" time:last_24h
-```
-
-Synthetic example observation payload (stored in
-`platform.camera_vantage_observations` for synthetic camera
-`00000000-0000-0000-0000-000000000001` at `site-a` / `192.0.2.10`):
+Synthetic observation record in `platform.camera_vantage_observations` for
+camera `00000000-0000-0000-0000-000000000001` (`cam-north-gate-01`, `site-a`,
+`192.0.2.10`):
 
 ```json
 {
@@ -197,25 +180,6 @@ Synthetic example observation payload (stored in
 }
 ```
 
-### Reference ALPR Solution Pack (`io.serviceradar.vantage-alpr`)
-
-ServiceRadar ships a first-party Apache-2.0 reference pack,
-`io.serviceradar.vantage-alpr`, demonstrating the full Vantage extensibility
-stack:
-
-- **Works out of the box on Ramp 1**: Triggers on Stage 1 `vehicle` detections,
-  extracts full-resolution cropped IDR keyframes, and runs a structured JSON
-  prompt against `serviceradar-camera-vlm` (`Qwen3.5-4B`) with multi-frame track
-  consensus.
-- **Upgrades seamlessly to Ramp 2**: When an operator deploys a compatible
-  `vantage.alpr.v1` external worker (such as a permissive ONNX/Candle plate+OCR
-  worker built with `serviceradar-sdk-vantage`), the pipeline dispatcher routes
-  jobs to the worker automatically without changing dashboards, alerts, or SRQL
-  queries.
-- **Bundles everything in one signed `.srpack`**: Combines the
-  `vantage_pipelines/` definition, `signal_schemas/`, OCSF alert rules, and an
-  optional Dashboard SDK camera console module.
-
 ## Related Pages
 
 - [Camera Recording & NVR](./camera-recording.md) -- NVR spool topology, S3
@@ -231,3 +195,5 @@ stack:
   `serviceradar-sdk-vantage`.
 - [Credential Management](./credentials.md) -- unified CNPG credentials and
   brokered access rules.
+- [Roles & Permissions](./rbac-and-roles.md) -- camera live, playback, and
+  legal hold RBAC permissions.
