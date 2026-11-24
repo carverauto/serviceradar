@@ -624,7 +624,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         <section
           id="camera-timeline-coverage-section"
           aria-label="Vertical timeline scrubber"
-          class="flex flex-col rounded-xl border border-sr-line bg-sr-surface p-2.5 lg:max-h-[42rem]"
+          class="flex flex-col overflow-hidden rounded-xl border border-sr-line bg-sr-surface p-2.5 lg:max-h-[42rem]"
         >
           <%!-- LIVE + Latest Edge Buttons --%>
           <div class="flex items-center gap-1">
@@ -750,7 +750,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           </form>
 
           <%!-- Vertical Interactive Coverage Bar (Newest Top -> Oldest Bottom) --%>
-          <div class="mt-2 flex min-h-[16rem] flex-1 gap-1.5 overflow-hidden">
+          <div class="mt-2 flex min-h-[15rem] flex-1 gap-1.5 overflow-hidden">
             <%!-- Left Time Ticks Column --%>
             <div class="flex w-11 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[9px] leading-tight text-sr-muted">
               <span :if={coverage_field(@coverage, :to_us)} id="camera-timeline-span-end">
@@ -867,7 +867,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           </div>
 
           <%!-- Compact Gaps Popover + Legend Footer --%>
-          <div class="mt-2 space-y-1.5 border-t border-sr-line pt-2 text-[10px]">
+          <div
+            id="camera-timeline-rail-footer"
+            class="mt-2 min-h-0 shrink-0 space-y-1.5 border-t border-sr-line pt-2 text-[10px] lg:max-h-56 lg:overflow-y-auto lg:pr-0.5"
+          >
             <details
               :if={@gaps_total_count > 0}
               id="camera-timeline-gaps-details"
@@ -893,7 +896,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   <span class="font-semibold">{entry.count}</span>
                 </span>
               </div>
-              <div id="camera-timeline-gaps" class="mt-1.5 max-h-40 space-y-1 overflow-y-auto">
+              <div id="camera-timeline-gaps" class="mt-1.5 max-h-36 space-y-1 overflow-y-auto">
                 <div
                   :for={{gap, idx} <- Enum.with_index(@paged_gaps)}
                   id={"camera-timeline-gap-#{coverage_field(gap, :id) || idx}"}
@@ -966,7 +969,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
             <details id="camera-timeline-legend-details" class="text-sr-muted">
               <summary class="cursor-pointer font-medium hover:text-sr-ink">Legend</summary>
-              <div id="camera-timeline-legend" class="mt-1.5 space-y-1">
+              <div id="camera-timeline-legend" class="mt-1.5 max-h-36 space-y-1 overflow-y-auto">
                 <div
                   :for={{state, label} <- legend_entries()}
                   data-legend-state={state}

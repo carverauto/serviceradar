@@ -271,8 +271,79 @@ test("recorded gaps popover renders reason summary, 10 newest-first items per pa
 
   // Zero horizontal overflow with popover expanded + capture desktop visual evidence
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+  // Verify Gaps popover and Legend remain strictly contained inside #camera-timeline-coverage-section
+  const coverageSection = page.locator("#camera-timeline-coverage-section")
+  const railFooter = page.locator("#camera-timeline-rail-footer")
+  const coverageBar = page.locator("#camera-timeline-coverage-bar")
+  const legendDetails = page.locator("#camera-timeline-legend-details")
+
+  const gapsOnlyGeometry = await page.evaluate(() => {
+    const section = document.getElementById("camera-timeline-coverage-section")
+    const footer = document.getElementById("camera-timeline-rail-footer")
+    const bar = document.getElementById("camera-timeline-coverage-bar")
+    const gaps = document.getElementById("camera-timeline-gaps-details")
+    const legend = document.getElementById("camera-timeline-legend-details")
+    return {
+      sectionBox: section.getBoundingClientRect(),
+      footerBox: footer.getBoundingClientRect(),
+      barBox: bar.getBoundingClientRect(),
+      gapsBox: gaps.getBoundingClientRect(),
+      legendBox: legend.getBoundingClientRect(),
+      footerScrollHeight: footer.scrollHeight,
+      footerClientHeight: footer.clientHeight,
+    }
+  })
+
+  expect(gapsOnlyGeometry.sectionBox.height).toBeLessThanOrEqual(673)
+  expect(gapsOnlyGeometry.barBox.height).toBeGreaterThanOrEqual(200)
+  expect(gapsOnlyGeometry.footerBox.bottom).toBeLessThanOrEqual(gapsOnlyGeometry.sectionBox.bottom - 8)
+  expect(gapsOnlyGeometry.footerScrollHeight).toBeGreaterThan(gapsOnlyGeometry.footerClientHeight)
+  expect(gapsOnlyGeometry.gapsBox.top).toBeGreaterThanOrEqual(gapsOnlyGeometry.footerBox.top - 1)
+
   await page.screenshot({path: testInfo.outputPath("timeline-workspace-gaps-open.png"), fullPage: true})
   await details.screenshot({path: testInfo.outputPath("timeline-gaps-popover-open.png")})
+
+  // Expand Legend while Gaps is also expanded; both must remain strictly contained inside the card
+  await legendDetails.locator("summary").click()
+  expect(await details.evaluate(el => el.open)).toBe(true)
+  expect(await legendDetails.evaluate(el => el.open)).toBe(true)
+
+  const bothExpandedGeometry = await page.evaluate(() => {
+    const section = document.getElementById("camera-timeline-coverage-section")
+    const footer = document.getElementById("camera-timeline-rail-footer")
+    const bar = document.getElementById("camera-timeline-coverage-bar")
+    const gaps = document.getElementById("camera-timeline-gaps-details")
+    const legend = document.getElementById("camera-timeline-legend-details")
+
+    footer.scrollTop = footer.scrollHeight
+    const scrolledLegendBox = legend.getBoundingClientRect()
+    footer.scrollTop = 0
+
+    return {
+      sectionBox: section.getBoundingClientRect(),
+      footerBox: footer.getBoundingClientRect(),
+      barBox: bar.getBoundingClientRect(),
+      gapsBox: gaps.getBoundingClientRect(),
+      scrolledLegendBox,
+      footerScrollHeight: footer.scrollHeight,
+      footerClientHeight: footer.clientHeight,
+    }
+  })
+
+  expect(bothExpandedGeometry.sectionBox.height).toBeLessThanOrEqual(673)
+  expect(bothExpandedGeometry.barBox.height).toBeGreaterThanOrEqual(200)
+  expect(bothExpandedGeometry.footerBox.bottom).toBeLessThanOrEqual(bothExpandedGeometry.sectionBox.bottom - 8)
+  expect(bothExpandedGeometry.footerScrollHeight).toBeGreaterThan(bothExpandedGeometry.footerClientHeight)
+  expect(bothExpandedGeometry.scrolledLegendBox.bottom).toBeLessThanOrEqual(bothExpandedGeometry.footerBox.bottom + 1)
+  expect(bothExpandedGeometry.scrolledLegendBox.bottom).toBeLessThanOrEqual(bothExpandedGeometry.sectionBox.bottom - 8)
+  await expect(coverageSection).toBeVisible()
+  await expect(railFooter).toBeVisible()
+  await expect(coverageBar).toBeVisible()
+  await page.screenshot({path: testInfo.outputPath("timeline-workspace-gaps-legend-open.png"), fullPage: true})
+
+  await legendDetails.locator("summary").click()
+  expect(await legendDetails.evaluate(el => el.open)).toBe(false)
 
   // Adversarial check: clicking Next triggers select_gaps_page(page=2) and a LiveView patch
   // stripping `open` is restored by DetailsState so the popover stays open.
