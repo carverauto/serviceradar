@@ -87,6 +87,7 @@ py_test(
     # Fresh release VMs and real deadline tests exceed the five-minute default.
     timeout = "long",
     srcs = ["test/release_test.py"],
+    shard_count = 4,
     data = [
         "test/release_probe.exs",
         ":release_tar",
