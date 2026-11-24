@@ -193,6 +193,7 @@ pub(super) const ISP_ACCOUNTABILITY_SPEC: HorizonSpec = HorizonSpec {
     f64_fields: &["forwarding_loss_pct", "avg_rtt_ms", "max_rtt_ms"],
     bool_fields: &[],
     sort_fields: &[
+        "day",
         "bucket_hour",
         "asn",
         "as_org",

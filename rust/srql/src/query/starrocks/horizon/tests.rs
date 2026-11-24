@@ -181,10 +181,15 @@ fn rejects_non_starrocks_mode_and_removed_aliases() {
         "horizon_paths",
         "horizon_isp_accountability",
     ] {
-        assert!(matches!(
-            translate_with_mode(&format!("in:{entity} limit:10"), None),
-            Err(ServiceError::InvalidRequest(_))
-        ));
+        for mode in [None, Some("cnpg"), Some("postgres")] {
+            assert!(
+                matches!(
+                    translate_with_mode(&format!("in:{entity} limit:10"), mode),
+                    Err(ServiceError::InvalidRequest(_))
+                ),
+                "expected InvalidRequest for entity '{entity}' with mode {mode:?}"
+            );
+        }
     }
 
     for removed_alias in [
@@ -221,5 +226,81 @@ fn rejects_unknown_filters_and_unsupported_clauses() {
     assert!(matches!(
         translate_starrocks("in:horizon_paths bucket:5m"),
         Err(ServiceError::InvalidRequest(_))
+    ));
+}
+
+#[test]
+fn rejects_non_finite_floats() {
+    for query in [
+        "in:horizon_isp_accountability forwarding_loss_pct:NaN",
+        "in:horizon_isp_accountability forwarding_loss_pct:nan",
+        "in:horizon_isp_accountability avg_rtt_ms:>inf",
+        "in:horizon_isp_accountability max_rtt_ms:<-inf",
+        "in:horizon_isp_accountability forwarding_loss_pct:Infinity",
+        "in:horizon_isp_accountability forwarding_loss_pct:-Infinity",
+        "in:horizon_outages avg_forwarding_loss_pct:NaN",
+        "in:horizon_zombies divergence_pct:>inf",
+        "in:horizon_paths avg_rtt_ms:<-inf",
+    ] {
+        assert!(
+            matches!(translate_starrocks(query), Err(ServiceError::InvalidRequest(_))),
+            "expected InvalidRequest for non-finite float query '{query}'"
+        );
+    }
+}
+
+#[test]
+fn supports_day_sort_and_rejects_unknown_sort_fields() {
+    let day_asc = translate_starrocks("in:horizon_isp_accountability sort:day:asc limit:10")
+        .expect("sort:day:asc should translate");
+    assert!(day_asc.sql.contains("ORDER BY `day` ASC"));
+
+    for bad_sort in [
+        "in:horizon_isp_accountability sort:unknown_field:asc",
+        "in:horizon_isp_accountability sort:bucket_hour:asc,unknown_field:desc",
+        "in:horizon_outages sort:bucket_hour:asc",
+        "in:horizon_bgp sort:unknown_field:desc",
+    ] {
+        assert!(
+            matches!(
+                translate_starrocks(bad_sort),
+                Err(ServiceError::InvalidRequest(_))
+            ),
+            "expected InvalidRequest for '{bad_sort}'"
+        );
+    }
+}
+
+#[test]
+fn supports_integer_in_lists_and_validates_numeric_and_bool_operators() {
+    let asn_in = translate_starrocks("in:horizon_isp_accountability asn:(13335,15169)")
+        .expect("integer IN-list should translate");
+    assert!(asn_in.sql.contains("`asn` IN (13335, 15169)"));
+
+    let asn_not_in = translate_starrocks("in:horizon_isp_accountability !asn:(13335,15169)")
+        .expect("integer NOT IN-list should translate");
+    assert!(asn_not_in.sql.contains("`asn` NOT IN (13335, 15169)"));
+
+    let mtu_in = translate_starrocks("in:horizon_isp_accountability min_effective_mtu:(1400,1500)")
+        .expect("i32 IN-list should translate");
+    assert!(mtu_in.sql.contains("`min_effective_mtu` IN (1400, 1500)"));
+
+    assert!(matches!(
+        translate_starrocks("in:horizon_isp_accountability asn:(13335,not_an_int)"),
+        Err(ServiceError::InvalidRequest(_))
+    ));
+
+    let float_list_err = translate_starrocks("in:horizon_isp_accountability forwarding_loss_pct:(1.0,2.0)")
+        .expect_err("float list filter should fail operator check");
+    assert!(matches!(
+        float_list_err,
+        ServiceError::InvalidRequest(ref msg) if msg.contains("equality and ordered comparisons")
+    ));
+
+    let bool_list_err = translate_starrocks("in:horizon_zombies is_beacon:(true,false)")
+        .expect_err("bool list filter should fail operator check");
+    assert!(matches!(
+        bool_list_err,
+        ServiceError::InvalidRequest(ref msg) if msg.contains("only supports equality comparisons")
     ));
 }
