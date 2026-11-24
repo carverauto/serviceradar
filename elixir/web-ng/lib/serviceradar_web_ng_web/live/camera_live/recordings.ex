@@ -61,6 +61,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   @roi_grid_cell_count @roi_grid_cols * @roi_grid_rows
 
   @span_order ["15m", "1h", "6h", "24h", "7d"]
+  @smart_clip_categories ~w(person vehicle animal package object)
+  @basic_clip_categories ~w(motion recording)
 
   @span_durations_us %{
     "15m" => 15 * 60_000_000,
@@ -997,11 +999,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   def handle_event("filter_event_clips_mode", %{"mode" => raw_mode}, socket) do
     mode = parse_clips_mode(raw_mode)
+    category = reconcile_category_for_mode(mode, socket.assigns.timeline_clips_category)
 
     socket =
       socket
       |> assign(
         timeline_clips_mode: mode,
+        timeline_clips_category: category,
         timeline_clips_mode_user_set?: true,
         timeline_clips_page: 1
       )
@@ -1012,10 +1016,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   def handle_event("filter_event_clips_category", %{"category" => raw_category}, socket) do
     category = parse_clips_category(raw_category)
+    mode = reconcile_mode_for_category(category, socket.assigns.timeline_clips_mode)
 
     socket =
       socket
       |> assign(
+        timeline_clips_mode: mode,
         timeline_clips_category: category,
         timeline_clips_mode_user_set?: true,
         timeline_clips_page: 1
@@ -3010,7 +3016,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp load_event_clips_with_smart_default(socket, source_id, from_us, to_us, profile_id, catalog_blocks, scope) do
     if socket.assigns[:timeline_clips_mode_user_set?] do
       mode = socket.assigns.timeline_clips_mode
-      category = socket.assigns.timeline_clips_category
+      category = reconcile_category_for_mode(mode, socket.assigns.timeline_clips_category)
 
       page =
         load_event_clips_page(
@@ -3739,6 +3745,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     do: cat
 
   defp parse_clips_category(_), do: "all"
+
+  defp reconcile_category_for_mode("smart", category) when category in @basic_clip_categories, do: "all"
+  defp reconcile_category_for_mode("basic", category) when category in @smart_clip_categories, do: "all"
+  defp reconcile_category_for_mode(_mode, category), do: category
+
+  defp reconcile_mode_for_category(category, "smart") when category in @basic_clip_categories, do: "basic"
+  defp reconcile_mode_for_category(category, "basic") when category in @smart_clip_categories, do: "smart"
+  defp reconcile_mode_for_category(_category, mode), do: mode
 
   defp parse_fraction(val) when is_float(val) and val >= 0.0 and val <= 1.0, do: {:ok, val}
   defp parse_fraction(val) when is_integer(val) and val in [0, 1], do: {:ok, val * 1.0}
