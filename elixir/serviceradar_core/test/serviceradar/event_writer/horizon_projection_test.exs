@@ -3,6 +3,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
 
   import ExUnit.CaptureLog
 
+  alias Broadway.Message
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
@@ -10,6 +11,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
   alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.Analytics.StarRocks.Schema
   alias ServiceRadar.Analytics.StarRocks.SchemaMigrator
+  alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.HorizonProjection
   alias ServiceRadar.TestSupport.StreamLoadFE
@@ -301,31 +303,44 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       %{outages: [], bgp_events: [], bgp_zombies: [], path_hops: [hop]} =
         HorizonProjection.build_projections([path_hop_row()])
 
-      assert hop.time == ~U[2026-11-23 16:15:00Z]
-      assert hop.round_id == "round-42"
-      assert hop.target_id == "saas-github-web"
-      assert hop.pop_id == "vantage-deadbeef"
-      assert hop.hop_ttl == 5
-      assert hop.hop_ip == "198.51.100.5"
-      assert hop.router_alias_id == "rtr-iad-01"
-      assert hop.alias_confidence == 0.95
-      assert hop.asn == 13_335
-      assert hop.as_org == "Cloudflare, Inc."
-      assert hop.is_cloud == true
-      assert hop.cloud_provider == "cloudflare"
-      assert hop.cloud_region == "us-east"
-      assert hop.forwarding_loss_pct == 12.5
-      assert hop.avg_rtt_ms == 8.4
-      assert hop.effective_path_mtu == 1500
-      assert hop.mtu_blackhole_detected == true
-      assert hop.blackhole_hop_ttl == 6
-      assert hop.raw_data["alias_confidence"] == 0.95
-      assert hop.raw_data["round_id"] == "round-42"
+      assert map_size(hop) == 19
+
+      assert %{
+               time: ~U[2026-11-23 16:15:00Z],
+               round_id: "round-42",
+               target_id: "saas-github-web",
+               pop_id: "vantage-deadbeef",
+               hop_ttl: 5,
+               hop_ip: "198.51.100.5",
+               router_alias_id: "rtr-iad-01",
+               alias_confidence: 0.95,
+               asn: 13_335,
+               as_org: "Cloudflare, Inc.",
+               is_cloud: true,
+               cloud_provider: "cloudflare",
+               cloud_region: "us-east",
+               forwarding_loss_pct: 12.5,
+               avg_rtt_ms: 8.4,
+               effective_path_mtu: 1500,
+               mtu_blackhole_detected: true,
+               blackhole_hop_ttl: 6,
+               raw_data: %{"alias_confidence" => 0.95, "round_id" => "round-42"}
+             } = hop
 
       [encoded] = Rows.encode(:horizon_path_hops, [hop])
-      assert encoded["round_id"] == "round-42"
-      assert encoded["alias_confidence"] == 0.95
-      assert encoded["mtu_blackhole_detected"] == true
+      assert encoded |> Map.keys() |> Enum.sort() == path_hops_ddl_columns()
+
+      for col <- path_hops_not_null_columns() do
+        refute is_nil(Map.fetch!(encoded, col)),
+               "NOT NULL column #{col} must not encode as nil"
+      end
+
+      assert %{
+               "round_id" => "round-42",
+               "alias_confidence" => 0.95,
+               "mtu_blackhole_detected" => true
+             } = encoded
+
       assert {:ok, _json} = Jason.encode(encoded)
     end
 
@@ -359,6 +374,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
         path_hop_row(%{
           "id" => "horizon.path_hops:round-43:vantage-12345678:2:1763914500000",
           "unmapped" => %{
+            "observed_at_unix_ms" => 1_700_000_000_000,
             "round_id" => "round-43",
             "target_id" => "dns-example-01",
             "pop_id" => "vantage-12345678",
@@ -368,6 +384,27 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
             "asn" => "AS64512",
             "forwarding_loss_pct" => "0.5",
             "avg_rtt_ms" => "4"
+          }
+        })
+
+      ttl_zero_hop =
+        path_hop_row(%{
+          "id" => "horizon.path_hops:round-43:vantage-12345678:0:1763914500000",
+          "unmapped" => %{
+            "round_id" => "round-43",
+            "target_id" => "dns-example-01",
+            "pop_id" => "vantage-12345678",
+            "hop_ttl" => 0
+          }
+        })
+
+      other_pop_hop =
+        path_hop_row(%{
+          "id" => "horizon.path_hops:round-42:vantage-otherpop:5:1763914500000",
+          "unmapped" => %{
+            "pop_id" => "vantage-otherpop",
+            "hop_ip" => "198.51.100.15",
+            "avg_rtt_ms" => 11.2
           }
         })
 
@@ -388,6 +425,12 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
             "hop_ttl" => 1
           }
         })
+
+      control_event_hop =
+        path_hop_row(%{"log_name" => "horizon.path_hop.snapshot_complete"})
+
+      plural_log_name_hop =
+        path_hop_row(%{"log_name" => "horizon.path_hops"})
 
       dup1 = path_hop_row(%{"unmapped" => %{"avg_rtt_ms" => 8.4, "alias_confidence" => "0.75"}})
       dup2 = path_hop_row(%{"unmapped" => %{"avg_rtt_ms" => 9.1, "alias_confidence" => "0.85"}})
@@ -410,48 +453,71 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
         })
 
       malformed_negative_ttl = path_hop_row(%{"unmapped" => %{"hop_ttl" => -1}})
+      malformed_blank_round = path_hop_row(%{"unmapped" => %{"round_id" => "   "}})
+      malformed_blank_target = path_hop_row(%{"unmapped" => %{"target_id" => ""}})
+      malformed_nil_pop = path_hop_row(%{"unmapped" => %{"pop_id" => nil}})
 
       %{path_hops: hops} =
         HorizonProjection.build_projections([
           timeout_hop,
           coerced_hop,
+          ttl_zero_hop,
+          other_pop_hop,
           provider_only_hop,
+          control_event_hop,
+          plural_log_name_hop,
           dup1,
           dup2,
           malformed_missing_ttl,
-          malformed_negative_ttl
+          malformed_negative_ttl,
+          malformed_blank_round,
+          malformed_blank_target,
+          malformed_nil_pop
         ])
 
-      assert length(hops) == 3
+      assert length(hops) == 5
 
-      by_key = Map.new(hops, &{{&1.round_id, &1.hop_ttl}, &1})
+      by_key = Map.new(hops, &{{&1.round_id, &1.pop_id, &1.hop_ttl}, &1})
 
-      t_hop = by_key[{"round-42", 6}]
-      assert t_hop.hop_ip == nil
-      assert t_hop.router_alias_id == nil
-      assert t_hop.alias_confidence == nil
-      assert t_hop.asn == nil
-      assert t_hop.as_org == nil
-      assert t_hop.is_cloud == false
-      assert t_hop.cloud_provider == nil
-      assert t_hop.cloud_region == nil
-      assert t_hop.forwarding_loss_pct == 100.0
-      assert t_hop.avg_rtt_ms == 0.0
-      assert t_hop.effective_path_mtu == nil
-      assert t_hop.mtu_blackhole_detected == false
-      assert t_hop.blackhole_hop_ttl == nil
+      assert %{
+               hop_ip: nil,
+               router_alias_id: nil,
+               alias_confidence: nil,
+               asn: nil,
+               as_org: nil,
+               is_cloud: false,
+               cloud_provider: nil,
+               cloud_region: nil,
+               forwarding_loss_pct: 100.0,
+               avg_rtt_ms: 0.0,
+               effective_path_mtu: nil,
+               mtu_blackhole_detected: false,
+               blackhole_hop_ttl: nil
+             } = t_hop = by_key[{"round-42", "vantage-deadbeef", 6}]
 
-      c_hop = by_key[{"round-43", 2}]
-      assert c_hop.time == ~U[2026-11-23 16:15:00Z]
-      assert c_hop.alias_confidence == nil
-      assert c_hop.raw_data["alias_confidence"] == "high"
-      assert c_hop.asn == 64_512
-      assert c_hop.forwarding_loss_pct == 0.5
-      assert c_hop.avg_rtt_ms == 4.0
+      [encoded_timeout] = Rows.encode(:horizon_path_hops, [t_hop])
 
-      deduped = by_key[{"round-42", 5}]
-      assert deduped.avg_rtt_ms == 9.1
-      assert deduped.alias_confidence == 0.85
+      for col <- path_hops_not_null_columns() do
+        refute is_nil(Map.fetch!(encoded_timeout, col)),
+               "NOT NULL column #{col} must not encode as nil for timeout hop"
+      end
+
+      assert %{
+               time: ~U[2026-11-23 16:15:00Z],
+               alias_confidence: nil,
+               raw_data: %{"alias_confidence" => "high"},
+               asn: 64_512,
+               forwarding_loss_pct: 0.5,
+               avg_rtt_ms: 4.0
+             } = by_key[{"round-43", "vantage-12345678", 2}]
+
+      assert %{hop_ttl: 0} = by_key[{"round-43", "vantage-12345678", 0}]
+
+      assert %{avg_rtt_ms: 9.1, alias_confidence: 0.85} =
+               by_key[{"round-42", "vantage-deadbeef", 5}]
+
+      assert %{hop_ip: "198.51.100.15", avg_rtt_ms: 11.2} =
+               by_key[{"round-42", "vantage-otherpop", 5}]
     end
   end
 
@@ -651,27 +717,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
     end
 
     test "projects Horizon rows when events are cut over to the StarRocks warehouse path" do
-      prev = Application.get_env(:serviceradar_core, StarRocks)
-
-      on_exit(fn ->
-        if prev == nil do
-          Application.delete_env(:serviceradar_core, StarRocks)
-        else
-          Application.put_env(:serviceradar_core, StarRocks, prev)
-        end
-      end)
-
-      if Process.whereis(LoadSupervisor) == nil do
-        start_supervised!({LoadSupervisor, [max_in_flight: 2, wait_timeout_ms: 5_000]})
-      end
-
-      fe_http = StreamLoadFE.start!()
-
-      Application.put_env(:serviceradar_core, StarRocks,
-        enabled: true,
-        cutover_datasets: [:events],
-        fe_http: fe_http
-      )
+      configure_starrocks_fe!(StreamLoadFE.start!())
 
       parent = self()
       handler_id = {__MODULE__, :stream_load_spy, make_ref()}
@@ -730,17 +776,29 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
 
       assert [
                %{
+                 "time" => "2026-11-23T16:15:00Z",
                  "round_id" => "round-42",
                  "target_id" => "saas-github-web",
                  "pop_id" => "vantage-deadbeef",
                  "hop_ttl" => 5,
                  "hop_ip" => "198.51.100.5",
+                 "router_alias_id" => "rtr-iad-01",
                  "alias_confidence" => 0.95,
                  "asn" => 13_335,
+                 "as_org" => "Cloudflare, Inc.",
+                 "is_cloud" => true,
+                 "cloud_provider" => "cloudflare",
+                 "cloud_region" => "us-east",
+                 "forwarding_loss_pct" => 12.5,
+                 "avg_rtt_ms" => 8.4,
+                 "effective_path_mtu" => 1500,
                  "mtu_blackhole_detected" => true,
-                 "blackhole_hop_ttl" => 6
-               }
+                 "blackhole_hop_ttl" => 6,
+                 "raw_data" => %{"round_id" => "round-42"}
+               } = wire_hop
              ] = hop_rows
+
+      assert wire_hop |> Map.keys() |> Enum.sort() == path_hops_ddl_columns()
     end
 
     test "encodes all four Horizon datasets for StarRocks Stream Load JSON" do
@@ -822,27 +880,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
     end
 
     test "Events.store_event_rows fails open over HTTP when one Horizon table Stream Load fails" do
-      prev = Application.get_env(:serviceradar_core, StarRocks)
-
-      on_exit(fn ->
-        if prev == nil do
-          Application.delete_env(:serviceradar_core, StarRocks)
-        else
-          Application.put_env(:serviceradar_core, StarRocks, prev)
-        end
-      end)
-
-      if Process.whereis(LoadSupervisor) == nil do
-        start_supervised!({LoadSupervisor, [max_in_flight: 2, wait_timeout_ms: 5_000]})
-      end
-
-      fe_http = start_partial_fail_fe!("horizon_outages")
-
-      Application.put_env(:serviceradar_core, StarRocks,
-        enabled: true,
-        cutover_datasets: [:events],
-        fe_http: fe_http
-      )
+      configure_starrocks_fe!(start_partial_fail_fe!("horizon_outages"))
 
       watchlist_row =
         ocsf_row(%{
@@ -867,15 +905,21 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
 
       log =
         capture_log(fn ->
-          assert {:ok, 2} = Events.store_event_rows([outage_row("out-fail-http"), watchlist_row])
+          assert {:ok, 3} =
+                   Events.store_event_rows([
+                     outage_row("out-fail-http"),
+                     watchlist_row,
+                     path_hop_row()
+                   ])
         end)
 
       assert log =~ "Horizon StarRocks projection failed for horizon_outages (fail-open)"
       assert_receive {:wire_table, "events", event_rows}, 5_000
       assert_receive {:wire_table, "horizon_outages", _failed_outage_rows}, 5_000
       assert_receive {:wire_table, "horizon_bgp_events", bgp_rows}, 5_000
+      assert_receive {:wire_table, "horizon_path_hops", hop_rows}, 5_000
 
-      assert length(event_rows) == 2
+      assert length(event_rows) == 3
 
       assert [
                %{
@@ -886,6 +930,112 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
                  "client_label" => "Synthetic Prefix"
                }
              ] = bgp_rows
+
+      assert [
+               %{
+                 "round_id" => "round-42",
+                 "target_id" => "saas-github-web",
+                 "pop_id" => "vantage-deadbeef",
+                 "hop_ttl" => 5
+               } = wire_hop
+             ] = hop_rows
+
+      assert wire_hop |> Map.keys() |> Enum.sort() == path_hops_ddl_columns()
+    end
+
+    test "Pipeline and Events fail open over HTTP when horizon_path_hops Stream Load fails" do
+      configure_starrocks_fe!(start_partial_fail_fe!("horizon_path_hops"))
+
+      raw_messages =
+        Enum.map(
+          [
+            %{
+              "id" => "horizon.outages:out-hop-failopen:1763913600000",
+              "time" => "2026-11-23T16:00:00Z",
+              "class_uid" => 1008,
+              "category_uid" => 1,
+              "type_uid" => 100_801,
+              "activity_id" => 1,
+              "severity_id" => 5,
+              "log_name" => "horizon.outage",
+              "log_provider" => "horizon.outages",
+              "unmapped" => %{
+                "outage_id" => "out-hop-failopen",
+                "status" => "active",
+                "severity" => "major",
+                "entity_type" => "asn",
+                "entity_key" => "AS64512",
+                "affected_asn" => "AS64512",
+                "corroborating_pop_count" => 3
+              }
+            },
+            %{
+              "id" => "horizon.path_hops:round-99:vantage-failopen:4:1763914500000",
+              "time" => "2026-11-23T16:15:00Z",
+              "class_uid" => 1008,
+              "category_uid" => 1,
+              "type_uid" => 100_801,
+              "activity_id" => 1,
+              "severity_id" => 3,
+              "log_name" => "horizon.path_hop",
+              "log_provider" => "horizon.path_hops",
+              "unmapped" => %{
+                "round_id" => "round-99",
+                "target_id" => "target-failopen",
+                "pop_id" => "vantage-failopen",
+                "hop_ttl" => 4,
+                "hop_ip" => "198.51.100.44",
+                "asn" => 64_512,
+                "is_cloud" => false,
+                "forwarding_loss_pct" => 2.5,
+                "avg_rtt_ms" => 11.4,
+                "mtu_blackhole_detected" => false
+              }
+            }
+          ],
+          fn payload ->
+            %Message{
+              data: Jason.encode!(payload),
+              metadata: %{subject: "events.ocsf.processed"},
+              acknowledger: {Pipeline, :ack_ref, %{}}
+            }
+          end
+        )
+
+      routed = Enum.map(raw_messages, &Pipeline.handle_message(:default, &1, %{}))
+      assert Enum.all?(routed, &(&1.batcher == :events))
+      assert Pipeline.processor_for_batcher(:events) == Events
+
+      rows = Events.build_rows(routed)
+      assert length(rows) == 2
+
+      log =
+        capture_log(fn ->
+          assert {:ok, 2} = Events.store_event_rows(rows)
+        end)
+
+      assert log =~ "Horizon StarRocks projection failed for horizon_path_hops (fail-open)"
+      assert_receive {:wire_table, "events", event_rows}, 5_000
+      assert_receive {:wire_table, "horizon_outages", outage_rows}, 5_000
+      assert_receive {:wire_table, "horizon_path_hops", failed_hop_rows}, 5_000
+
+      assert length(event_rows) == 2
+      assert [%{"outage_id" => "out-hop-failopen", "origin_asn" => 64_512}] = outage_rows
+
+      assert [
+               %{
+                 "round_id" => "round-99",
+                 "target_id" => "target-failopen",
+                 "pop_id" => "vantage-failopen",
+                 "hop_ttl" => 4,
+                 "hop_ip" => "198.51.100.44",
+                 "asn" => 64_512,
+                 "is_cloud" => false,
+                 "mtu_blackhole_detected" => false
+               } = wire_hop
+             ] = failed_hop_rows
+
+      assert wire_hop |> Map.keys() |> Enum.sort() == path_hops_ddl_columns()
     end
   end
 
@@ -1003,5 +1153,49 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
           Map.put(headers, key |> to_string() |> String.downcase(), value)
         )
     end
+  end
+
+  defp configure_starrocks_fe!(fe_http) do
+    prev = Application.get_env(:serviceradar_core, StarRocks)
+
+    on_exit(fn ->
+      if prev == nil do
+        Application.delete_env(:serviceradar_core, StarRocks)
+      else
+        Application.put_env(:serviceradar_core, StarRocks, prev)
+      end
+    end)
+
+    if Process.whereis(LoadSupervisor) == nil do
+      start_supervised!({LoadSupervisor, [max_in_flight: 2, wait_timeout_ms: 5_000]})
+    end
+
+    Application.put_env(:serviceradar_core, StarRocks,
+      enabled: true,
+      cutover_datasets: [:events],
+      fe_http: fe_http
+    )
+  end
+
+  defp path_hops_ddl_columns do
+    scan_ddl_columns(~r/^\s+`?(\w+)`? [A-Z]/m)
+  end
+
+  defp path_hops_not_null_columns do
+    scan_ddl_columns(~r/^\s+`?(\w+)`? [A-Z][^\n]*\bNOT NULL\b/m)
+  end
+
+  defp scan_ddl_columns(pattern) do
+    prefix = "CREATE TABLE IF NOT EXISTS serviceradar.horizon_path_hops ("
+
+    create =
+      Schema.migrations()
+      |> Enum.flat_map(& &1.statements)
+      |> Enum.find(&String.starts_with?(&1, prefix))
+
+    pattern
+    |> Regex.scan(create)
+    |> Enum.map(&List.last/1)
+    |> Enum.sort()
   end
 end
