@@ -3032,21 +3032,23 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     source = socket.assigns.source
     scope = socket.assigns.current_scope
 
-    if is_map(source) and is_binary(source[:id]) do
-      overlay_detections =
-        resolve_overlay_detections(
-          socket,
-          scope,
-          source.id,
-          socket.assigns.timeline_play_from_us,
-          socket.assigns.timeline_play_to_us,
-          socket.assigns.timeline_highlight_frame_id,
-          socket.assigns.timeline_search_results
-        )
+    case source do
+      %{id: source_id} when is_binary(source_id) ->
+        overlay_detections =
+          resolve_overlay_detections(
+            socket,
+            scope,
+            source_id,
+            socket.assigns.timeline_play_from_us,
+            socket.assigns.timeline_play_to_us,
+            socket.assigns.timeline_highlight_frame_id,
+            socket.assigns.timeline_search_results
+          )
 
-      assign(socket, timeline_overlay_detections: overlay_detections)
-    else
-      socket
+        assign(socket, timeline_overlay_detections: overlay_detections)
+
+      _ ->
+        socket
     end
   end
 
