@@ -200,6 +200,16 @@ defmodule ServiceRadarNVR do
   def playback_read(block_id, descriptor_sha256, selector),
     do: read_selected_block(block_id, descriptor_sha256, selector, ServiceRadarNVR.PlaybackReadTasks)
 
+  @doc """
+  `read_block/3` for the media-worker analysis-read listener, in its own read pool.
+
+  The pool has `SERVICERADAR_NVR_ANALYSIS_READ_SLOTS` slots (default 4) and the
+  same ten-second admitted-task deadline, isolating visual indexing from both
+  interactive playback (`PlaybackReadTasks`) and inventory/archive (`ReadTasks`).
+  """
+  def analysis_read(block_id, descriptor_sha256, selector),
+    do: read_selected_block(block_id, descriptor_sha256, selector, ServiceRadarNVR.AnalysisReadTasks)
+
   defp read_selected_block(block_id, descriptor_sha256, :init, pool) do
     read_verified(block_id, descriptor_sha256, &Spool.read_init/1, pool)
   end

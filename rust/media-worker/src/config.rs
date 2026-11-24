@@ -284,6 +284,11 @@ pub struct WorkerConfig {
     worker_auth: Option<WorkerAuthCredentials>,
     nvr_scheme: String,
     nvr_read_port: u16,
+    nvr_host_suffix: Option<String>,
+    nvr_tls_ca_file: Option<PathBuf>,
+    nvr_tls_cert_file: Option<PathBuf>,
+    nvr_tls_key_file: Option<PathBuf>,
+    nvr_auth_token_file: Option<PathBuf>,
     nats_url: String,
     nats_creds_file: Option<PathBuf>,
     nats_tls_ca_file: Option<PathBuf>,
@@ -320,6 +325,11 @@ impl Default for WorkerConfig {
             worker_auth: None,
             nvr_scheme: "http".to_string(),
             nvr_read_port: 8444,
+            nvr_host_suffix: None,
+            nvr_tls_ca_file: None,
+            nvr_tls_cert_file: None,
+            nvr_tls_key_file: None,
+            nvr_auth_token_file: None,
             nats_url: "nats://serviceradar-nats:4222".to_string(),
             nats_creds_file: None,
             nats_tls_ca_file: None,
@@ -512,6 +522,26 @@ impl WorkerConfig {
 
     pub fn nvr_read_port(&self) -> u16 {
         self.nvr_read_port
+    }
+
+    pub fn nvr_host_suffix(&self) -> Option<&str> {
+        self.nvr_host_suffix.as_deref()
+    }
+
+    pub fn nvr_tls_ca_file(&self) -> Option<&Path> {
+        self.nvr_tls_ca_file.as_deref()
+    }
+
+    pub fn nvr_tls_cert_file(&self) -> Option<&Path> {
+        self.nvr_tls_cert_file.as_deref()
+    }
+
+    pub fn nvr_tls_key_file(&self) -> Option<&Path> {
+        self.nvr_tls_key_file.as_deref()
+    }
+
+    pub fn nvr_auth_token_file(&self) -> Option<&Path> {
+        self.nvr_auth_token_file.as_deref()
     }
 
     pub fn nats_url(&self) -> &str {
@@ -735,6 +765,21 @@ pub struct CliArgs {
     )]
     nvr_read_port: u16,
 
+    #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_NVR_HOST_SUFFIX")]
+    nvr_host_suffix: Option<String>,
+
+    #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_NVR_TLS_CA_FILE")]
+    nvr_tls_ca_file: Option<PathBuf>,
+
+    #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_NVR_TLS_CERT_FILE")]
+    nvr_tls_cert_file: Option<PathBuf>,
+
+    #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_NVR_TLS_KEY_FILE")]
+    nvr_tls_key_file: Option<PathBuf>,
+
+    #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_NVR_AUTH_TOKEN_FILE")]
+    nvr_auth_token_file: Option<PathBuf>,
+
     #[arg(
         long,
         env = "SERVICERADAR_MEDIA_WORKER_NATS_URL",
@@ -861,6 +906,11 @@ impl CliArgs {
             worker_auth,
             nvr_scheme: self.nvr_scheme,
             nvr_read_port: self.nvr_read_port,
+            nvr_host_suffix: non_empty_opt(self.nvr_host_suffix),
+            nvr_tls_ca_file: non_empty_path(self.nvr_tls_ca_file),
+            nvr_tls_cert_file: non_empty_path(self.nvr_tls_cert_file),
+            nvr_tls_key_file: non_empty_path(self.nvr_tls_key_file),
+            nvr_auth_token_file: non_empty_path(self.nvr_auth_token_file),
             nats_url: self.nats_url,
             nats_creds_file: non_empty_path(self.nats_creds_file),
             nats_tls_ca_file: non_empty_path(self.nats_tls_ca_file),

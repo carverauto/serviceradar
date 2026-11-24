@@ -1591,16 +1591,30 @@ async fn run_admitted_nats_worker_inner(
 
     let grant_client =
         HttpControlPlaneGrantClient::new(config.control_plane_url(), auth, Duration::from_secs(10));
+    let mut nvr_reader = NvrAnalysisReader::new(
+        config.nvr_scheme(),
+        config.nvr_read_port(),
+        Duration::from_secs(10),
+    );
+    if let Some(suffix) = config.nvr_host_suffix() {
+        nvr_reader = nvr_reader.with_host_suffix(suffix);
+    }
+    if let (Some(ca), Some(cert), Some(key)) = (
+        config.nvr_tls_ca_file(),
+        config.nvr_tls_cert_file(),
+        config.nvr_tls_key_file(),
+    ) {
+        nvr_reader = nvr_reader.with_mtls(ca, cert, key);
+    }
+    if let Some(token_file) = config.nvr_auth_token_file() {
+        nvr_reader = nvr_reader.with_auth_token_file(token_file);
+    }
     let store = HybridGrantStore::new(
         LongshoreArchiveReader::new(
             config.index_concurrency().clamp(1, 4),
             Duration::from_secs(15),
         ),
-        NvrAnalysisReader::new(
-            config.nvr_scheme(),
-            config.nvr_read_port(),
-            Duration::from_secs(10),
-        ),
+        nvr_reader,
     );
     let publisher = JetStreamResultPublisher::new(js.clone(), cert_policy, Duration::from_secs(10));
     let processor = VisualIndexProcessor::with_backend(

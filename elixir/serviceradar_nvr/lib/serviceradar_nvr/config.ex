@@ -27,7 +27,9 @@ defmodule ServiceRadarNVR.Config do
     :delivery,
     :ingest,
     :read,
+    :analysis_read,
     :playback_read_slots,
+    :analysis_read_slots,
     :auto_delivery
   ]
 
@@ -60,8 +62,12 @@ defmodule ServiceRadarNVR.Config do
          {:ok, delivery} <- ServiceRadarNVR.DeliveryConfig.load(env),
          {:ok, ingest} <- ServiceRadarNVR.IngestListener.load(env),
          {:ok, read} <- ServiceRadarNVR.ReadListener.load(env),
-         :ok <- distinct_listeners(ingest, read),
+         {:ok, analysis_read} <- ServiceRadarNVR.AnalysisReadListener.load(env),
+         :ok <- distinct_listeners(ingest, read, :invalid_nvr_read_config),
+         :ok <- distinct_listeners(ingest, analysis_read, :invalid_nvr_analysis_read_config),
+         :ok <- distinct_listeners(read, analysis_read, :invalid_nvr_analysis_read_config),
          {:ok, playback_read_slots} <- integer(env, "SERVICERADAR_NVR_PLAYBACK_READ_SLOTS", 8, 64),
+         {:ok, analysis_read_slots} <- integer(env, "SERVICERADAR_NVR_ANALYSIS_READ_SLOTS", 4, 64),
          {:ok, auto_delivery} <- auto_delivery(env, root, delivery) do
       config = %__MODULE__{
         root: root,
@@ -79,7 +85,9 @@ defmodule ServiceRadarNVR.Config do
         delivery: delivery,
         ingest: ingest,
         read: read,
+        analysis_read: analysis_read,
         playback_read_slots: playback_read_slots,
+        analysis_read_slots: analysis_read_slots,
         auto_delivery: auto_delivery
       }
 
@@ -90,16 +98,16 @@ defmodule ServiceRadarNVR.Config do
   @doc "Largest accepted `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS`, so also the fragment bound for reading a retained block."
   def block_fragments_ceiling, do: @block_fragments_ceiling
 
-  # The read listener is a separate trust boundary: a playback credential must
-  # not open the ingest listener, and an ingest credential must not read media.
-  defp distinct_listeners(%{} = ingest, %{} = read) do
-    if ingest.port != read.port and ingest.client_sha256 != read.client_sha256 and
-         ingest.token_sha256 != read.token_sha256,
+  # Each listener is a separate trust boundary: ingest, playback read, and
+  # media-worker analysis read must never share a port, client pin, or token.
+  defp distinct_listeners(%{} = first, %{} = second, error) do
+    if first.port != second.port and first.client_sha256 != second.client_sha256 and
+         first.token_sha256 != second.token_sha256,
        do: :ok,
-       else: {:error, :invalid_nvr_read_config}
+       else: {:error, error}
   end
 
-  defp distinct_listeners(_ingest, _read), do: :ok
+  defp distinct_listeners(_first, _second, _error), do: :ok
 
   defp auto_delivery(env, root, delivery) do
     case Map.get(env, "SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY", "false") do

@@ -416,6 +416,53 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       assert Enum.sort(unique.states) == [:available, :scheduled]
       refute :executing in unique.states
     end
+
+    test "VisualIndexDispatchWorker.enqueue/1 enqueues immediately when enabled and is :noop when disabled" do
+      parent = self()
+
+      assert :noop =
+               VisualIndexDispatchWorker.enqueue(
+                 enabled_fn: fn -> false end,
+                 insert_fn: fn _cs ->
+                   flunk("should not insert when visual indexing is disabled")
+                 end
+               )
+
+      assert {:ok, :enqueued} =
+               VisualIndexDispatchWorker.enqueue(
+                 enabled_fn: fn -> true end,
+                 insert_fn: fn cs ->
+                   send(parent, {:inserted, cs})
+                   {:ok, :enqueued}
+                 end
+               )
+
+      assert_receive {:inserted, %Ecto.Changeset{} = cs}
+
+      assert Ecto.Changeset.get_field(cs, :worker) ==
+               "ServiceRadar.Camera.VisualIndexDispatchWorker"
+
+      assert Ecto.Changeset.get_field(cs, :queue) == "maintenance"
+    end
+
+    test "VisualIndexDispatcher.nudge_dispatch/1 invokes dispatch_enqueuer and stays best-effort on errors" do
+      parent = self()
+
+      assert :ok =
+               VisualIndexDispatcher.nudge_dispatch(
+                 dispatch_enqueuer: fn ->
+                   send(parent, :nudged)
+                   {:ok, :queued}
+                 end
+               )
+
+      assert_receive :nudged
+
+      assert :ok =
+               VisualIndexDispatcher.nudge_dispatch(
+                 dispatch_enqueuer: fn -> {:error, :oban_unavailable} end
+               )
+    end
   end
 
   describe "VisualWorkerReadGrants execution-time fragment grants and 410 Gone (1.6)" do

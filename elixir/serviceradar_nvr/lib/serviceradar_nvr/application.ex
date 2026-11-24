@@ -23,6 +23,10 @@ defmodule ServiceRadarNVR.Application do
           {Task.Supervisor, name: ServiceRadarNVR.PlaybackReadTasks, max_children: config.playback_read_slots},
           id: ServiceRadarNVR.PlaybackReadTasks
         ),
+        Supervisor.child_spec(
+          {Task.Supervisor, name: ServiceRadarNVR.AnalysisReadTasks, max_children: config.analysis_read_slots},
+          id: ServiceRadarNVR.AnalysisReadTasks
+        ),
         Supervisor.child_spec({Task.Supervisor, name: ServiceRadarNVR.DeliveryTasks, max_children: 1},
           id: ServiceRadarNVR.DeliveryTasks
         ),
@@ -35,10 +39,13 @@ defmodule ServiceRadarNVR.Application do
       scheduler = if config.auto_delivery, do: [{ServiceRadarNVR.PublicationScheduler, []}], else: []
       ingest = if config.ingest, do: [{ServiceRadarNVR.IngestListener, config}], else: []
       read = if config.read, do: [{ServiceRadarNVR.ReadListener, config}], else: []
+      analysis_read = if config.analysis_read, do: [{ServiceRadarNVR.AnalysisReadListener, config}], else: []
 
       children =
         children ++
-          scheduler ++ ingest ++ read ++ [{Bandit, plug: {ServiceRadarNVR.Health, config}, port: config.health_port}]
+          scheduler ++
+          ingest ++
+          read ++ analysis_read ++ [{Bandit, plug: {ServiceRadarNVR.Health, config}, port: config.health_port}]
 
       # Losing identity or reservation accounting retires every dependent writer
       # before replacement accounting can admit work against the retained files.

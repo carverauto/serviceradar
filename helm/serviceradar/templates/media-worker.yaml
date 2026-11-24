@@ -491,6 +491,7 @@ spec:
               value: {{ $otelEndpoint | quote }}
             - name: SERVICERADAR_MEDIA_WORKER_NVR_READ_PORT
               value: {{ $nvrReadPort | quote }}
+            {{- include "serviceradar.nvrAnalysisReadClientEnv" . | nindent 12 }}
             - name: SERVICERADAR_MEDIA_WORKER_DETECTOR_MODEL_ID
               value: {{ $identity.detectorModelId | quote }}
             - name: SERVICERADAR_MEDIA_WORKER_DETECTOR_MODEL_VERSION
@@ -553,6 +554,7 @@ spec:
             - name: cert-data
               mountPath: /etc/serviceradar/certs
               readOnly: true
+            {{- include "serviceradar.nvrAnalysisReadClientMounts" . | nindent 12 }}
             {{- if $gpu }}
             - name: cuda-cache
               mountPath: {{ $cudaCachePath | quote }}
@@ -597,6 +599,7 @@ spec:
             secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
             items:
               {{- include "serviceradar.runtimeCertItems" (list "root.pem" "media-worker.pem" "media-worker-key.pem") | nindent 14 }}
+        {{- include "serviceradar.nvrAnalysisReadClientVolumes" . | nindent 8 }}
         {{- if $models.existingClaim }}
         - name: models
           persistentVolumeClaim:
