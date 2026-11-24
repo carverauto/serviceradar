@@ -2170,7 +2170,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         id="camera-timeline-manage-drawer"
         aria-hidden={to_string(not @timeline_manage_drawer_open?)}
         class={[
-          "fixed inset-0 z-50 flex justify-end",
+          "fixed inset-0 z-[80] flex justify-end",
           if(@timeline_manage_drawer_open?, do: "", else: "hidden")
         ]}
       >
@@ -2469,7 +2469,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         id="camera-timeline-roi-drawer"
         aria-hidden={to_string(not @roi_drawer_open?)}
         class={[
-          "fixed inset-0 z-50 flex justify-end",
+          "fixed inset-0 z-[80] flex justify-end",
           if(@roi_drawer_open?, do: "", else: "hidden")
         ]}
       >
