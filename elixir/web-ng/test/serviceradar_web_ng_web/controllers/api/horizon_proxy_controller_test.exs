@@ -60,6 +60,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       restore_env(:horizon_proxy_http_client, prev_client)
       restore_env(:horizon_proxy_upstream_resolver, prev_resolver)
       restore_env(:horizon_proxy, prev_config)
+      Process.delete(:horizon_proxy_req_adapter)
       clear_rate_limiter()
     end)
 
@@ -369,7 +370,10 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert req_opts[:url] == "#{@upstream_base}/api/v2/bgp/watchlist/events?prefix=198.51.100.0%2F24&limit=25"
       assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
       assert req_opts[:redirect] == false
-      assert req_opts[:retry] == false
+      assert is_function(req_opts[:retry], 2)
+      assert req_opts[:max_retries] == 1
+      assert req_opts[:retry_delay].(0) == 50
+      assert req_opts[:retry_log_level] == :debug
       assert req_opts[:decode_body] == false
     end
 
@@ -397,6 +401,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert req_opts[:url] == "#{@upstream_base}/api/v2/bgp/watchlist"
       assert Jason.decode!(req_opts[:body]) == %{"prefix" => "198.51.100.0/24"}
       assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
+      assert req_opts[:retry] == false
     end
 
     test "proxies POST /api/horizon/v2/agents/enrollment-tokens", %{admin_scope: admin_scope} do
@@ -456,6 +461,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert_receive {:upstream_request, delete_req}
       assert delete_req[:method] == :delete
       assert delete_req[:url] == "#{@upstream_base}/api/v2/reports/isp-accountability/rep-42"
+      assert delete_req[:retry] == false
     end
 
     test "defaults non-JSON response content-type and normalizes nil body", %{admin_scope: admin_scope} do
@@ -534,7 +540,10 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
       assert {"accept", "application/json"} in req_opts[:headers]
       assert req_opts[:redirect] == false
-      assert req_opts[:retry] == false
+      assert is_function(req_opts[:retry], 2)
+      assert req_opts[:max_retries] == 1
+      assert req_opts[:retry_delay].(0) == 50
+      assert req_opts[:retry_log_level] == :debug
       assert req_opts[:decode_body] == false
 
       ipv6_conn =
@@ -620,6 +629,213 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert get_resp_header(conn, "cache-control") == ["no-store"]
       refute conn.resp_body =~ @secret_api_key
     end
+  end
+
+  describe "GET stale-connection retry policy" do
+    setup do
+      stub_upstream({:ok, %{base_url: @upstream_base, api_key: @secret_api_key}})
+      %{admin_scope: scope_for_role(:admin)}
+    end
+
+    test "retries GET once on closed, econnreset, and HTTP/2 unprocessed errors", %{admin_scope: admin_scope} do
+      for transient_error <- [
+            %Req.TransportError{reason: :closed},
+            %Req.TransportError{reason: :econnreset},
+            %Req.HTTPError{protocol: :http2, reason: :unprocessed}
+          ] do
+        attempts = :counters.new(1, [])
+
+        stub_req_adapter(fn req ->
+          :counters.add(attempts, 1, 1)
+
+          if :counters.get(attempts, 1) == 1 do
+            {req, transient_error}
+          else
+            {req,
+             %Req.Response{
+               status: 200,
+               headers: %{"content-type" => ["application/json"]},
+               body: Jason.encode!(%{"ok" => true})
+             }}
+          end
+        end)
+
+        conn = call_proxy(:get, "/api/horizon/v1/intel/lookup?asn=64496", admin_scope)
+
+        assert json_response(conn, 200) == %{"ok" => true}
+        assert :counters.get(attempts, 1) == 2
+      end
+    end
+
+    test "stops GET after one retry and returns 502 when stale connection persists", %{admin_scope: admin_scope} do
+      attempts = :counters.new(1, [])
+
+      stub_req_adapter(fn req ->
+        :counters.add(attempts, 1, 1)
+        {req, %Req.TransportError{reason: :closed}}
+      end)
+
+      conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist", admin_scope)
+
+      assert json_response(conn, 502) == %{"error" => "horizon_upstream_unavailable"}
+      assert :counters.get(attempts, 1) == 2
+    end
+
+    test "does not retry GET on timeout or upstream 5xx responses", %{admin_scope: admin_scope} do
+      timeout_attempts = :counters.new(1, [])
+
+      stub_req_adapter(fn req ->
+        :counters.add(timeout_attempts, 1, 1)
+        {req, %Req.TransportError{reason: :timeout}}
+      end)
+
+      timeout_conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist", admin_scope)
+
+      assert json_response(timeout_conn, 504) == %{"error" => "horizon_upstream_timeout"}
+      assert :counters.get(timeout_attempts, 1) == 1
+
+      status_attempts = :counters.new(1, [])
+
+      stub_req_adapter(fn req ->
+        :counters.add(status_attempts, 1, 1)
+
+        {req,
+         %Req.Response{
+           status: 503,
+           headers: %{"content-type" => ["application/json"]},
+           body: Jason.encode!(%{"error" => "upstream_maintenance"})
+         }}
+      end)
+
+      status_conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist", admin_scope)
+
+      assert json_response(status_conn, 503) == %{"error" => "upstream_maintenance"}
+      assert :counters.get(status_attempts, 1) == 1
+    end
+
+    test "never retries POST or DELETE mutations even on closed connections", %{admin_scope: admin_scope} do
+      post_attempts = :counters.new(1, [])
+
+      stub_req_adapter(fn req ->
+        :counters.add(post_attempts, 1, 1)
+        {req, %Req.TransportError{reason: :closed}}
+      end)
+
+      post_conn =
+        call_proxy(:post, "/api/horizon/v1/bgp/watchlist", admin_scope, %{"prefix" => "198.51.100.0/24"})
+
+      assert json_response(post_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
+      assert :counters.get(post_attempts, 1) == 1
+
+      delete_attempts = :counters.new(1, [])
+
+      stub_req_adapter(fn req ->
+        :counters.add(delete_attempts, 1, 1)
+        {req, %Req.TransportError{reason: :closed}}
+      end)
+
+      delete_conn = call_proxy(:delete, "/api/horizon/v1/bgp/watchlist/wl-123", admin_scope)
+
+      assert json_response(delete_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
+      assert :counters.get(delete_attempts, 1) == 1
+    end
+  end
+
+  describe "GET /api/horizon/v1/vendor-status and /api/horizon/v1/statuspages" do
+    setup do
+      stub_upstream({:ok, %{base_url: @upstream_base, api_key: @secret_api_key}})
+
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           headers: %{"content-type" => ["application/json"]},
+           body: Jason.encode!(%{"vendors" => [%{"slug" => "example-cloud", "indicator" => "none"}]})
+         }}
+      end)
+
+      :ok
+    end
+
+    test "proxies GET vendor-status and statuspages through the router with observability.events.view" do
+      events_only_scope = scope_with_permissions(:viewer, MapSet.new(["observability.events.view"]))
+
+      for {proxy_path, expected_upstream_path} <- [
+            {"/api/horizon/v1/vendor-status?category=identity_security&only_incidents=true",
+             "/api/v1/vendor-status?category=identity_security&only_incidents=true"},
+            {"/api/horizon/v1/vendor-status", "/api/v1/vendor-status"},
+            {"/api/horizon/v1/statuspages?category=cloud", "/api/v1/statuspages?category=cloud"},
+            {"/api/horizon/v1/statuspages", "/api/v1/statuspages"}
+          ] do
+        conn = dispatch_router(:get, proxy_path, events_only_scope)
+
+        assert json_response(conn, 200) == %{
+                 "vendors" => [%{"slug" => "example-cloud", "indicator" => "none"}]
+               }
+
+        assert get_resp_header(conn, "cache-control") == ["no-store"]
+        refute conn.resp_body =~ @secret_api_key
+
+        assert_receive {:upstream_request, req_opts}
+        assert req_opts[:method] == :get
+        assert req_opts[:url] == "#{@upstream_base}#{expected_upstream_path}"
+        assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
+      end
+    end
+
+    test "forbids callers lacking observability.events.view on vendor-status and statuspages" do
+      other_reads_scope =
+        scope_with_permissions(:viewer, MapSet.new(["observability.traces.view", "devices.view"]))
+
+      for path <- ["/api/horizon/v1/vendor-status", "/api/horizon/v1/statuspages"] do
+        conn = dispatch_router(:get, path, other_reads_scope)
+
+        assert conn.status == 403
+        refute_received {:upstream_request, _}
+      end
+    end
+
+    test "rejects disallowed methods, versions, extra segments, and traversal on vendor-status and statuspages" do
+      admin_scope = scope_for_role(:admin)
+
+      for {method, path, body} <- [
+            {:post, "/api/horizon/v1/vendor-status", %{}},
+            {:delete, "/api/horizon/v1/vendor-status", nil},
+            {:get, "/api/horizon/v2/vendor-status", nil},
+            {:get, "/api/horizon/v1/vendor-status/extra", nil},
+            {:get, "/api/horizon/v1/vendor-status/..%2f..%2finternal", nil},
+            {:post, "/api/horizon/v1/statuspages", %{}},
+            {:delete, "/api/horizon/v1/statuspages", nil},
+            {:get, "/api/horizon/v2/statuspages", nil},
+            {:get, "/api/horizon/v1/statuspages/extra", nil},
+            {:get, "/api/horizon/v1/statuspages/..%2f..%2finternal", nil}
+          ] do
+        conn = dispatch_router(method, path, admin_scope, body)
+        assert conn.status == 404, "expected 404 for #{method} #{path}"
+        refute_received {:upstream_request, _}
+      end
+
+      assert {:error, :not_found} =
+               HorizonProxy.resolve_route("POST", "v1", ["vendor-status"], "/api/horizon/v1/vendor-status")
+
+      assert {:error, :not_found} =
+               HorizonProxy.resolve_route("POST", "v1", ["statuspages"], "/api/horizon/v1/statuspages")
+    end
+  end
+
+  def run(req) do
+    adapter = Process.get(:horizon_proxy_req_adapter)
+    adapter.(req)
+  end
+
+  defp stub_req_adapter(adapter) do
+    Process.put(:horizon_proxy_req_adapter, adapter)
+
+    stub_http_client(fn req_opts ->
+      Req.request(Keyword.put(req_opts, :adapter, __MODULE__))
+    end)
   end
 
   defp dispatch_router(method, full_path, scope, body_params \\ nil) do
