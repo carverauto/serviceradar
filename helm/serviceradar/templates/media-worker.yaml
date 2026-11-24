@@ -347,10 +347,21 @@ metadata:
 spec:
   replicas: {{ $replicas }}
   {{- /* A GPU pod holds its GPU until it exits, so on a pool with no spare GPU a rolling
-       update's surge pod can never schedule. The worker is stateless and unacknowledged
-       jobs are redelivered, so a GPU worker is replaced with a brief gap instead. */}}
+       update's surge pod can never schedule. With replicas <= 1 the worker is replaced
+       with Recreate (a brief gap during which unacknowledged jobs are redelivered).
+       With replicas > 1 across a multi-GPU fleet, RollingUpdate with maxSurge: 0 and
+       maxUnavailable: 1 replaces one GPU replica at a time without needing a spare GPU
+       while keeping the remaining replicas serving traffic. */}}
+  {{- if and $gpu (gt $replicas 1) }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  {{- else }}
   strategy:
     type: {{ ternary "Recreate" "RollingUpdate" $gpu }}
+  {{- end }}
   selector:
     matchLabels:
       app: serviceradar-media-worker
@@ -372,7 +383,20 @@ spec:
       automountServiceAccountToken: false
       {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- if $mw.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml $mw.topologySpreadConstraints | nindent 8 }}
+      {{- else if (default (dict) .Values.topologySpread).enabled }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-media-worker") | nindent 6 }}
+      {{- else if gt $replicas 1 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: serviceradar-media-worker
+      {{- end }}
       {{- if $mw.runtimeClassName }}
       runtimeClassName: {{ $mw.runtimeClassName | quote }}
       {{- end }}

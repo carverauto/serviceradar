@@ -776,6 +776,7 @@ archiveReader:
 # NATS JetStream file-store budget configured below.
 mediaWorker:
   enabled: true
+  replicas: 2
   image:
     repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
     # Set to the sha-<commit> tag the CUDA publish workflow produced, from a

@@ -925,3 +925,76 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "^mediaWorker.executionProvider cuda cannot start on registry.carverauto.dev/serviceradar/serviceradar-media-worker, which is a CPU build"
+
+  - it: keeps Recreate strategy and omits default topologySpreadConstraints for a single-replica GPU worker
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.replicas: 1
+      topologySpread.enabled: false
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy
+          value: {type: Recreate}
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
+  - it: uses RollingUpdate with maxSurge 0 maxUnavailable 1 and default hostname topologySpreadConstraints when GPU replicas > 1
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.replicas: 2
+      topologySpread.enabled: false
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+      - equal:
+          path: spec.strategy
+          value:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: 0
+              maxUnavailable: 1
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app: serviceradar-media-worker
+
+  - it: allows overriding mediaWorker.topologySpreadConstraints from values
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.replicas: 3
+      topologySpread.enabled: true
+      mediaWorker.topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: media-worker
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: media-worker

@@ -502,8 +502,10 @@ archiveReader:
 # as undecodable. See README.md, Camera semantic search worker.
 mediaWorker:
   enabled: false
-  # 0 is honoured (scaled to zero). A GPU worker is replaced with the Recreate
-  # strategy, since a pool without a spare GPU cannot surge; cpu_explicit rolls.
+  # 0 is honoured (scaled to zero). A single-replica GPU worker uses Recreate
+  # (a pool without a spare GPU cannot surge); multi-replica GPU workers
+  # (replicas > 1) use RollingUpdate with maxSurge: 0 and maxUnavailable: 1 so
+  # one GPU replica rolls at a time without needing a spare GPU. cpu_explicit rolls.
   replicas: 1
   image:
     # Empty selects the release's CPU build, image.registry/serviceradar-media-worker
@@ -556,6 +558,10 @@ mediaWorker:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  # Optional override for pod topology spread constraints. When left empty and
+  # replicas > 1 (or global topologySpread.enabled is true), the chart spreads
+  # pods across kubernetes.io/hostname (maxSkew: 1, ScheduleAnyway).
+  topologySpreadConstraints: []
   resources:
     requests:
       cpu: "500m"
