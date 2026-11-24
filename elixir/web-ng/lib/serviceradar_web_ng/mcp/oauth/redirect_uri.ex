@@ -2,9 +2,9 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.RedirectURI do
   @moduledoc false
 
   @loopback_hosts MapSet.new(["127.0.0.1", "localhost", "[::1]", "::1"])
-  @default_allowed_https_uris [
-    "https://antigravity.google/oauth-callback"
-  ]
+  @allowed_https_uris MapSet.new([
+                        "https://antigravity.google/oauth-callback"
+                      ])
 
   @spec allowed?(term()) :: boolean()
   def allowed?(uri) when is_binary(uri) do
@@ -29,25 +29,10 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.RedirectURI do
 
   @spec allowlisted_https?(term()) :: boolean()
   def allowlisted_https?(uri) when is_binary(uri) do
-    valid_exact_https_uri?(uri) and MapSet.member?(allowed_https_uri_set(), uri)
+    valid_exact_https_uri?(uri) and MapSet.member?(@allowed_https_uris, uri)
   end
 
   def allowlisted_https?(_), do: false
-
-  @spec default_allowed_https_uris() :: [String.t()]
-  def default_allowed_https_uris, do: @default_allowed_https_uris
-
-  @spec allowed_https_uris() :: [String.t()]
-  def allowed_https_uris do
-    configured =
-      :serviceradar_web_ng
-      |> Application.get_env(:mcp_allowed_redirect_uris, [])
-      |> List.wrap()
-      |> Enum.map(&normalize_configured_uri/1)
-      |> Enum.filter(&valid_exact_https_uri?/1)
-
-    Enum.uniq(@default_allowed_https_uris ++ configured)
-  end
 
   @spec append_query(String.t(), map()) :: String.t()
   def append_query(uri, extras) when is_binary(uri) and is_map(extras) do
@@ -61,13 +46,6 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.RedirectURI do
 
     URI.to_string(%{parsed | query: query})
   end
-
-  defp allowed_https_uri_set do
-    MapSet.new(allowed_https_uris())
-  end
-
-  defp normalize_configured_uri(uri) when is_binary(uri), do: String.trim(uri)
-  defp normalize_configured_uri(_), do: ""
 
   defp valid_exact_https_uri?(uri) when is_binary(uri) do
     if uri == "" or String.contains?(uri, ["\\", "..", "\r", "\n", "\0"]) do

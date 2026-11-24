@@ -1056,11 +1056,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "client_label"
       ],
       numeric_fields: ["origin_asn"],
-      exact_fields: ["event_id", "kind", "level", "prefix", "rpki_status"],
+      exact_fields: ["event_id", "level", "prefix"],
       known_values: %{
-        "kind" => ["hijack", "leak", "flap", "watchlist"],
-        "level" => ["critical", "warning", "info"],
-        "rpki_status" => ["valid", "invalid", "not_found"]
+        "level" => ["critical", "warning", "info"]
       },
       downsample: false
     },

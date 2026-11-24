@@ -336,17 +336,20 @@ in:horizon_outages avg_synthetic_failure_pct:>=50 time:last_24h sort:corroborati
 
 ```
 in:horizon_bgp time:last_24h sort:time:desc limit:50
-in:horizon_bgp kind:(hijack,leak) level:critical time:last_24h sort:time:desc limit:50
-in:horizon_bgp rpki_status:invalid time:last_24h sort:time:desc limit:50
+in:horizon_bgp kind:(hijack,anomaly,watchlist) level:critical time:last_24h sort:time:desc limit:50
+in:horizon_bgp kind:%leak% time:last_24h sort:time:desc limit:50
+in:horizon_bgp rpki_status:%invalid% time:last_24h sort:time:desc limit:50
 in:horizon_bgp prefix:198.51.100.0/24 time:last_7d sort:time:desc limit:50
 in:horizon_bgp origin_asn:64512 time:last_24h sort:time:desc limit:50
 in:horizon_bgp kind:watchlist watchlist_id:<watchlist-id> time:last_24h limit:50
 ```
 
-- Filter fields: `event_id`, `kind` (`hijack`, `leak`, `flap`, `watchlist`),
+- Filter fields: `event_id`, `kind` (e.g. `hijack`, `route_leak`, `flap`,
+  `anomaly`, `watchlist`; use `kind:%leak%` to match leak variants),
   `level` (`critical`, `warning`, `info`), `prefix`, `origin_asn`,
-  `rpki_status` (`valid`, `invalid`, `not_found`), `caida_leak_inference`,
-  `watchlist_id`, `client_label`.
+  `rpki_status` (e.g. `valid`, `invalid`, `invalid_asn`, `invalid_length`,
+  `not_found`; use `rpki_status:%invalid%` to match all RPKI-invalid variants),
+  `caida_leak_inference`, `watchlist_id`, `client_label`.
 - Sort fields: `time`, `kind`, `level`, `origin_asn`.
 - Returned rows also include `as_path` and `raw_data`.
 
