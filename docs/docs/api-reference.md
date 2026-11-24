@@ -239,6 +239,7 @@ Allowlisted routes and required permissions:
 | Method | Path | Upstream path | Permission |
 | --- | --- | --- | --- |
 | `GET` | `/api/horizon/v1/feeds/status` | `/api/v1/feeds/status` | `observability.events.view` |
+| `GET` | `/api/horizon/v1/intel/lookup` | `/api/v1/intel/lookup` | `observability.events.view` |
 | `GET` | `/api/horizon/v1/weathermap/timeline` | `/api/v1/weathermap/timeline` | `observability.events.view` |
 | `GET` | `/api/horizon/v1/paths/dag` | `/api/v1/paths/dag` | `observability.traces.view` |
 | `GET` | `/api/horizon/v1/bgp/sankey` | `/api/v1/bgp/sankey` | `observability.events.view` |

@@ -462,6 +462,37 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert conn.resp_body == ""
     end
 
+    test "proxies GET /api/horizon/v1/intel/lookup with asn, prefix, and ip query params for viewer" do
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           headers: %{"content-type" => ["application/json"]},
+           body: Jason.encode!(%{"asn" => 13_335, "org" => "Cloudflare, Inc."})
+         }}
+      end)
+
+      conn =
+        call_proxy(
+          :get,
+          "/api/horizon/v1/intel/lookup?asn=13335&prefix=1.1.1.0%2F24&ip=1.1.1.1",
+          scope_for_role(:viewer)
+        )
+
+      assert json_response(conn, 200) == %{"asn" => 13_335, "org" => "Cloudflare, Inc."}
+      refute conn.resp_body =~ @secret_api_key
+
+      assert_receive {:upstream_request, req_opts}
+      assert req_opts[:method] == :get
+      assert req_opts[:url] == "#{@upstream_base}/api/v1/intel/lookup?asn=13335&prefix=1.1.1.0%2F24&ip=1.1.1.1"
+      assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
+
+      post_conn = call_proxy(:post, "/api/horizon/v1/intel/lookup", scope_for_role(:admin), %{})
+      assert post_conn.status == 404
+    end
+
     test "handles upstream timeout cleanly without leaking secrets", %{admin_scope: admin_scope} do
       stub_http_client(fn _req_opts ->
         {:error, %Req.TransportError{reason: :timeout}}

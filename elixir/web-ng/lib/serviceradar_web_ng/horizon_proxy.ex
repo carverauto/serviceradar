@@ -143,6 +143,8 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   defp match_allowlisted_route(:get, "v1", ["feeds", "status"]), do: {:ok, "/api/v1/feeds/status", @read_permission}
 
+  defp match_allowlisted_route(:get, "v1", ["intel", "lookup"]), do: {:ok, "/api/v1/intel/lookup", @read_permission}
+
   defp match_allowlisted_route(:get, "v1", ["weathermap", "timeline"]),
     do: {:ok, "/api/v1/weathermap/timeline", @read_permission}
 
