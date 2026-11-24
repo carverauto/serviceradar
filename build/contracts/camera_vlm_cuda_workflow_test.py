@@ -150,6 +150,11 @@ class CameraVlmCudaWorkflowTest(unittest.TestCase):
         self.assertEqual((tool.CA_BUNDLE_SHA256, tool.CA_BUNDLE_URL), (ca["sha256"], ca["urls"][0]))
 
     def test_fetch_requests_the_workspace_rust_channel_for_arm64(self):
+        script_text = BUILD_SCRIPT.read_text()
+        entries = re.findall(r'"(rustc|cargo|rust-std)\s+([0-9a-f]+)"', script_text)
+        self.assertEqual({name for name, _ in entries}, {"rustc", "cargo", "rust-std"})
+        for name, digest in entries:
+            self.assertRegex(digest, r"^[0-9a-f]{64}$", f"{name} sha256 must be 64 lowercase hex chars")
         with (ROOT / "rust-toolchain.toml").open("rb") as config:
             channel = tomllib.load(config)["toolchain"]["channel"]
         with tempfile.TemporaryDirectory() as work:

@@ -26,7 +26,7 @@ RUST_VERSION="1.98.0"
 RUST_HOST="aarch64-unknown-linux-gnu"
 # sha256 of https://static.rust-lang.org/dist/<component>-${RUST_VERSION}-${RUST_HOST}.tar.gz
 RUST_COMPONENT_SHA256=(
-  "rustc b6fdb37bc08e320bd92381e13d311837f04a98423b8a5b678a5eb5e87c978ca"
+  "rustc b6fdb37bc08e320bd92381e13d7311837f04a98423b8a5b678a5eb5e87c978ca"
   "cargo e271c3c5d50336259a166e68b60ba792a64278ab117686183be3e51a0958d34b"
   "rust-std a2eece726a579de1f554a2c3bcc62410226b0be55736f57c2b5430c1bc71b98f"
 )
