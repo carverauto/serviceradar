@@ -203,6 +203,73 @@ impl CompressedFrameGate {
     }
 }
 
+/// Discrete grid-based detection ROI mask (e.g. 12×8 operator-painted Detection Zones).
+///
+/// Coordinates in `ignore_cells` are `(row, col)` (0-indexed: `row < rows`, `col < cols`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoiGridMask {
+    pub rows: u8,
+    pub cols: u8,
+    #[serde(default)]
+    pub ignore_cells: Vec<(u8, u8)>,
+}
+
+impl RoiGridMask {
+    pub fn new(rows: u8, cols: u8, ignore_cells: Vec<(u8, u8)>) -> Self {
+        Self {
+            rows,
+            cols,
+            ignore_cells,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.rows > 0 && self.cols > 0
+    }
+
+    /// Converts all valid `(row, col)` entries in `ignore_cells` into normalized
+    /// `[x1, y1, x2, y2]` exclusion rectangles suitable for [`RoiMask::exclude_rects`].
+    pub fn to_exclude_rects(&self) -> Vec<[f32; 4]> {
+        if !self.is_valid() {
+            return Vec::new();
+        }
+        let cols_f = f32::from(self.cols);
+        let rows_f = f32::from(self.rows);
+        self.ignore_cells
+            .iter()
+            .filter(|&&(row, col)| row < self.rows && col < self.cols)
+            .map(|&(row, col)| {
+                [
+                    f32::from(col) / cols_f,
+                    f32::from(row) / rows_f,
+                    f32::from(col + 1) / cols_f,
+                    f32::from(row + 1) / rows_f,
+                ]
+            })
+            .collect()
+    }
+
+    /// Returns `true` if normalized point `(x, y)` in `[0.0, 1.0]` falls inside an ignored cell.
+    pub fn contains_point(&self, x: f32, y: f32) -> bool {
+        if !self.is_valid() || self.ignore_cells.is_empty() {
+            return false;
+        }
+        let cx = x.clamp(0.0, 1.0);
+        let cy = y.clamp(0.0, 1.0);
+        let col = ((cx * f32::from(self.cols)).floor() as u8).min(self.cols - 1);
+        let row = ((cy * f32::from(self.rows)).floor() as u8).min(self.rows - 1);
+        self.ignore_cells.contains(&(row, col))
+    }
+
+    /// Returns `true` if the center of normalized `bbox` (`[x1, y1, x2, y2]`) falls inside an
+    /// ignored cell.
+    pub fn bbox_center_ignored(&self, bbox: [f32; 4]) -> bool {
+        let cx = 0.5 * (bbox[0] + bbox[2]);
+        let cy = 0.5 * (bbox[1] + bbox[3]);
+        self.contains_point(cx, cy)
+    }
+}
+
 /// Normalized Region-of-Interest (ROI) mask for Tier 1 spatial motion scoring.
 ///
 /// When `include_rects` is non-empty, only grid cells overlapping at least one rectangle
@@ -216,6 +283,14 @@ pub struct RoiMask {
 }
 
 impl RoiMask {
+    /// Builds an [`RoiMask`] excluding all cells listed in `grid.ignore_cells`.
+    pub fn from_ignore_grid(grid: &RoiGridMask) -> Self {
+        Self {
+            include_rects: Vec::new(),
+            exclude_rects: grid.to_exclude_rects(),
+        }
+    }
+
     /// Returns `true` if the normalized grid cell `[cx1, cy1, cx2, cy2]` is active under this mask.
     pub fn cell_active(&self, cell: [f32; 4]) -> bool {
         let included = if self.include_rects.is_empty() {
@@ -231,7 +306,8 @@ impl RoiMask {
 }
 
 fn rects_overlap(a: [f32; 4], b: [f32; 4]) -> bool {
-    a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
+    const EPS: f32 = 1e-5;
+    a[0] + EPS < b[2] && a[2] > b[0] + EPS && a[1] + EPS < b[3] && a[3] > b[1] + EPS
 }
 
 /// Configuration for the Tier 1 decoded luma/RGB spatial-grid motion gate.
@@ -242,14 +318,14 @@ pub struct PixelMotionGateConfig {
     /// Downsampled spatial grid height (default `18`).
     pub grid_rows: u32,
     /// Normalized `[0.0, 1.0]` per-block MAD threshold to classify a block as changed.
-    /// Default: `0.10` (~26/255 luma delta) to reject night-IR sensor grain and mild foliage shimmer.
+    /// Default: `0.14` (~36/255 luma delta) to reject night-IR sensor grain and mild foliage shimmer.
     pub block_delta_threshold: f32,
     /// Maximum single-block normalized delta that triggers admission even if global mean
     /// change is tiny (prevents small distant objects from aliasing out while ignoring isolated
-    /// swaying leaves or IR noise spikes). Default: `0.18` (~46/255 luma delta).
+    /// swaying leaves or IR noise spikes). Default: `0.24` (~61/255 luma delta).
     pub max_block_admit_threshold: f32,
     /// Fraction of active ROI blocks that must exceed `block_delta_threshold` to trigger
-    /// admission via area coverage. Default: `0.05` (5% of blocks).
+    /// admission via area coverage. Default: `0.07` (7% of blocks).
     pub changed_block_ratio_threshold: f32,
     /// Maximum elapsed milliseconds before forcing a heartbeat refresh. Default: `60_000`.
     pub max_skip_interval_ms: u64,
@@ -262,9 +338,9 @@ impl Default for PixelMotionGateConfig {
         Self {
             grid_cols: 32,
             grid_rows: 18,
-            block_delta_threshold: 0.10,
-            max_block_admit_threshold: 0.18,
-            changed_block_ratio_threshold: 0.05,
+            block_delta_threshold: 0.14,
+            max_block_admit_threshold: 0.24,
+            changed_block_ratio_threshold: 0.07,
             max_skip_interval_ms: 60_000,
             roi: RoiMask::default(),
         }
@@ -272,6 +348,12 @@ impl Default for PixelMotionGateConfig {
 }
 
 impl PixelMotionGateConfig {
+    /// Appends exclusion rectangles for every ignored cell in `grid` to `self.roi.exclude_rects`.
+    pub fn with_roi_grid(mut self, grid: &RoiGridMask) -> Self {
+        self.roi.exclude_rects.extend(grid.to_exclude_rects());
+        self
+    }
+
     pub fn validate(&self) -> Result<(), MediaCoreError> {
         if self.grid_cols == 0
             || self.grid_rows == 0
@@ -308,6 +390,67 @@ impl PixelMotionGateConfig {
     }
 }
 
+/// Spatial grid of changed blocks produced by [`PixelMotionGate`] for a single frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MotionGridMap {
+    pub grid_cols: u32,
+    pub grid_rows: u32,
+    /// Row-major `grid_rows * grid_cols` boolean mask of active blocks whose delta met
+    /// `block_delta_threshold` (all `false` on `InitialAnchor`).
+    pub changed_blocks: Vec<bool>,
+}
+
+impl MotionGridMap {
+    pub fn empty(grid_cols: u32, grid_rows: u32) -> Self {
+        Self {
+            grid_cols,
+            grid_rows,
+            changed_blocks: vec![false; (grid_cols as usize) * (grid_rows as usize)],
+        }
+    }
+
+    pub fn has_motion(&self) -> bool {
+        self.changed_blocks.iter().any(|&changed| changed)
+    }
+
+    /// Returns `true` if any changed block in this map overlaps normalized `bbox`
+    /// (`[x1, y1, x2, y2]` in `0.0..=1.0`).
+    pub fn bbox_overlaps_motion(&self, bbox: [f32; 4]) -> bool {
+        if self.grid_cols == 0 || self.grid_rows == 0 || self.changed_blocks.is_empty() {
+            return false;
+        }
+        let x1 = bbox[0].clamp(0.0, 1.0);
+        let y1 = bbox[1].clamp(0.0, 1.0);
+        let x2 = bbox[2].clamp(0.0, 1.0);
+        let y2 = bbox[3].clamp(0.0, 1.0);
+        if x2 <= x1 || y2 <= y1 {
+            return false;
+        }
+        let cols = self.grid_cols as usize;
+        let rows = self.grid_rows as usize;
+        let cols_f = cols as f32;
+        let rows_f = rows as f32;
+        let gx_start = ((x1 * cols_f).floor() as usize).min(cols - 1);
+        let gx_end = (((x2 * cols_f).ceil() as usize).saturating_sub(1)).min(cols - 1);
+        let gy_start = ((y1 * rows_f).floor() as usize).min(rows - 1);
+        let gy_end = (((y2 * rows_f).ceil() as usize).saturating_sub(1)).min(rows - 1);
+
+        for gy in gy_start..=gy_end {
+            for gx in gx_start..=gx_end {
+                if self
+                    .changed_blocks
+                    .get(gy * cols + gx)
+                    .copied()
+                    .unwrap_or(false)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
 /// Detailed Tier 1 spatial-grid motion metrics.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PixelMotionMetrics {
@@ -321,8 +464,17 @@ pub struct PixelMotionMetrics {
     pub changed_block_ratio: f32,
     /// Normalized `[x1, y1, x2, y2]` bounding box covering all changed blocks, if any.
     pub motion_bbox: Option<[f32; 4]>,
+    /// Per-block changed-region mask for spatial overlap queries (e.g. stationary-vehicle filtering).
+    pub motion_map: MotionGridMap,
     /// Final gate decision.
     pub decision: GateDecision,
+}
+
+impl PixelMotionMetrics {
+    /// Returns `true` if any changed block in `self.motion_map` overlaps normalized `bbox`.
+    pub fn bbox_overlaps_motion(&self, bbox: [f32; 4]) -> bool {
+        self.motion_map.bbox_overlaps_motion(bbox)
+    }
 }
 
 /// Tier 1 pre-Stage-1 decoded luma/RGB spatial-grid motion gate.
@@ -427,7 +579,14 @@ impl PixelMotionGate {
         Ok(self.score_scratch_grid(timestamp_ms))
     }
 
+    /// Returns `true` if any changed block in `motion_map` overlaps normalized `bbox`.
+    pub fn bbox_overlaps_motion(&self, bbox: [f32; 4], motion_map: &MotionGridMap) -> bool {
+        motion_map.bbox_overlaps_motion(bbox)
+    }
+
     fn score_scratch_grid(&mut self, timestamp_ms: u64) -> PixelMotionMetrics {
+        let cols = self.config.grid_cols as usize;
+        let rows = self.config.grid_rows as usize;
         if !self.has_anchor {
             self.anchor_grid.copy_from_slice(&self.scratch_grid);
             self.has_anchor = true;
@@ -438,6 +597,7 @@ impl PixelMotionGate {
                 max_block_delta: 1.0,
                 changed_block_ratio: 1.0,
                 motion_bbox: Some([0.0, 0.0, 1.0, 1.0]),
+                motion_map: MotionGridMap::empty(self.config.grid_cols, self.config.grid_rows),
                 decision: GateDecision::Admit {
                     reason: GateAdmitReason::InitialAnchor,
                     score: 1.0,
@@ -446,8 +606,6 @@ impl PixelMotionGate {
             };
         }
 
-        let cols = self.config.grid_cols as usize;
-        let rows = self.config.grid_rows as usize;
         let mut active_count = 0usize;
         let mut changed_count = 0usize;
         let mut sad_sum = 0u64;
@@ -456,6 +614,7 @@ impl PixelMotionGate {
         let mut min_gy = usize::MAX;
         let mut max_gx = 0usize;
         let mut max_gy = 0usize;
+        let mut changed_blocks = vec![false; rows * cols];
 
         for gy in 0..rows {
             for gx in 0..cols {
@@ -471,6 +630,7 @@ impl PixelMotionGate {
                     max_delta = norm;
                 }
                 if norm >= self.config.block_delta_threshold {
+                    changed_blocks[idx] = true;
                     changed_count += 1;
                     min_gx = min_gx.min(gx);
                     min_gy = min_gy.min(gy);
@@ -479,6 +639,12 @@ impl PixelMotionGate {
                 }
             }
         }
+
+        let motion_map = MotionGridMap {
+            grid_cols: self.config.grid_cols,
+            grid_rows: self.config.grid_rows,
+            changed_blocks,
+        };
 
         let (mean_mad, changed_block_ratio) = if active_count == 0 {
             (0.0, 0.0)
@@ -542,6 +708,7 @@ impl PixelMotionGate {
             max_block_delta: max_delta,
             changed_block_ratio,
             motion_bbox,
+            motion_map,
             decision,
         }
     }
@@ -951,5 +1118,44 @@ mod tests {
             }
         ));
         assert!(m_mover.motion_bbox.is_some());
+        // Mover region overlaps active motion map, while untouched top-left does not
+        assert!(gate.bbox_overlaps_motion([0.38, 0.35, 0.56, 0.75], &m_mover.motion_map));
+        assert!(!gate.bbox_overlaps_motion([0.0, 0.0, 0.20, 0.20], &m_mover.motion_map));
+    }
+
+    #[test]
+    fn roi_grid_mask_suppresses_ignored_cells_in_motion_gate_and_point_checks() {
+        // 12x8 grid with top-left cells (0,0), (0,1), (1,0), (1,1) ignored
+        let grid = RoiGridMask::new(8, 12, vec![(0, 0), (0, 1), (1, 0), (1, 1)]);
+        assert!(grid.bbox_center_ignored([0.01, 0.01, 0.14, 0.20]));
+        assert!(!grid.bbox_center_ignored([0.50, 0.50, 0.70, 0.75]));
+
+        let cfg = PixelMotionGateConfig::default().with_roi_grid(&grid);
+        let mut gate = PixelMotionGate::new(cfg).expect("valid roi grid gate");
+
+        let base = LumaPlane::solid(320, 180, 50);
+        assert!(
+            gate.evaluate_luma(0, base.as_slice())
+                .unwrap()
+                .decision
+                .is_admitted()
+        );
+
+        // High-contrast change strictly inside ignored cells (x < 2/12 = 53px, y < 2/8 = 45px) -> Skip
+        let mut ignored_motion = base.clone();
+        ignored_motion.fill_rect(0, 0, 48, 40, 240);
+        let m_ignored = gate
+            .evaluate_luma(1_000, ignored_motion.as_slice())
+            .unwrap();
+        assert!(!m_ignored.decision.is_admitted());
+        assert!(!m_ignored.motion_map.has_motion());
+
+        // High-contrast change outside ignored cells -> Admit + overlaps motion map
+        let mut active_motion = base.clone();
+        active_motion.fill_rect(180, 90, 240, 150, 240);
+        let m_active = gate.evaluate_luma(2_000, active_motion.as_slice()).unwrap();
+        assert!(m_active.decision.is_admitted());
+        assert!(m_active.bbox_overlaps_motion([0.56, 0.50, 0.75, 0.83]));
+        assert!(!m_active.bbox_overlaps_motion([0.0, 0.0, 0.15, 0.20]));
     }
 }

@@ -44,6 +44,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.VisualIndexDispatchWorker
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.NATS.JetStreamPublish
@@ -275,6 +276,12 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
       "deadline_at" => DateTime.to_iso8601(deadline_at),
       "deadline_unix_ms" => DateTime.to_unix(deadline_at, :millisecond)
     }
+
+    payload =
+      case resolve_roi_grid(job, opts) do
+        %{} = roi_grid -> Map.put(payload, "roi_grid", roi_grid)
+        nil -> payload
+      end
 
     encoded = Jason.encode!(payload)
 
@@ -706,7 +713,17 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     read_state = job.state
     read_attempt = job.attempt_count
 
-    with {:ok, subject, encoded, _payload} <- build_envelope(job_with_deadline, opts),
+    envelope_opts =
+      if Keyword.has_key?(opts, :roi_grid) or Keyword.has_key?(opts, :camera_source) do
+        opts
+      else
+        case load_camera_source(job.camera_source_id, opts) do
+          {:ok, %{} = source} -> Keyword.put(opts, :camera_source, source)
+          _ -> opts
+        end
+      end
+
+    with {:ok, subject, encoded, _payload} <- build_envelope(job_with_deadline, envelope_opts),
          msg_id = build_msg_id(job),
          :ok <- publish(subject, encoded, msg_id, opts) do
       job
@@ -789,6 +806,121 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
       nil -> Ash.get(RecordingCatalogEntry, id, actor: @system_actor, not_found_error?: false)
       loader -> loader.(id)
     end
+  end
+
+  defp load_camera_source(id, opts) when is_binary(id) do
+    case opts[:loaders][:source_loader] do
+      loader when is_function(loader, 1) ->
+        loader.(id)
+
+      nil ->
+        case Ash.get(Source, id, actor: @system_actor, not_found_error?: false) do
+          {:ok, %Source{} = source} -> {:ok, source}
+          _ -> {:ok, nil}
+        end
+
+      _ ->
+        {:ok, nil}
+    end
+  end
+
+  defp load_camera_source(_id, _opts), do: {:ok, nil}
+
+  defp resolve_roi_grid(job, opts) do
+    cond do
+      Keyword.has_key?(opts, :roi_grid) ->
+        normalize_roi_grid(Keyword.get(opts, :roi_grid))
+
+      Keyword.has_key?(opts, :camera_source) ->
+        opts |> Keyword.get(:camera_source) |> extract_source_roi_grid()
+
+      not is_nil(fetch_val(job, :roi_grid)) ->
+        normalize_roi_grid(fetch_val(job, :roi_grid))
+
+      is_function(opts[:loaders][:source_loader], 1) ->
+        case opts[:loaders][:source_loader].(fetch_val(job, :camera_source_id)) do
+          {:ok, %{} = source} -> extract_source_roi_grid(source)
+          _ -> nil
+        end
+
+      true ->
+        nil
+    end
+  end
+
+  defp extract_source_roi_grid(%{metadata: %{} = metadata}) do
+    metadata
+    |> fetch_val(:detection_roi_grid)
+    |> normalize_roi_grid()
+  end
+
+  defp extract_source_roi_grid(%{"metadata" => %{} = metadata}) do
+    metadata
+    |> fetch_val(:detection_roi_grid)
+    |> normalize_roi_grid()
+  end
+
+  defp extract_source_roi_grid(_), do: nil
+
+  defp normalize_roi_grid(%{} = grid) do
+    rows = clamp_grid_dim(fetch_val(grid, :rows), 8)
+    cols = clamp_grid_dim(fetch_val(grid, :cols), 12)
+
+    ignore_cells =
+      case fetch_val(grid, :ignore_cells) do
+        cells when is_list(cells) ->
+          normalize_ignore_pairs(cells, rows, cols)
+
+        _ ->
+          focus_set =
+            grid
+            |> fetch_val(:focus)
+            |> parse_grid_indices(rows * cols)
+
+          grid
+          |> fetch_val(:ignore)
+          |> parse_grid_indices(rows * cols)
+          |> MapSet.difference(focus_set)
+          |> MapSet.to_list()
+          |> Enum.sort()
+          |> Enum.map(fn idx -> [div(idx, cols), rem(idx, cols)] end)
+      end
+
+    case ignore_cells do
+      [] -> nil
+      cells -> %{"rows" => rows, "cols" => cols, "ignore_cells" => cells}
+    end
+  end
+
+  defp normalize_roi_grid(_), do: nil
+
+  defp clamp_grid_dim(val, _default) when is_integer(val) and val >= 1 and val <= 64, do: val
+  defp clamp_grid_dim(_val, default), do: default
+
+  defp parse_grid_indices(list, cell_count) when is_list(list) do
+    list
+    |> Enum.filter(&(is_integer(&1) and &1 >= 0 and &1 < cell_count))
+    |> MapSet.new()
+  end
+
+  defp parse_grid_indices(_other, _cell_count), do: MapSet.new()
+
+  defp normalize_ignore_pairs(cells, rows, cols) do
+    cells
+    |> Enum.reduce([], fn
+      [r, c], acc
+      when is_integer(r) and is_integer(c) and r >= 0 and r < rows and c >= 0 and c < cols ->
+        [[r, c] | acc]
+
+      {r, c}, acc
+      when is_integer(r) and is_integer(c) and r >= 0 and r < rows and c >= 0 and c < cols ->
+        [[r, c] | acc]
+
+      _, acc ->
+        acc
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp cancel_job(job, reason_class) do

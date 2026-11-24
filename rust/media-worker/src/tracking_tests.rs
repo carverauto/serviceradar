@@ -827,3 +827,322 @@ fn production_vision_pipeline_uses_media_core_motion_gate_and_emits_bounded_jfif
     assert_eq!(clip.tracks().len(), 1);
     assert_eq!(clip.tracks()[0].best_keyframe_offset_ms(), Some(3_000));
 }
+
+fn fill_rgb_rect(frame: &mut RgbFrame, x1: u32, y1: u32, x2: u32, y2: u32, rgb: [u8; 3]) {
+    let w = frame.width();
+    let h = frame.height();
+    for y in y1.min(h)..y2.min(h) {
+        for x in x1.min(w)..x2.min(w) {
+            frame.set_pixel(x, y, rgb);
+        }
+    }
+}
+
+#[test]
+fn stationary_vehicle_is_suppressed_while_moving_vehicle_and_stationary_non_vehicles_are_retained()
+{
+    let dim = 16;
+    let vehicle_emb = unit_basis_vec(dim, 2);
+    let person_emb = unit_basis_vec(dim, 1);
+    let animal_emb = unit_basis_vec(dim, 3);
+    let package_emb = unit_basis_vec(dim, 4);
+
+    // 3 frames (320x180):
+    // - Parked vehicle at bottom-left [0.05, 0.55, 0.30, 0.85]: static pixels, tiny <1% jitter.
+    // - Stationary person, animal, and package on the right: static pixels, zero displacement.
+    // - Unrelated bright motion patch in top-right corner [0.80, 0.05, 0.95, 0.25] wakes motion gate
+    //   on frame 1 & 2 without overlapping the parked vehicle.
+    let mut f0 = RgbFrame::solid(320, 180, [40, 44, 48]);
+    f0.set_pixel(0, 0, [0, 44, 48]);
+    let mut f1 = RgbFrame::solid(320, 180, [40, 44, 48]);
+    fill_rgb_rect(&mut f1, 256, 8, 308, 44, [230, 230, 230]);
+    f1.set_pixel(0, 0, [1, 44, 48]);
+    let mut f2 = RgbFrame::solid(320, 180, [40, 44, 48]);
+    f2.set_pixel(0, 0, [2, 44, 48]);
+
+    let scripted_static = vec![
+        vec![
+            (
+                ObjectClass::Vehicle,
+                0.92,
+                [0.050, 0.550, 0.300, 0.850],
+                vehicle_emb.clone(),
+            ),
+            (
+                ObjectClass::Person,
+                0.90,
+                [0.45, 0.35, 0.55, 0.75],
+                person_emb.clone(),
+            ),
+            (
+                ObjectClass::Animal,
+                0.85,
+                [0.60, 0.55, 0.70, 0.75],
+                animal_emb.clone(),
+            ),
+            (
+                ObjectClass::Package,
+                0.82,
+                [0.75, 0.65, 0.85, 0.80],
+                package_emb.clone(),
+            ),
+        ],
+        vec![
+            // Tiny 0.5% bbox jitter (< 2.5% threshold), zero pixel motion at vehicle bbox
+            (
+                ObjectClass::Vehicle,
+                0.93,
+                [0.055, 0.552, 0.305, 0.852],
+                vehicle_emb.clone(),
+            ),
+            (
+                ObjectClass::Person,
+                0.91,
+                [0.45, 0.35, 0.55, 0.75],
+                person_emb.clone(),
+            ),
+            (
+                ObjectClass::Animal,
+                0.86,
+                [0.60, 0.55, 0.70, 0.75],
+                animal_emb.clone(),
+            ),
+            (
+                ObjectClass::Package,
+                0.83,
+                [0.75, 0.65, 0.85, 0.80],
+                package_emb.clone(),
+            ),
+        ],
+        vec![
+            (
+                ObjectClass::Vehicle,
+                0.91,
+                [0.052, 0.551, 0.302, 0.851],
+                vehicle_emb.clone(),
+            ),
+            (
+                ObjectClass::Person,
+                0.89,
+                [0.45, 0.35, 0.55, 0.75],
+                person_emb.clone(),
+            ),
+            (
+                ObjectClass::Animal,
+                0.84,
+                [0.60, 0.55, 0.70, 0.75],
+                animal_emb.clone(),
+            ),
+            (
+                ObjectClass::Package,
+                0.81,
+                [0.75, 0.65, 0.85, 0.80],
+                package_emb.clone(),
+            ),
+        ],
+    ];
+
+    for mode in [TrackerMode::ByteTrack, TrackerMode::BotSort] {
+        let backend = Arc::new(ScriptedTrackingBackend::new(dim, scripted_static.clone()));
+        let pipeline = VisionPipeline::with_backend(
+            ModelPinConfig::new("det", "1", "emb", "1", dim),
+            true,
+            Arc::clone(&backend) as Arc<dyn InferenceBackend>,
+        )
+        .with_tracking(mode, true);
+
+        let keyframes = [
+            ClipKeyframe::new(0, &f0),
+            ClipKeyframe::new(1_000, &f1),
+            ClipKeyframe::new(2_000, &f2),
+        ];
+        let clip = pipeline
+            .process_clip_keyframes(&keyframes)
+            .expect("process clip with parked vehicle");
+
+        // Parked vehicle must be completely suppressed from detections, crops, and tracks!
+        for frame in clip.frames() {
+            assert!(
+                frame
+                    .detections()
+                    .iter()
+                    .all(|d| d.object_class() != ObjectClass::Vehicle),
+                "parked vehicle should be suppressed in mode {mode:?}"
+            );
+            assert!(
+                frame
+                    .embeddings()
+                    .iter()
+                    .all(|e| e.object_class() != Some("vehicle")),
+                "parked vehicle crop embedding should be suppressed in mode {mode:?}"
+            );
+        }
+        let track_classes: HashSet<ObjectClass> =
+            clip.tracks().iter().map(|t| t.object_class()).collect();
+        assert!(!track_classes.contains(&ObjectClass::Vehicle));
+        assert!(track_classes.contains(&ObjectClass::Person));
+        assert!(track_classes.contains(&ObjectClass::Animal));
+        assert!(track_classes.contains(&ObjectClass::Package));
+    }
+
+    // Now test a MOVING vehicle retained via active pixel motion overlap (even with <2.5% displacement)
+    // AND a MOVING vehicle retained via >= 2.5% centroid displacement.
+    let mut m0 = RgbFrame::solid(320, 180, [40, 44, 48]);
+    m0.set_pixel(0, 0, [0, 44, 48]);
+    let mut m1 = RgbFrame::solid(320, 180, [40, 44, 48]);
+    // Bright pixel motion directly inside arriving vehicle's bbox [0.10, 0.50, 0.35, 0.80]
+    fill_rgb_rect(&mut m1, 40, 95, 110, 140, [220, 220, 220]);
+    m1.set_pixel(0, 0, [1, 44, 48]);
+
+    let scripted_moving = vec![
+        vec![(
+            ObjectClass::Vehicle,
+            0.90,
+            [0.60, 0.40, 0.80, 0.70],
+            vehicle_emb.clone(),
+        )],
+        vec![
+            // Arriving vehicle with pixel motion overlap
+            (
+                ObjectClass::Vehicle,
+                0.92,
+                [0.10, 0.50, 0.35, 0.80],
+                vehicle_emb.clone(),
+            ),
+            // Driving vehicle with 5% centroid displacement (>= 2.5%) even without pixel motion
+            (
+                ObjectClass::Vehicle,
+                0.93,
+                [0.65, 0.40, 0.85, 0.70],
+                vehicle_emb.clone(),
+            ),
+        ],
+    ];
+
+    let backend_moving = Arc::new(ScriptedTrackingBackend::new(dim, scripted_moving));
+    let pipeline_moving = VisionPipeline::with_backend(
+        ModelPinConfig::new("det", "1", "emb", "1", dim),
+        true,
+        Arc::clone(&backend_moving) as Arc<dyn InferenceBackend>,
+    )
+    .with_tracking(TrackerMode::ByteTrack, true);
+
+    let clip_moving = pipeline_moving
+        .process_clip_keyframes(&[ClipKeyframe::new(0, &m0), ClipKeyframe::new(1_000, &m1)])
+        .expect("process clip with moving vehicles");
+
+    assert_eq!(clip_moving.frames()[1].detections().len(), 2);
+    assert!(
+        clip_moving
+            .tracks()
+            .iter()
+            .filter(|t| t.object_class() == ObjectClass::Vehicle)
+            .count()
+            == 2
+    );
+}
+
+#[test]
+fn roi_grid_ignore_cells_suppress_motion_gate_and_detections_and_parse_from_job_envelope() {
+    use crate::worker::VisualIndexJobEnvelope;
+    use serviceradar_media_core::RoiGridMask;
+
+    // 1. Verify VisualIndexJobEnvelope JSON parsing with and without `roi_grid`
+    let models = ModelPinConfig::default();
+    let job_without_roi =
+        VisualIndexJobEnvelope::new("job-no-roi", "cat-1", "cam-1", "prof-1", "sha-1", &models);
+    let json_without_roi = serde_json::to_vec(&job_without_roi).expect("serialize job");
+    let parsed_without: VisualIndexJobEnvelope =
+        serde_json::from_slice(&json_without_roi).expect("deserialize job without roi");
+    assert!(parsed_without.roi_grid().is_none());
+
+    let roi_grid = RoiGridMask::new(8, 12, vec![(0, 0), (0, 1), (1, 0), (1, 1)]);
+    let job_with_roi = job_without_roi.with_roi_grid(roi_grid.clone());
+    let json_with_roi = serde_json::to_vec(&job_with_roi).expect("serialize job with roi");
+    let parsed_with: VisualIndexJobEnvelope =
+        serde_json::from_slice(&json_with_roi).expect("deserialize job with roi");
+    assert_eq!(parsed_with.roi_grid(), Some(&roi_grid));
+
+    // 2. Verify ROI ignore cells suppress both motion gate and detections in VisionPipeline
+    let dim = 16;
+    let person_emb = unit_basis_vec(dim, 1);
+
+    // Frame 0: static background; Frame 1: bright change strictly inside ignored top-left cells
+    // (cols 0..2 => x < 53px, rows 0..2 => y < 45px) -> motion gate must skip Frame 1!
+    // Frame 2: bright change outside ignored cells -> admitted, and only the detection outside
+    // the ignored cells survives.
+    let mut f0 = RgbFrame::solid(320, 180, [40, 44, 48]);
+    f0.set_pixel(0, 0, [0, 44, 48]);
+    let mut f1 = RgbFrame::solid(320, 180, [40, 44, 48]);
+    fill_rgb_rect(&mut f1, 4, 4, 44, 38, [240, 240, 240]);
+    f1.set_pixel(0, 0, [1, 44, 48]);
+    let mut f2 = RgbFrame::solid(320, 180, [40, 44, 48]);
+    fill_rgb_rect(&mut f2, 180, 90, 260, 150, [240, 240, 240]);
+    f2.set_pixel(0, 0, [2, 44, 48]);
+
+    let scripted = vec![
+        // Frame 0: only a detection inside ignored top-left cells -> dropped!
+        vec![(
+            ObjectClass::Person,
+            0.91,
+            [0.02, 0.02, 0.14, 0.20],
+            person_emb.clone(),
+        )],
+        // Frame 1: skipped by motion gate because motion is only in ignored cells
+        vec![(
+            ObjectClass::Person,
+            0.92,
+            [0.02, 0.02, 0.14, 0.20],
+            person_emb.clone(),
+        )],
+        // Frame 2: one detection inside ignored cells (dropped) + one outside (retained)
+        vec![
+            (
+                ObjectClass::Person,
+                0.93,
+                [0.02, 0.02, 0.14, 0.20],
+                person_emb.clone(),
+            ),
+            (
+                ObjectClass::Person,
+                0.94,
+                [0.55, 0.50, 0.75, 0.85],
+                person_emb.clone(),
+            ),
+        ],
+    ];
+
+    let backend = Arc::new(ScriptedTrackingBackend::new(dim, scripted));
+    let pipeline = VisionPipeline::with_backend(
+        ModelPinConfig::new("det", "1", "emb", "1", dim),
+        true,
+        Arc::clone(&backend) as Arc<dyn InferenceBackend>,
+    )
+    .with_tracking(TrackerMode::ByteTrack, true);
+
+    let clip = pipeline
+        .process_clip_keyframes_with_roi(
+            &[
+                ClipKeyframe::new(0, &f0),
+                ClipKeyframe::new(1_000, &f1),
+                ClipKeyframe::new(2_000, &f2),
+            ],
+            Some(&roi_grid),
+        )
+        .expect("process clip with roi grid");
+
+    assert!(
+        clip.frames()[0].detections().is_empty(),
+        "detection inside ignored ROI cell must be dropped on frame 0"
+    );
+    assert!(
+        clip.frames()[1].scene_suppressed(),
+        "motion strictly inside ignored ROI cells must be skipped by motion gate"
+    );
+    assert!(clip.frames()[1].detections().is_empty());
+    assert_eq!(clip.frames()[2].detections().len(), 1);
+    assert_eq!(
+        clip.frames()[2].detections()[0].bbox_norm(),
+        [0.55, 0.50, 0.75, 0.85]
+    );
+}

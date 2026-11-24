@@ -1420,10 +1420,21 @@ async fn sixty_four_keyframe_block_with_continuous_detections_stays_under_nats_m
             _min_confidence: f32,
         ) -> Result<Vec<crate::RawDetection>, MediaWorkerError> {
             let idx = usize::from(frame.pixel_at(0, 0)[0]);
+            // Advance the vehicle slightly each frame so its track displaces >= 2.5% across the
+            // clip (representing a moving vehicle rather than a parked stationary vehicle).
+            let dx = (idx as f32) * 0.002;
             let vehicle = if idx == VEHICLE_PEAK_FRAME {
-                crate::RawDetection::new(ObjectClass::Vehicle, 0.97, [0.48, 0.38, 0.88, 0.80])
+                crate::RawDetection::new(
+                    ObjectClass::Vehicle,
+                    0.97,
+                    [0.36 + dx, 0.38, 0.76 + dx, 0.80],
+                )
             } else {
-                crate::RawDetection::new(ObjectClass::Vehicle, 0.88, [0.50, 0.40, 0.85, 0.78])
+                crate::RawDetection::new(
+                    ObjectClass::Vehicle,
+                    0.88,
+                    [0.38 + dx, 0.40, 0.73 + dx, 0.78],
+                )
             };
             let mut dets = vec![vehicle];
             if (20..=35).contains(&idx) {
@@ -1685,10 +1696,11 @@ async fn large_base_envelope_trims_thumbnails_to_stay_within_960_kib_ceiling() {
         ) -> Result<Vec<crate::RawDetection>, MediaWorkerError> {
             let idx = usize::from(frame.pixel_at(0, 0)[0]);
             let conf = if idx == 5 { 0.98 } else { 0.86 };
+            let dx = (idx as f32) * 0.004;
             Ok(vec![crate::RawDetection::new(
                 ObjectClass::Vehicle,
                 conf,
-                [0.45, 0.35, 0.85, 0.78],
+                [0.25 + dx, 0.35, 0.65 + dx, 0.78],
             )])
         }
 
