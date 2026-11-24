@@ -278,6 +278,7 @@ config :serviceradar_web_ng, :first_party_transparency_log,
   pre_cutover_digests_file: "/usr/share/serviceradar/sigstore/pre-cutover-first-party-digests.json"
 
 config :serviceradar_web_ng, :god_view_enabled, false
+config :serviceradar_web_ng, :mcp_allowed_redirect_uris, []
 config :serviceradar_web_ng, :mcp_client_credentials_enabled, true
 config :serviceradar_web_ng, :mcp_enabled, false
 config :serviceradar_web_ng, :mcp_idp_refresh_client, ServiceRadarWebNGWeb.Auth.OIDCClient

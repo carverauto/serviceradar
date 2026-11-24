@@ -185,6 +185,34 @@ defmodule ServiceRadarWebNG.Mcp.Tools do
 
       run(&Runner.get_device/2)
     end
+
+    action :horizon_intel_lookup, :map do
+      description("""
+      Look up Horizon IP, prefix, and ASN intelligence (same path and RBAC as
+      GET /api/horizon/v1/intel/lookup). Requires at least one of asn, prefix,
+      or ip. Returns CAIDA AS-org, MMDB geo/ASN, cloud CIDR attribution,
+      PeeringDB IXP, ServiceRadar prefix tags, and RFC 6811 RPKI ROA validation
+      when both asn and prefix are supplied. Read-only; requires
+      observability.events.view. Arguments are bound identifiers, not SRQL.
+      """)
+
+      argument :asn, :integer do
+        allow_nil?(true)
+        description("Autonomous System Number (positive 32-bit integer, e.g. 13335)")
+      end
+
+      argument :prefix, :string do
+        allow_nil?(true)
+        description("IPv4 or IPv6 CIDR prefix (e.g. 1.1.1.0/24)")
+      end
+
+      argument :ip, :string do
+        allow_nil?(true)
+        description("IPv4 or IPv6 address (e.g. 1.1.1.1)")
+      end
+
+      run(&Runner.horizon_intel_lookup/2)
+    end
   end
 
   policies do

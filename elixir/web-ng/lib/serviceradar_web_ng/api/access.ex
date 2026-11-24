@@ -6,8 +6,10 @@ defmodule ServiceRadarWebNG.Api.Access do
   Ash is always authorized.
   """
 
+  alias ServiceRadar.Identity.RBAC, as: CoreRBAC
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Devices.MergedAvailability
+  alias ServiceRadarWebNG.HorizonProxy
   alias ServiceRadarWebNG.SRQL.EntityAccess
 
   require Ash.Query
@@ -111,6 +113,135 @@ defmodule ServiceRadarWebNG.Api.Access do
         {:error, _} -> {:error, :not_found}
       end
     end
+  end
+
+  @doc """
+  Read-only Horizon IP/prefix/ASN intelligence lookup via `ServiceRadarWebNG.HorizonProxy`
+  (same path and RBAC permission as `GET /api/horizon/v1/intel/lookup`).
+  """
+  @spec horizon_intel_lookup(term(), map()) :: {:ok, map()} | {:error, term()}
+  def horizon_intel_lookup(scope, params) when is_map(params) do
+    with {:ok, route} <-
+           HorizonProxy.resolve_route("GET", "v1", ["intel", "lookup"], "/api/horizon/v1/intel/lookup"),
+         :ok <- require_permission(scope, route.required_permission),
+         {:ok, query_pairs} <- build_horizon_intel_query(params),
+         {:ok, query_string} <- HorizonProxy.validate_query_string(URI.encode_query(query_pairs)),
+         {:ok, upstream} <- HorizonProxy.resolve_upstream(),
+         {:ok, %{status: status, body: body}} <- HorizonProxy.forward(route, upstream, query_string: query_string) do
+      decode_horizon_intel_response(status, body)
+    else
+      {:error, :forbidden} -> {:error, :forbidden}
+      {:error, :not_configured} -> {:error, "horizon is not configured"}
+      {:error, :invalid_upstream_url} -> {:error, "horizon upstream configuration is invalid"}
+      {:error, :upstream_timeout} -> {:error, "horizon upstream request timed out"}
+      {:error, :upstream_unavailable} -> {:error, "horizon upstream is unavailable"}
+      {:error, :invalid_query} -> {:error, "invalid intel lookup parameters"}
+      {:error, reason} when is_binary(reason) -> {:error, reason}
+      {:error, _reason} -> {:error, "horizon intel lookup failed"}
+    end
+  end
+
+  defp require_permission(%{permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
+    if CoreRBAC.Catalog.holds?(permissions, permission), do: :ok, else: {:error, :forbidden}
+  end
+
+  defp require_permission(%{user: user}, permission) when not is_nil(user) and is_binary(permission) do
+    if CoreRBAC.has_permission?(user, permission), do: :ok, else: {:error, :forbidden}
+  end
+
+  defp require_permission(_scope, _permission), do: {:error, :forbidden}
+
+  defp build_horizon_intel_query(params) do
+    with {:ok, asn} <- parse_optional_asn(params[:asn] || params["asn"]),
+         {:ok, prefix} <- parse_optional_prefix(params[:prefix] || params["prefix"]),
+         {:ok, ip} <- parse_optional_ip(params[:ip] || params["ip"]) do
+      pairs =
+        Enum.reject(
+          [
+            {"asn", asn},
+            {"ip", ip},
+            {"prefix", prefix}
+          ],
+          fn {_k, v} -> is_nil(v) end
+        )
+
+      if pairs == [] do
+        {:error, "at least one of asn, prefix, or ip is required"}
+      else
+        {:ok, pairs}
+      end
+    end
+  end
+
+  defp parse_optional_asn(nil), do: {:ok, nil}
+  defp parse_optional_asn(""), do: {:ok, nil}
+
+  defp parse_optional_asn(asn) when is_integer(asn) and asn > 0 and asn <= 4_294_967_295 do
+    {:ok, Integer.to_string(asn)}
+  end
+
+  defp parse_optional_asn(asn) when is_binary(asn) do
+    case Integer.parse(String.trim(asn)) do
+      {value, ""} -> parse_optional_asn(value)
+      _ -> {:error, "asn must be a positive 32-bit integer"}
+    end
+  end
+
+  defp parse_optional_asn(_), do: {:error, "asn must be a positive 32-bit integer"}
+
+  defp parse_optional_ip(nil), do: {:ok, nil}
+  defp parse_optional_ip(""), do: {:ok, nil}
+
+  defp parse_optional_ip(ip) when is_binary(ip) do
+    trimmed = String.trim(ip)
+
+    case :inet.parse_strict_address(String.to_charlist(trimmed)) do
+      {:ok, _addr} -> {:ok, trimmed}
+      {:error, _} -> {:error, "ip must be a valid IPv4 or IPv6 address"}
+    end
+  end
+
+  defp parse_optional_ip(_), do: {:error, "ip must be a valid IPv4 or IPv6 address"}
+
+  defp parse_optional_prefix(nil), do: {:ok, nil}
+  defp parse_optional_prefix(""), do: {:ok, nil}
+
+  defp parse_optional_prefix(prefix) when is_binary(prefix) do
+    trimmed = String.trim(prefix)
+
+    with [ip_part, mask_part] <- String.split(trimmed, "/", parts: 2),
+         {:ok, addr} <- :inet.parse_strict_address(String.to_charlist(ip_part)),
+         {mask, ""} <- Integer.parse(mask_part),
+         true <- valid_cidr_mask?(addr, mask) do
+      {:ok, trimmed}
+    else
+      _ -> {:error, "prefix must be a valid IPv4 or IPv6 CIDR (e.g. 1.1.1.0/24)"}
+    end
+  end
+
+  defp parse_optional_prefix(_), do: {:error, "prefix must be a valid IPv4 or IPv6 CIDR (e.g. 1.1.1.0/24)"}
+
+  defp valid_cidr_mask?(addr, mask) when tuple_size(addr) == 4, do: mask >= 0 and mask <= 32
+  defp valid_cidr_mask?(addr, mask) when tuple_size(addr) == 8, do: mask >= 0 and mask <= 128
+  defp valid_cidr_mask?(_, _), do: false
+
+  defp decode_horizon_intel_response(status, body) when status >= 200 and status < 300 do
+    case Jason.decode(body) do
+      {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
+      {:ok, decoded} -> {:ok, %{"data" => decoded}}
+      {:error, _} -> {:error, "horizon returned invalid JSON"}
+    end
+  end
+
+  defp decode_horizon_intel_response(status, body) do
+    message =
+      case Jason.decode(body) do
+        {:ok, %{"error" => err}} when is_binary(err) -> err
+        {:ok, %{"message" => msg}} when is_binary(msg) -> msg
+        _ -> "horizon upstream returned status #{status}"
+      end
+
+    {:error, message}
   end
 
   @spec parse_uid(term()) :: {:ok, String.t()} | {:error, {:invalid, String.t()}}

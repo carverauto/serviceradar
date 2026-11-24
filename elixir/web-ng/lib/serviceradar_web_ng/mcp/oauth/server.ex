@@ -213,6 +213,7 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.Server do
       record.consumed_at != nil -> {:error, :invalid_grant}
       DateTime.compare(record.expires_at, now) != :gt -> {:error, :invalid_grant}
       record.client_id != client_id -> {:error, :invalid_grant}
+      not RedirectURI.allowed?(redirect_uri) -> {:error, :invalid_grant}
       record.redirect_uri != redirect_uri -> {:error, :invalid_grant}
       not Pkce.valid_s256?(verifier, record.code_challenge) -> {:error, :invalid_grant}
       true -> :ok

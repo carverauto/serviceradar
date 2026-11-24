@@ -298,6 +298,111 @@ in:bmp_events peer_asn:64512 time:last_24h
 in:bmp_events prefix:%203.0.113.0% time:last_7d sort:time:desc
 ```
 
+## Horizon Internet Weather, BGP, Zombies, and Multipath Paths
+
+StarRocks-backed global internet weather, BGP anomaly, zombie route, multipath
+ECMP/PMTUD hop trace, and ISP accountability entities. `in:horizon_outages`,
+`in:horizon_bgp`, `in:horizon_zombies`, and `in:horizon_isp_accountability`
+require `observability.events.view`; `in:horizon_paths` requires
+`observability.traces.view`.
+
+These entities are row-query tables and do **not** support `stats:` or
+`bucket:`. For live IP, prefix, or ASN enrichment (CAIDA AS-org, MMDB geo/ASN,
+cloud CIDR attribution, PeeringDB IXP, prefix tags, and RPKI ROA validation),
+call the `horizon_intel_lookup` tool instead of SRQL.
+
+### Corroborated Outages (`in:horizon_outages`)
+
+```
+in:horizon_outages status:active time:last_24h sort:time:desc limit:50
+in:horizon_outages status:active severity:(critical,major) time:last_24h sort:avg_forwarding_loss_pct:desc limit:25
+in:horizon_outages entity_type:asn origin_asn:13335 time:last_7d sort:time:desc limit:50
+in:horizon_outages region:us-east corroborating_pop_count:>=3 time:last_24h limit:25
+in:horizon_outages covering_prefix:198.51.100.0/24 time:last_7d limit:25
+in:horizon_outages avg_synthetic_failure_pct:>=50 time:last_24h sort:corroborating_pop_count:desc limit:25
+```
+
+- Filter fields: `outage_id`, `status` (`active`, `resolved`, `cleared`),
+  `severity` (`critical`, `major`, `minor`, `warning`), `entity_type` (`asn`,
+  `prefix`, `region`, `provider`), `entity_key`, `region`, `covering_prefix`,
+  `origin_asn`, `corroborating_pop_count`, `avg_forwarding_loss_pct`,
+  `avg_synthetic_failure_pct`. Use `covering_prefix:` (not `prefix:`).
+- Sort fields: `time`, `severity`, `status`, `corroborating_pop_count`,
+  `avg_forwarding_loss_pct`.
+- Returned rows also include `window_start_ms`, `window_end_ms`,
+  `correlated_bgp_event_ids`, and `raw_data`.
+
+### BGP Anomalies (`in:horizon_bgp`)
+
+```
+in:horizon_bgp time:last_24h sort:time:desc limit:50
+in:horizon_bgp kind:(hijack,leak) level:critical time:last_24h sort:time:desc limit:50
+in:horizon_bgp rpki_status:invalid time:last_24h sort:time:desc limit:50
+in:horizon_bgp prefix:198.51.100.0/24 time:last_7d sort:time:desc limit:50
+in:horizon_bgp origin_asn:64512 time:last_24h sort:time:desc limit:50
+in:horizon_bgp kind:watchlist watchlist_id:<watchlist-id> time:last_24h limit:50
+```
+
+- Filter fields: `event_id`, `kind` (`hijack`, `leak`, `flap`, `watchlist`),
+  `level` (`critical`, `warning`, `info`), `prefix`, `origin_asn`,
+  `rpki_status` (`valid`, `invalid`, `not_found`), `caida_leak_inference`,
+  `watchlist_id`, `client_label`.
+- Sort fields: `time`, `kind`, `level`, `origin_asn`.
+- Returned rows also include `as_path` and `raw_data`.
+
+### Stuck & Zombie Routes (`in:horizon_zombies`)
+
+```
+in:horizon_zombies status:active time:last_24h sort:divergence_pct:desc limit:50
+in:horizon_zombies status:active is_beacon:false divergence_pct:>=25 time:last_24h sort:time:desc limit:50
+in:horizon_zombies is_beacon:true time:last_7d sort:first_seen_at:desc limit:50
+in:horizon_zombies prefix:203.0.113.0/24 time:last_7d limit:25
+in:horizon_zombies origin_asn:64513 time:last_7d limit:25
+```
+
+- Filter fields: `episode_id`, `status` (`active`, `resolved`, `cleared`),
+  `prefix`, `origin_asn`, `divergence_pct`, `is_beacon` (`true`/`false`,
+  equality only — list syntax is rejected).
+- Sort fields: `time`, `status`, `divergence_pct`, `first_seen_at`.
+- Returned rows also include `withdrawn_peers`, `total_peers`,
+  `stuck_peer_asns`, `first_seen_at`, `resolved_at`, and `raw_data`.
+
+### Multipath Path DAG & Hop-by-Hop Traces (`in:horizon_paths`)
+
+```
+in:horizon_paths target_id:<target-id> time:last_1h sort:hop_ttl:asc limit:100
+in:horizon_paths target_id:<target-id> pop_id:iad-1 round_id:<round-id> sort:hop_ttl:asc limit:64
+in:horizon_paths mtu_blackhole_detected:true time:last_24h sort:time:desc limit:50
+in:horizon_paths forwarding_loss_pct:>=5 time:last_6h sort:forwarding_loss_pct:desc limit:50
+in:horizon_paths is_cloud:true cloud_provider:gcp time:last_6h sort:avg_rtt_ms:desc limit:50
+in:horizon_paths asn:15169 avg_rtt_ms:>=50 time:last_6h sort:avg_rtt_ms:desc limit:50
+```
+
+- Filter fields: `round_id`, `target_id`, `pop_id`, `hop_ttl`, `hop_ip`,
+  `router_alias_id`, `asn`, `as_org`, `is_cloud`, `cloud_provider`,
+  `cloud_region`, `forwarding_loss_pct`, `avg_rtt_ms`, `mtu_blackhole_detected`.
+- Sort fields: `time`, `hop_ttl`, `forwarding_loss_pct`, `avg_rtt_ms`.
+- Returned rows also include `alias_confidence`, `effective_path_mtu`,
+  `blackhole_hop_ttl`, and `raw_data`.
+
+### Hourly ISP Accountability (`in:horizon_isp_accountability`)
+
+```
+in:horizon_isp_accountability time:last_24h sort:forwarding_loss_pct:desc limit:50
+in:horizon_isp_accountability target_id:<target-id> time:last_24h sort:bucket_hour:desc limit:50
+in:horizon_isp_accountability !first_blame_tier:healthy time:last_24h sort:bucket_hour:desc limit:50
+in:horizon_isp_accountability asn:13335 time:last_7d sort:bucket_hour:desc limit:50
+```
+
+- Filter fields: `asn`, `as_org`, `target_id`, `forwarding_loss_pct`,
+  `avg_rtt_ms`, `max_rtt_ms`, `mtu_blackhole_count`, `min_effective_mtu`,
+  `active_outage_count`, `bgp_anomaly_count`, `bgp_zombie_count`,
+  `first_blame_tier` (`bgp_hijack`, `bgp_route_leak`, `bgp_anomaly`,
+  `bgp_zombie`, `active_outage`, `pmtud_blackhole`, `customer_lan`,
+  `isp_transit`, `healthy`), `sample_count`.
+- `time:` bounds `bucket_hour` (and prunes by `day`). Sort defaults to
+  `bucket_hour:desc`.
+
 ## Metrics and alerts
 
 ```

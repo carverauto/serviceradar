@@ -2,8 +2,18 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.RedirectURI do
   @moduledoc false
 
   @loopback_hosts MapSet.new(["127.0.0.1", "localhost", "[::1]", "::1"])
+  @default_allowed_https_uris [
+    "https://antigravity.google/oauth-callback"
+  ]
 
-  @spec loopback?(String.t()) :: boolean()
+  @spec allowed?(term()) :: boolean()
+  def allowed?(uri) when is_binary(uri) do
+    loopback?(uri) or allowlisted_https?(uri)
+  end
+
+  def allowed?(_), do: false
+
+  @spec loopback?(term()) :: boolean()
   def loopback?(uri) when is_binary(uri) do
     case URI.parse(uri) do
       %URI{scheme: "http", host: host, userinfo: nil} = parsed
@@ -17,6 +27,28 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.RedirectURI do
 
   def loopback?(_), do: false
 
+  @spec allowlisted_https?(term()) :: boolean()
+  def allowlisted_https?(uri) when is_binary(uri) do
+    valid_exact_https_uri?(uri) and MapSet.member?(allowed_https_uri_set(), uri)
+  end
+
+  def allowlisted_https?(_), do: false
+
+  @spec default_allowed_https_uris() :: [String.t()]
+  def default_allowed_https_uris, do: @default_allowed_https_uris
+
+  @spec allowed_https_uris() :: [String.t()]
+  def allowed_https_uris do
+    configured =
+      :serviceradar_web_ng
+      |> Application.get_env(:mcp_allowed_redirect_uris, [])
+      |> List.wrap()
+      |> Enum.map(&normalize_configured_uri/1)
+      |> Enum.filter(&valid_exact_https_uri?/1)
+
+    Enum.uniq(@default_allowed_https_uris ++ configured)
+  end
+
   @spec append_query(String.t(), map()) :: String.t()
   def append_query(uri, extras) when is_binary(uri) and is_map(extras) do
     parsed = URI.parse(uri)
@@ -29,6 +61,30 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.RedirectURI do
 
     URI.to_string(%{parsed | query: query})
   end
+
+  defp allowed_https_uri_set do
+    MapSet.new(allowed_https_uris())
+  end
+
+  defp normalize_configured_uri(uri) when is_binary(uri), do: String.trim(uri)
+  defp normalize_configured_uri(_), do: ""
+
+  defp valid_exact_https_uri?(uri) when is_binary(uri) do
+    if uri == "" or String.contains?(uri, ["\\", "..", "\r", "\n", "\0"]) do
+      false
+    else
+      case URI.new(uri) do
+        {:ok, %URI{scheme: "https", host: host, userinfo: nil, query: nil, fragment: nil, path: path} = parsed}
+        when is_binary(host) and host != "" ->
+          valid_port?(parsed.port) and is_binary(path) and String.starts_with?(path, "/")
+
+        _ ->
+          false
+      end
+    end
+  end
+
+  defp valid_exact_https_uri?(_), do: false
 
   defp reject_blank(map) do
     Map.reject(map, fn {_k, v} -> is_nil(v) or v == "" end)

@@ -129,6 +129,15 @@ For time-series charts:
 in:flows time:last_6h bucket:5m agg:sum value_field:bytes_total
 ```
 
+## Horizon telemetry
+
+`in:horizon_outages`, `in:horizon_bgp`, `in:horizon_zombies`,
+`in:horizon_paths`, and `in:horizon_isp_accountability` are StarRocks-backed
+row-query entities. They support `time:`, equality/list/numeric/boolean filters,
+`sort:`, and `limit:`, and **reject** `stats:` and `bucket:`. Use
+`get_srql_catalog` with `entity` for exact filter fields and
+`serviceradar://srql/cookbook` for recipes.
+
 ## Common mistakes
 
 - SQL (`SELECT ... WHERE ...`) — rejected.
@@ -139,5 +148,6 @@ in:flows time:last_6h bucket:5m agg:sum value_field:bytes_total
 - Passing SRQL in `get_device` `uid` — uid is a bound identifier, not SRQL.
 - `/api/mcp` — that path is gone. Tools are `execute_srql` on this server.
 
-`list_devices` and `get_device` are inventory shortcuts. Logs, events, flows,
-metrics, and everything else go through `execute_srql`.
+`list_devices`, `get_device`, and `horizon_intel_lookup` are bound-identifier
+shortcuts. Logs, events, flows, metrics, Horizon telemetry, and everything else
+go through `execute_srql`.
