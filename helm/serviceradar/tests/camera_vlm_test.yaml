@@ -320,7 +320,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_CAMERA_VLM_URL
-            value: "http://serviceradar-camera-vlm.sr-test.svc.cluster.local:8080"
+            value: "http://serviceradar-camera-vlm.sr-test.svc.cluster.local:8080/v1/chat/completions"
         template: templates/core.yaml
         documentSelector:
           path: kind
@@ -338,7 +338,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_CAMERA_VLM_URL
-            value: "http://serviceradar-camera-vlm.sr-test.svc.cluster.local:8080"
+            value: "http://serviceradar-camera-vlm.sr-test.svc.cluster.local:8080/v1/chat/completions"
         template: templates/web.yaml
         documentSelector:
           path: kind
