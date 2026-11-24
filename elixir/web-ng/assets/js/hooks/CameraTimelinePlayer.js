@@ -113,6 +113,92 @@ export function projectDetectionBox(bbox, contentRect) {
   }
 }
 
+export function extractFragmentPdtRanges(levelDetails) {
+  const fragments = Array.isArray(levelDetails) ? levelDetails : levelDetails?.fragments
+  if (!Array.isArray(fragments) || fragments.length === 0) return []
+
+  const ranges = []
+  for (const frag of fragments) {
+    if (!frag || typeof frag !== "object") continue
+    const startSec = Number(frag.start)
+    const duration = Number(frag.duration)
+    const pdtMs = frag.programDateTime === null || frag.programDateTime === undefined ? Number.NaN : Number(frag.programDateTime)
+    if (!Number.isFinite(startSec) || !Number.isFinite(duration) || duration <= 0 || !Number.isFinite(pdtMs)) {
+      continue
+    }
+    const startUs = Math.round(pdtMs * 1000)
+    const endUs = Math.round(startUs + duration * 1_000_000)
+    ranges.push({
+      startSec,
+      endSec: startSec + duration,
+      startUs,
+      endUs,
+    })
+  }
+
+  ranges.sort((a, b) => a.startSec - b.startSec)
+  return ranges
+}
+
+export function resolvePlaybackTimelineUs(currentTimeSec, fragmentPdtRanges) {
+  const t = Number(currentTimeSec)
+  if (!Number.isFinite(t) || !Array.isArray(fragmentPdtRanges) || fragmentPdtRanges.length === 0) {
+    return null
+  }
+
+  const lastIndex = fragmentPdtRanges.length - 1
+  for (let i = 0; i <= lastIndex; i += 1) {
+    const frag = fragmentPdtRanges[i]
+    const within = i === lastIndex ? t >= frag.startSec && t <= frag.endSec : t >= frag.startSec && t < frag.endSec
+    if (within) {
+      return Math.round(frag.startUs + (t - frag.startSec) * 1_000_000)
+    }
+  }
+
+  let nearest = null
+  let nearestDist = Number.POSITIVE_INFINITY
+  for (const frag of fragmentPdtRanges) {
+    const dist = t < frag.startSec ? frag.startSec - t : t > frag.endSec ? t - frag.endSec : 0
+    if (dist < nearestDist) {
+      nearestDist = dist
+      nearest = frag
+    }
+  }
+
+  if (!nearest) return null
+  return Math.round(nearest.startUs + (t - nearest.startSec) * 1_000_000)
+}
+
+export function resolveTimelineUsToPlaybackSeconds(targetUs, fragmentPdtRanges) {
+  const ts = Number(targetUs)
+  if (!Number.isFinite(ts) || !Array.isArray(fragmentPdtRanges) || fragmentPdtRanges.length === 0) {
+    return null
+  }
+
+  const first = fragmentPdtRanges[0]
+  if (ts < first.startUs) {
+    return first.startSec + (ts - first.startUs) / 1_000_000
+  }
+
+  const lastIndex = fragmentPdtRanges.length - 1
+  for (let i = 0; i <= lastIndex; i += 1) {
+    const frag = fragmentPdtRanges[i]
+    const within = i === lastIndex ? ts >= frag.startUs && ts <= frag.endUs : ts >= frag.startUs && ts < frag.endUs
+    if (within) {
+      return frag.startSec + (ts - frag.startUs) / 1_000_000
+    }
+    if (i < lastIndex) {
+      const next = fragmentPdtRanges[i + 1]
+      if (ts >= frag.endUs && ts < next.startUs) {
+        return ts - frag.endUs <= next.startUs - ts ? frag.endSec : next.startSec
+      }
+    }
+  }
+
+  const last = fragmentPdtRanges[lastIndex]
+  return last.endSec + (ts - last.endUs) / 1_000_000
+}
+
 export function parseOverlayDetections(rawJson, {windowStartUs = null} = {}) {
   if (!rawJson || typeof rawJson !== "string" || rawJson.trim() === "") return []
 
@@ -137,11 +223,21 @@ export function parseOverlayDetections(rawJson, {windowStartUs = null} = {}) {
     const bbox = normalizeBboxTuple(item.bbox ?? item.bbox_norm ?? parent.bbox ?? parent.bbox_norm)
     if (!bbox) return
 
+    const rawTsUs =
+      item.timeline_ts_us ??
+      item.timelineTsUs ??
+      item.best_timeline_ts_us ??
+      parent.timeline_ts_us ??
+      parent.timelineTsUs ??
+      parent.best_timeline_ts_us
+    const parsedTsUs =
+      rawTsUs !== null && rawTsUs !== undefined && String(rawTsUs).trim() !== "" ? Number(rawTsUs) : Number.NaN
+    const timelineTsUs = Number.isFinite(parsedTsUs) ? parsedTsUs : null
+
     let offsetSeconds = Number(item.offset_seconds ?? item.offsetSeconds ?? parent.offset_seconds ?? parent.offsetSeconds)
     if (!Number.isFinite(offsetSeconds)) {
-      const tsUs = Number(item.timeline_ts_us ?? item.best_timeline_ts_us ?? parent.timeline_ts_us ?? parent.best_timeline_ts_us)
-      if (Number.isFinite(tsUs) && Number.isFinite(winStart)) {
-        offsetSeconds = Math.max(0, (tsUs - winStart) / 1_000_000)
+      if (timelineTsUs !== null && Number.isFinite(winStart)) {
+        offsetSeconds = Math.max(0, (timelineTsUs - winStart) / 1_000_000)
       } else {
         offsetSeconds = 0
       }
@@ -153,6 +249,7 @@ export function parseOverlayDetections(rawJson, {windowStartUs = null} = {}) {
     normalized.push({
       visualFrameId: String(item.visual_frame_id ?? item.visualFrameId ?? parent.visual_frame_id ?? parent.visualFrameId ?? ""),
       offsetSeconds,
+      timelineTsUs,
       timeBasis: String(item.time_basis ?? item.timeBasis ?? parent.time_basis ?? parent.timeBasis ?? "received"),
       objectClass: String(item.object_class ?? item.objectClass ?? item.class ?? "object"),
       score,
@@ -178,7 +275,7 @@ export function parseOverlayDetections(rawJson, {windowStartUs = null} = {}) {
 export function selectActiveDetections(
   detections,
   currentTimeSeconds,
-  {highlightFrameId = null, toleranceSeconds = 1.5, metadataLoaded = true} = {}
+  {highlightFrameId = null, toleranceSeconds = 1.5, metadataLoaded = true, currentTimelineUs = null} = {}
 ) {
   if (!Array.isArray(detections) || detections.length === 0) return []
   const highlightId = highlightFrameId ? String(highlightFrameId) : ""
@@ -191,7 +288,19 @@ export function selectActiveDetections(
   const nowSec = Number(currentTimeSeconds)
   if (!Number.isFinite(nowSec)) return []
 
-  const inWindow = detections.filter(d => Math.abs(d.offsetSeconds - nowSec) <= toleranceSeconds)
+  const nowUs =
+    currentTimelineUs !== null && currentTimelineUs !== undefined && Number.isFinite(Number(currentTimelineUs))
+      ? Number(currentTimelineUs)
+      : null
+
+  const distanceSeconds = det => {
+    if (nowUs !== null && det.timelineTsUs !== null && Number.isFinite(det.timelineTsUs)) {
+      return Math.abs(det.timelineTsUs - nowUs) / 1_000_000
+    }
+    return Math.abs(det.offsetSeconds - nowSec)
+  }
+
+  const inWindow = detections.filter(d => distanceSeconds(d) <= toleranceSeconds)
   if (inWindow.length === 0) return []
 
   if (highlightId !== "") {
@@ -208,7 +317,7 @@ export function selectActiveDetections(
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(det)
 
-    const dist = Math.abs(det.offsetSeconds - nowSec)
+    const dist = distanceSeconds(det)
     if (dist < bestDistance) {
       bestDistance = dist
       bestGroupKey = key
@@ -478,19 +587,31 @@ export function parseScrubberEvents(rawJson, {windowStartUs = null} = {}) {
   for (const item of parsed) {
     if (!item || typeof item !== "object") continue
 
+    const rawStartUs = item.start_us ?? item.peak_ts_us ?? item.timeline_ts_us
+    const parsedStartUs =
+      rawStartUs !== null && rawStartUs !== undefined && String(rawStartUs).trim() !== ""
+        ? Number(rawStartUs)
+        : Number.NaN
+    const startUs = Number.isFinite(parsedStartUs) ? parsedStartUs : null
+
+    const rawEndUs = item.end_us
+    const parsedEndUs =
+      rawEndUs !== null && rawEndUs !== undefined && String(rawEndUs).trim() !== ""
+        ? Number(rawEndUs)
+        : Number.NaN
+    const endUs = Number.isFinite(parsedEndUs) ? parsedEndUs : startUs
+
     let startSec = Number(item.start_offset_seconds ?? item.offset_seconds ?? item.offsetSeconds)
     if (!Number.isFinite(startSec)) {
-      const tsUs = Number(item.start_us ?? item.peak_ts_us ?? item.timeline_ts_us)
-      if (Number.isFinite(tsUs) && Number.isFinite(winStart)) {
-        startSec = Math.max(0, (tsUs - winStart) / 1_000_000)
+      if (startUs !== null && Number.isFinite(winStart)) {
+        startSec = Math.max(0, (startUs - winStart) / 1_000_000)
       }
     }
     if (!Number.isFinite(startSec)) continue
 
     let endSec = Number(item.end_offset_seconds)
     if (!Number.isFinite(endSec)) {
-      const endUs = Number(item.end_us)
-      if (Number.isFinite(endUs) && Number.isFinite(winStart)) {
+      if (endUs !== null && Number.isFinite(winStart)) {
         endSec = Math.max(startSec, (endUs - winStart) / 1_000_000)
       } else {
         endSec = startSec
@@ -515,6 +636,8 @@ export function parseScrubberEvents(rawJson, {windowStartUs = null} = {}) {
     out.push({
       startSec: Math.max(0, startSec),
       endSec: Math.max(startSec, endSec),
+      startUs,
+      endUs,
       category,
       label: String(item.label ?? item.object_class ?? item.category ?? "Event"),
       score,
@@ -547,10 +670,16 @@ export function parseScrubberThumbnails(rawJson, {windowStartUs = null} = {}) {
     const rawThumb = item.thumbnail_url ?? item.thumbnailUrl
     if (!isSafeThumbnailUrl(rawThumb)) continue
 
+    const rawTsUs = item.ts_us ?? item.timeline_ts_us ?? item.peak_ts_us
+    const parsedTsUs =
+      rawTsUs !== null && rawTsUs !== undefined && String(rawTsUs).trim() !== ""
+        ? Number(rawTsUs)
+        : Number.NaN
+    const tsUs = Number.isFinite(parsedTsUs) ? parsedTsUs : null
+
     let offsetSeconds = Number(item.offset_seconds ?? item.offsetSeconds)
     if (!Number.isFinite(offsetSeconds)) {
-      const tsUs = Number(item.ts_us ?? item.timeline_ts_us ?? item.peak_ts_us)
-      if (Number.isFinite(tsUs) && Number.isFinite(winStart)) {
+      if (tsUs !== null && Number.isFinite(winStart)) {
         offsetSeconds = Math.max(0, (tsUs - winStart) / 1_000_000)
       }
     }
@@ -561,6 +690,7 @@ export function parseScrubberThumbnails(rawJson, {windowStartUs = null} = {}) {
 
     out.push({
       offsetSeconds: Math.max(0, offsetSeconds),
+      tsUs,
       thumbnailUrl: rawThumb.trim(),
       label,
     })
@@ -686,22 +816,27 @@ export function buildScrubberEventSegments(
   detections = [],
   windowEvents = [],
   durationSeconds = 0,
-  {mergeGapSeconds = 2.0, minWidthPct = 1.4} = {}
+  {mergeGapSeconds = 2.0, minWidthPct = 1.4, fragmentPdtRanges = null} = {}
 ) {
   const duration = Number(durationSeconds)
   if (!Number.isFinite(duration) || duration <= 0) return []
 
+  const hasPdt = Array.isArray(fragmentPdtRanges) && fragmentPdtRanges.length > 0
   const rawPoints = []
 
   if (Array.isArray(detections)) {
     for (const det of detections) {
-      if (!det || !Number.isFinite(det.offsetSeconds)) continue
-      if (det.offsetSeconds < 0 || det.offsetSeconds > duration) continue
+      if (!det) continue
+      const mappedSec =
+        hasPdt && det.timelineTsUs !== null && Number.isFinite(det.timelineTsUs)
+          ? resolveTimelineUsToPlaybackSeconds(det.timelineTsUs, fragmentPdtRanges)
+          : det.offsetSeconds
+      if (!Number.isFinite(mappedSec) || mappedSec < 0 || mappedSec > duration) continue
       const category = normalizeEventCategory(det.objectClass)
       if (!isScrubberEventCategory(category)) continue
       rawPoints.push({
-        startSec: det.offsetSeconds,
-        endSec: det.offsetSeconds,
+        startSec: mappedSec,
+        endSec: mappedSec,
         category,
         label: SCRUBBER_CATEGORY_STYLES[category]?.label || det.objectClass || "Detection",
         score: Number.isFinite(det.score) ? det.score : null,
@@ -712,10 +847,20 @@ export function buildScrubberEventSegments(
 
   if (Array.isArray(windowEvents)) {
     for (const evt of windowEvents) {
-      if (!evt || !Number.isFinite(evt.startSec)) continue
-      const clampedStart = Math.min(duration, Math.max(0, evt.startSec))
-      const clampedEnd = Math.min(duration, Math.max(clampedStart, evt.endSec ?? clampedStart))
-      if (evt.endSec < 0 || evt.startSec > duration) continue
+      if (!evt) continue
+      const startSec =
+        hasPdt && evt.startUs !== null && Number.isFinite(evt.startUs)
+          ? resolveTimelineUsToPlaybackSeconds(evt.startUs, fragmentPdtRanges)
+          : evt.startSec
+      const rawEndSec =
+        hasPdt && evt.endUs !== null && Number.isFinite(evt.endUs)
+          ? resolveTimelineUsToPlaybackSeconds(evt.endUs, fragmentPdtRanges)
+          : evt.endSec ?? startSec
+      if (!Number.isFinite(startSec)) continue
+      const endSec = Number.isFinite(rawEndSec) ? rawEndSec : startSec
+      const clampedStart = Math.min(duration, Math.max(0, startSec))
+      const clampedEnd = Math.min(duration, Math.max(clampedStart, endSec))
+      if (endSec < 0 || startSec > duration) continue
       const category = normalizeEventCategory(evt.category)
       if (!isScrubberEventCategory(category)) continue
       rawPoints.push({
@@ -836,6 +981,7 @@ export default {
     this.detections = []
     this.windowEvents = []
     this.windowThumbnails = []
+    this.fragmentPdtRanges = []
     this.scrubberSegments = []
     this.scrubberDragging = false
     this.scrubberRafId = null
@@ -847,6 +993,8 @@ export default {
     this.lastOverlayViewBox = null
     this.lastAppliedSeekAttr = ""
     this.pendingSeekOffsetSeconds = null
+    this.lastSeekTargetOffsetSeconds = null
+    this.seekAppliedWithPdt = false
 
     const options = {signal: this.listeners.signal}
     const hideBrokenThumb = event => {
@@ -1006,6 +1154,8 @@ export default {
     if (nextSeekAttr !== this.lastAppliedSeekAttr) {
       this.lastAppliedSeekAttr = nextSeekAttr
       this.pendingSeekOffsetSeconds = parseSeekOffsetSeconds(nextSeekAttr, {allowZero: true})
+      this.lastSeekTargetOffsetSeconds = null
+      this.seekAppliedWithPdt = false
       if (this.metadataLoaded) {
         this.applyPendingSeek()
       }
@@ -1113,12 +1263,28 @@ export default {
 
   seekToSeconds(seconds) {
     if (!this.video) return
+    this.seekAppliedWithPdt = true
     const duration = this.effectiveDurationSeconds()
     const target = duration > 0 ? Math.min(duration, Math.max(0, seconds)) : Math.max(0, seconds)
     this.video.currentTime = target
     this.syncScrubberPosition()
     this.syncTransportControls()
     this.renderOverlay()
+  },
+
+  resolvedWindowThumbnails() {
+    if (!Array.isArray(this.fragmentPdtRanges) || this.fragmentPdtRanges.length === 0) {
+      return this.windowThumbnails
+    }
+    return this.windowThumbnails.map(thumb => {
+      if (thumb.tsUs !== null && Number.isFinite(thumb.tsUs)) {
+        const mapped = resolveTimelineUsToPlaybackSeconds(thumb.tsUs, this.fragmentPdtRanges)
+        if (Number.isFinite(mapped)) {
+          return {...thumb, offsetSeconds: Math.max(0, mapped)}
+        }
+      }
+      return thumb
+    })
   },
 
   updateScrubberHover(event, fraction) {
@@ -1133,7 +1299,7 @@ export default {
       const segEl = event?.target?.closest?.("[data-role='scrubber-event-segment']")
       const segTitle = segEl?.getAttribute?.("title") || null
       const nearest = findNearestScrubberThumbnail(
-        this.windowThumbnails,
+        this.resolvedWindowThumbnails(),
         this.scrubberSegments,
         hoverSec,
         duration
@@ -1160,9 +1326,10 @@ export default {
   renderScrubberFilmstrip(duration) {
     if (!this.scrubberFilmstrip) return
 
+    const thumbs = this.resolvedWindowThumbnails()
     const candidates =
-      this.windowThumbnails.length > 0
-        ? this.windowThumbnails
+      thumbs.length > 0
+        ? thumbs
         : this.scrubberSegments
             .filter(seg => Boolean(seg.thumbnailUrl))
             .map(seg => ({
@@ -1227,7 +1394,9 @@ export default {
   renderScrubberEvents() {
     if (!this.scrubberEvents && !this.scrubberTicks && !this.scrubberFilmstrip) return
     const duration = this.effectiveDurationSeconds()
-    this.scrubberSegments = buildScrubberEventSegments(this.detections, this.windowEvents, duration)
+    this.scrubberSegments = buildScrubberEventSegments(this.detections, this.windowEvents, duration, {
+      fragmentPdtRanges: this.fragmentPdtRanges,
+    })
     this.renderScrubberFilmstrip(duration)
 
     if (this.scrubberEvents) {
@@ -1336,8 +1505,11 @@ export default {
     this.stop()
     this.path = this.el.dataset.playlistPath || ""
     this.metadataLoaded = false
+    this.fragmentPdtRanges = []
     this.lastAppliedSeekAttr = this.el.dataset.seekOffsetSeconds || ""
     this.pendingSeekOffsetSeconds = parseSeekOffsetSeconds(this.lastAppliedSeekAttr)
+    this.lastSeekTargetOffsetSeconds = null
+    this.seekAppliedWithPdt = false
 
     if (this.retry) this.retry.hidden = true
     this.updateServedCopy(null)
@@ -1375,6 +1547,20 @@ export default {
     })
 
     this.player = player
+    if (HlsClass.Events?.LEVEL_LOADED) {
+      player.on(HlsClass.Events.LEVEL_LOADED, (_event, data) => {
+        if (this.player !== player) return
+        const ranges = extractFragmentPdtRanges(data?.details)
+        if (ranges.length === 0) return
+        this.fragmentPdtRanges = ranges
+        if (this.metadataLoaded && !this.seekAppliedWithPdt && this.lastSeekTargetOffsetSeconds !== null) {
+          this.pendingSeekOffsetSeconds = this.lastSeekTargetOffsetSeconds
+          this.applyPendingSeek()
+        }
+        this.renderScrubberEvents()
+        this.renderOverlay()
+      })
+    }
     player.on(HlsClass.Events.ERROR, (_event, data) => {
       if (this.player !== player || !data.fatal) return
       const statusCode = data?.response?.code
@@ -1395,6 +1581,7 @@ export default {
 
   stop() {
     this.stopScrubberAnimation()
+    this.fragmentPdtRanges = []
     if (this.loaderClass?.cancelAll) {
       this.loaderClass.cancelAll()
       this.loaderClass = null
@@ -1412,8 +1599,24 @@ export default {
 
   applyPendingSeek() {
     if (!this.video || this.pendingSeekOffsetSeconds === null) return
-    const target = this.pendingSeekOffsetSeconds
+    const rawOffset = this.pendingSeekOffsetSeconds
     this.pendingSeekOffsetSeconds = null
+    this.lastSeekTargetOffsetSeconds = rawOffset
+
+    let target = rawOffset
+    const rawWinStart = this.el.dataset?.windowStartUs
+    const winStart =
+      rawWinStart !== null && rawWinStart !== undefined && String(rawWinStart).trim() !== ""
+        ? Number(rawWinStart)
+        : Number.NaN
+    if (Array.isArray(this.fragmentPdtRanges) && this.fragmentPdtRanges.length > 0 && Number.isFinite(winStart)) {
+      const targetUs = winStart + rawOffset * 1_000_000
+      const mapped = resolveTimelineUsToPlaybackSeconds(targetUs, this.fragmentPdtRanges)
+      if (Number.isFinite(mapped)) {
+        target = Math.max(0, mapped)
+        this.seekAppliedWithPdt = true
+      }
+    }
 
     const duration = this.video.duration
     if (Number.isFinite(duration) && duration > 0) {
@@ -1431,6 +1634,7 @@ export default {
 
   stepSeconds(delta) {
     if (!this.video) return
+    this.seekAppliedWithPdt = true
     const current = Number(this.video.currentTime) || 0
     const duration = Number(this.video.duration)
     const target = Math.max(0, current + delta)
@@ -1553,9 +1757,11 @@ export default {
       videoHeight: this.video.videoHeight,
     })
 
+    const currentTimelineUs = resolvePlaybackTimelineUs(this.video.currentTime, this.fragmentPdtRanges)
     const active = selectActiveDetections(this.detections, this.video.currentTime, {
       highlightFrameId: this.el.dataset.highlightFrameId || null,
       metadataLoaded: this.metadataLoaded,
+      currentTimelineUs,
     })
 
     const markup = buildOverlaySvgMarkup(active, contentRect)

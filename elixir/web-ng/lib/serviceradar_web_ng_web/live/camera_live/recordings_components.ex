@@ -3611,6 +3611,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         entry = %{
           category: to_string(clip.category),
           label: clip.label || to_string(clip.category),
+          start_us: clip_start,
+          end_us: min(clip_end, play_to_us),
           start_offset_seconds: Float.round(start_offset, 3),
           end_offset_seconds: Float.round(end_offset, 3),
           confidence: Map.get(clip, :confidence)
@@ -3651,6 +3653,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
           [
             %{
+              ts_us: ts,
               offset_seconds: offset,
               thumbnail_url: thumb_url,
               label: if(smart?, do: clip.label || to_string(clip.category)),
@@ -3683,6 +3686,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
             [
               %{
+                ts_us: mid_us,
                 offset_seconds: offset,
                 thumbnail_url: Thumbnail.block_url(active_source_id, block_id),
                 label: nil,
@@ -3702,6 +3706,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     |> sample_scrubber_thumbnails(duration_sec, @max_scrubber_thumbnails)
     |> Enum.map(fn item ->
       %{
+        ts_us: item.ts_us,
         offset_seconds: Float.round(item.offset_seconds, 3),
         thumbnail_url: item.thumbnail_url,
         label: item.label
