@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNG.Mcp.OAuth.PkceTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias ServiceRadarWebNG.Mcp.OAuth.Pkce
   alias ServiceRadarWebNG.Mcp.OAuth.RedirectURI
@@ -48,32 +48,5 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.PkceTest do
         ] do
       refute RedirectURI.allowed?(rejected), "expected #{inspect(rejected)} to be rejected"
     end
-  end
-
-  test "operator-configured HTTPS redirect URIs are exact-matched and unsafe entries ignored" do
-    prev = Application.get_env(:serviceradar_web_ng, :mcp_allowed_redirect_uris)
-
-    Application.put_env(:serviceradar_web_ng, :mcp_allowed_redirect_uris, [
-      "https://client.example.org/cb",
-      "http://insecure.example.org/cb",
-      "https://bad.example.org/cb?injected=1",
-      "https://bad.example.org/cb#frag",
-      "https://user@bad.example.org/cb"
-    ])
-
-    on_exit(fn ->
-      if prev do
-        Application.put_env(:serviceradar_web_ng, :mcp_allowed_redirect_uris, prev)
-      else
-        Application.delete_env(:serviceradar_web_ng, :mcp_allowed_redirect_uris)
-      end
-    end)
-
-    assert RedirectURI.allowed?("https://client.example.org/cb")
-    assert RedirectURI.allowed?("https://antigravity.google/oauth-callback")
-    refute RedirectURI.allowed?("http://insecure.example.org/cb")
-    refute RedirectURI.allowed?("https://bad.example.org/cb?injected=1")
-    refute RedirectURI.allowed?("https://bad.example.org/cb#frag")
-    refute RedirectURI.allowed?("https://user@bad.example.org/cb")
   end
 end

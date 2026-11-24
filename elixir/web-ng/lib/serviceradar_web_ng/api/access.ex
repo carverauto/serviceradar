@@ -141,6 +141,8 @@ defmodule ServiceRadarWebNG.Api.Access do
     end
   end
 
+  # ServiceRadarWebNG cannot reference ServiceRadarWebNG.RBAC or Scope due to
+  # Boundary rules, so mirror EntityAccess's CoreRBAC permission check here.
   defp require_permission(%{permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
     if CoreRBAC.Catalog.holds?(permissions, permission), do: :ok, else: {:error, :forbidden}
   end

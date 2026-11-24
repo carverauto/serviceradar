@@ -879,13 +879,6 @@ mcp_client_credentials_enabled =
 
 mcp_refresh_ttl_seconds = parse_int_env.("SERVICERADAR_MCP_REFRESH_TTL_SECONDS", 8 * 3600)
 
-mcp_allowed_redirect_uris =
-  "SERVICERADAR_MCP_ALLOWED_REDIRECT_URIS"
-  |> System.get_env("")
-  |> String.split(",", trim: true)
-  |> Enum.map(&String.trim/1)
-  |> Enum.reject(&(&1 == ""))
-
 # Only bounded control configuration uses JSON; inventory and query membership
 # retain their typed native/binary paths. JSON preserves literal commas in keys.
 # Tag keys are always validated. SERVICERADAR_TOPOLOGY_BITMAP_ENABLED is retired
@@ -940,7 +933,6 @@ config :serviceradar_web_ng,
        :managed_device_limit,
        to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT") || System.get_env("SERVICERADAR_MAX_DEVICES"))
 
-config :serviceradar_web_ng, :mcp_allowed_redirect_uris, mcp_allowed_redirect_uris
 config :serviceradar_web_ng, :mcp_client_credentials_enabled, mcp_client_credentials_enabled
 config :serviceradar_web_ng, :mcp_enabled, mcp_enabled
 config :serviceradar_web_ng, :mcp_refresh_ttl_seconds, mcp_refresh_ttl_seconds
