@@ -1101,4 +1101,32 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              &(&1 =~ ~s|srql_parity_ci.flows (id INT) PROPERTIES ("replication_num" = "1")|)
            )
   end
+
+  test "migration 45 creates and schedules horizon_isp_accountability_mv with retargeted database" do
+    agent = start_warehouse(%{backends: 1})
+
+    assert migrate(agent, migrations: [shipped(45)], database: "lab") == {:ok, [45]}
+    assert state(agent).ledger == [45]
+
+    ddl = state(agent).ddl
+    refute Enum.any?(ddl, &String.contains?(&1, "serviceradar."))
+    refute Enum.any?(ddl, &String.contains?(&1, ~s|"replication_num" = "3"|))
+
+    create_mv =
+      Enum.find(ddl, &String.starts_with?(&1, "CREATE MATERIALIZED VIEW IF NOT EXISTS lab.horizon_isp_accountability_mv"))
+
+    assert create_mv
+    assert create_mv =~ ~s|"replication_num" = "1"|
+    assert create_mv =~ "FROM lab.horizon_path_hops h"
+    assert create_mv =~ "FROM lab.horizon_outages"
+    assert create_mv =~ "FROM lab.horizon_bgp_events"
+    assert create_mv =~ "FROM lab.horizon_bgp_zombies"
+
+    assert Enum.member?(
+             ddl,
+             "ALTER MATERIALIZED VIEW lab.horizon_isp_accountability_mv REFRESH ASYNC EVERY(INTERVAL 1 MINUTE)"
+           )
+
+    assert migrate(agent, migrations: [shipped(45)], database: "lab") == {:ok, []}
+  end
 end

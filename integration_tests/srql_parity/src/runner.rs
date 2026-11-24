@@ -1045,6 +1045,11 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
             Err(error) => Outcome::Fail(format!("exposure storage: {error:#}")),
         };
         outcomes.push(("exposure_storage".into(), storage));
+        let horizon = match crate::horizon::verify(&mut sr, &sr_database).await {
+            Ok(()) => Outcome::Pass("horizon ISP accountability MV, SRQL, and replay".into()),
+            Err(error) => Outcome::Fail(format!("horizon ISP accountability: {error:#}")),
+        };
+        outcomes.push(("horizon_isp_accountability".into(), horizon));
         Ok::<_, anyhow::Error>(outcomes)
     }
     .await;

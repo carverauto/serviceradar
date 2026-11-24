@@ -10,13 +10,15 @@
 //!   `SchemaMigrator`, see `runner::sr_migrate`).
 //! * `compare`: result normalisation and the diff.
 //! * `exposure`: storage checks for exposure migrations 0032 through 0034 in the runner's disposable warehouse.
+//! * `horizon`: storage, MV refresh, and SRQL checks for Horizon ISP accountability (0044-0045).
 //! * `runner`: seeds CNPG and StarRocks, runs every entry through both dialects, then the
-//!   exposure storage checks, and reports.
+//!   StarRocks-only storage checks, and reports.
 
 pub mod compare;
 pub mod coverage;
 mod exposure;
 pub mod fixture;
+mod horizon;
 pub mod inventory;
 pub mod runner;
 pub mod schema;
