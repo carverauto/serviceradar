@@ -76,6 +76,49 @@ defmodule ServiceRadarWebNG.McpUnitTest do
     refute text =~ "sidebar_position"
   end
 
+  test "every Horizon SRQL cookbook recipe translates against the Rust StarRocks dialect" do
+    recipes = extract_horizon_cookbook_recipes(Docs.cookbook())
+
+    assert length(recipes) >= 20
+
+    entities_seen =
+      MapSet.new(recipes, fn query ->
+        sql = translate_horizon_sql!(query)
+        assert sql =~ "FROM serviceradar.horizon_"
+        [_, entity] = Regex.run(~r/\bin:(horizon_[a-z_]+)/, query)
+        entity
+      end)
+
+    assert entities_seen ==
+             MapSet.new(~w(horizon_outages horizon_bgp horizon_zombies horizon_paths horizon_isp_accountability))
+  end
+
+  test "live entity index and lookup_srql_docs surface all Horizon entities and intel tool" do
+    previous = Application.get_env(:serviceradar_web_ng, :srql_catalog)
+    Application.put_env(:serviceradar_web_ng, :srql_catalog, fn _scope -> Catalog.structured() end)
+
+    on_exit(fn ->
+      if previous do
+        Application.put_env(:serviceradar_web_ng, :srql_catalog, previous)
+      else
+        Application.delete_env(:serviceradar_web_ng, :srql_catalog)
+      end
+    end)
+
+    index = Docs.entity_index(:unused)
+
+    for id <- ~w(horizon_outages horizon_bgp horizon_zombies horizon_paths horizon_isp_accountability) do
+      assert index =~ "`#{id}`"
+      assert {:ok, hit} = Docs.lookup(id, :unused)
+      assert hit["hit_count"] > 0
+      assert "catalog:#{id}" in Enum.map(hit["matches"], & &1["source"])
+    end
+
+    assert {:ok, intel_hits} = Docs.lookup("horizon_intel_lookup", :unused)
+    assert intel_hits["hit_count"] > 0
+    assert intel_hits["text"] =~ "horizon_intel_lookup"
+  end
+
   test "Horizon SRQL catalog entries translate against the Rust StarRocks dialect and cover projector defaults" do
     catalog = Catalog.structured()
     horizon_ids = ~w(horizon_outages horizon_bgp horizon_zombies horizon_paths horizon_isp_accountability)
@@ -317,6 +360,26 @@ defmodule ServiceRadarWebNG.McpUnitTest do
       assert projected_value in allowed_values,
              "expected #{entity_id}.#{field} enum #{inspect(allowed_values)} to include projected default #{inspect(projected_value)}"
     end
+  end
+
+  defp extract_horizon_cookbook_recipes(cookbook) do
+    [_before, horizon_section] =
+      String.split(cookbook, "## Horizon Internet Weather, BGP, Zombies, and Multipath Paths", parts: 2)
+
+    [section_body | _rest] = String.split(horizon_section, "\n## ", parts: 2)
+
+    ~r/```\n(.*?)\n```/s
+    |> Regex.scan(section_body, capture: :all_but_first)
+    |> List.flatten()
+    |> Enum.flat_map(&String.split(&1, "\n", trim: true))
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(&String.starts_with?(&1, "in:horizon_"))
+    |> Enum.map(fn query ->
+      query
+      |> String.replace("<watchlist-id>", "wl-sample-1")
+      |> String.replace("<target-id>", "tgt-sample-1")
+      |> String.replace("<round-id>", "rnd-sample-1")
+    end)
   end
 
   defp with_stub_catalog(fun) do

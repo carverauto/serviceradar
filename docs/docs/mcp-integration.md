@@ -8,8 +8,8 @@ title: MCP Integration
 ServiceRadar exposes a [Model Context Protocol](https://modelcontextprotocol.io/)
 server from the web application using AshAi (`AshAi.Mcp.Router`). It is a
 read-only facade over the existing HTTP API: tools call the same functions as
-`POST /api/query` and `GET /api/devices`. They do not talk to CNPG or Ash
-behind those endpoints.
+`POST /api/query`, `GET /api/devices`, and `GET /api/horizon/v1/intel/lookup`.
+They do not talk to CNPG or Ash behind those endpoints.
 
 The old Go `pkg/mcp` server is gone. This is not `hermes_mcp`. The URL is
 always `https://<host>/mcp`, never `/api/mcp`.
@@ -137,8 +137,10 @@ Shared rules for every client below:
 
 - Server URL: `https://<host>/mcp` (not `/api/mcp`, not Authentik).
 - `client_id`: `serviceradar-mcp` when the client asks.
-- Redirect URI: RFC 8252 loopback only (`http://127.0.0.1:<port>/...` or
-  `http://localhost:<port>/...`).
+- Redirect URI: RFC 8252 loopback (`http://127.0.0.1:<port>/...`,
+  `http://localhost:<port>/...`, or `http://[::1]:<port>/...`) or the exact
+  allowlisted HTTPS callback `https://antigravity.google/oauth-callback` (for
+  Google Antigravity). Arbitrary HTTPS redirect URIs are rejected.
 - Configure **one** server name per host. Two names for the same URL (for
   example `serviceradar` and `serviceradar-demo`) make the client start both
   and look like a failure.
@@ -231,8 +233,9 @@ as HTTP transport; do not add a Bearer header if you are using OAuth login.
 2. Redirect to `/users/log-in` if you are not signed in.
 3. Sign in (Enterprise SSO on demo, local password on Compose / farm01).
 4. ServiceRadar consent page → Approve.
-5. Browser returns to `http://127.0.0.1:<port>/...`. The client stores a
-   Guardian JWT with scopes `mcp` and `read`.
+5. Browser returns to the client's loopback callback
+   (`http://127.0.0.1:<port>/...`) or `https://antigravity.google/oauth-callback`.
+   The client stores a Guardian JWT with scopes `mcp` and `read`.
 
 If the browser lands on Authentik's own authorize/token URLs in the **MCP
 server config**, the config is wrong. Authentik is only the login UI.
@@ -306,6 +309,7 @@ Use protocol revision `2025-03-26` if the client has not been updated for
 | `get_srql_catalog` | `GET /api/srql/catalog`. Pass `entity` (for example `devices`) to load one entity; the full catalog is large. |
 | `list_devices` | `GET /api/devices` |
 | `get_device` | `GET /api/devices/:uid` (`uid` is a bound identifier, not SRQL) |
+| `horizon_intel_lookup` | `GET /api/horizon/v1/intel/lookup` (`asn`, `prefix`, and `ip` are bound identifiers, not SRQL; requires `observability.events.view`) |
 
 AshAi nests each tool's action arguments under `input`. Example `tools/call`:
 
@@ -323,7 +327,9 @@ AshAi nests each tool's action arguments under `input`. Example `tools/call`:
 
 A flat `arguments` map is also accepted and wrapped the same way.
 
-Logs, events, and sweeps are queried with `execute_srql`, for example
+Logs, events, sweeps, and Horizon telemetry (`in:horizon_outages`,
+`in:horizon_bgp`, `in:horizon_zombies`, `in:horizon_paths`,
+`in:horizon_isp_accountability`) are queried with `execute_srql`, for example
 `in:logs time:last_1h limit:50`.
 
 MCP `initialize` instructions tell the agent to call `lookup_srql_docs`
@@ -346,7 +352,7 @@ They are compact agent-facing distillates, not the human Docusaurus pages.
 | --- | --- |
 | `serviceradar://srql/grammar` | Token shape, operators, time, stats, bucket, common mistakes |
 | `serviceradar://srql/entities` | Live entity-id table generated from the catalog |
-| `serviceradar://srql/cookbook` | Copy-paste recipes (devices, logs, flows, metrics, advisories/CPE) |
+| `serviceradar://srql/cookbook` | Copy-paste recipes (devices, logs, flows, Horizon telemetry, metrics, advisories/CPE) |
 
 The human [SRQL Tutorial](./srql-tutorial.md), [SRQL Reference](./srql-language-reference.md),
 and [SRQL Cookbook](./srql-cookbook.md) stay in the docs site. Do not dump those
