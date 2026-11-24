@@ -159,10 +159,12 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
     attrs = to_map(params)
 
     with {:ok, result} <- list_clips(camera_source_id, attrs, opts) do
-      paged = paginate_clips(result.clips, attrs)
+      min_confidence = normalize_min_confidence(fetch_val(attrs, :min_confidence))
+      threshold_clips = filter_by_min_confidence(result.clips, min_confidence)
+      paged = paginate_clips(threshold_clips, attrs)
 
       markers =
-        result.clips
+        threshold_clips
         |> Enum.reject(&(&1.category == :recording))
         |> Enum.map(fn clip ->
           %{
@@ -189,14 +191,16 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   end
 
   @doc """
-  Computes full counts, applies mode/category filters, and returns a single
+  Computes full counts, applies mode/category/confidence filters, and returns a single
   bounded page slice of clips.
   """
   @spec paginate_clips([map()], map() | keyword()) :: map()
   def paginate_clips(clips, params \\ %{}) when is_list(clips) do
     attrs = to_map(params)
-    counts = category_counts(clips)
-    filtered = filter_clips(clips, attrs)
+    min_confidence = normalize_min_confidence(fetch_val(attrs, :min_confidence))
+    threshold_clips = filter_by_min_confidence(clips, min_confidence)
+    counts = category_counts(threshold_clips)
+    filtered = filter_clips(threshold_clips, attrs)
     total_count = length(filtered)
     per_page = parse_per_page(fetch_val(attrs, :per_page))
     total_pages = max(div(total_count + per_page - 1, per_page), 1)
@@ -219,17 +223,20 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   end
 
   @doc """
-  Filters a list of clip maps in-memory by `mode` (`:all | :smart | :basic`)
-  and `category` (`:all | category()`).
+  Filters a list of clip maps in-memory by `mode` (`:all | :smart | :basic`),
+  `category` (`:all | category()`), and optional `min_confidence` (`0.0..1.0`
+  or `0..100` percentage, applied to `:smart` clips).
   """
   @spec filter_clips([map()], map() | keyword()) :: [map()]
   def filter_clips(clips, filters \\ %{}) when is_list(clips) do
     attrs = to_map(filters)
     mode = normalize_mode_value(fetch_val(attrs, :mode))
     category = normalize_category_value(fetch_val(attrs, :category))
+    min_confidence = normalize_min_confidence(fetch_val(attrs, :min_confidence))
 
     Enum.filter(clips, fn clip ->
-      mode_matches?(clip, mode) and category_matches?(clip, category)
+      mode_matches?(clip, mode) and category_matches?(clip, category) and
+        confidence_matches?(clip, min_confidence)
     end)
   end
 
@@ -828,6 +835,43 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   end
 
   defp normalize_confidence(_), do: nil
+
+  defp normalize_min_confidence(nil), do: nil
+  defp normalize_min_confidence(""), do: nil
+
+  defp normalize_min_confidence(val) when is_number(val) do
+    cond do
+      val <= 0 -> nil
+      val > 1.0 and val <= 100.0 -> Float.round(val / 100.0, 4)
+      val > 0.0 and val <= 1.0 -> Float.round(val * 1.0, 4)
+      true -> nil
+    end
+  end
+
+  defp normalize_min_confidence(val) when is_binary(val) do
+    case Float.parse(String.trim(val)) do
+      {num, ""} -> normalize_min_confidence(num)
+      _ -> nil
+    end
+  end
+
+  defp normalize_min_confidence(_), do: nil
+
+  defp filter_by_min_confidence(clips, nil), do: clips
+
+  defp filter_by_min_confidence(clips, min_confidence) do
+    Enum.filter(clips, &confidence_matches?(&1, min_confidence))
+  end
+
+  defp confidence_matches?(_clip, nil), do: true
+
+  defp confidence_matches?(%{smart_type: :smart, confidence: conf}, min_confidence)
+       when is_number(conf) and is_number(min_confidence) do
+    conf >= min_confidence
+  end
+
+  defp confidence_matches?(%{smart_type: :smart}, _min_confidence), do: false
+  defp confidence_matches?(_basic_clip, _min_confidence), do: true
 
   defp entry_id(entry) do
     fetch_val(entry, :entry_id) || fetch_val(entry, :id)

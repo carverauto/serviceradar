@@ -11,6 +11,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
 
   @layout_options [2, 4, 8, 16, 32]
   @default_layout_count 4
+  @quality_options [
+    {"auto", "Auto"},
+    {"low", "Low"},
+    {"medium", "Medium"},
+    {"high", "High"}
+  ]
+  @default_stream_quality "auto"
 
   @range_durations_us %{
     "1h" => 3_600_000_000,
@@ -31,12 +38,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
       |> assign(:srql, %{enabled: false, page_path: "/cameras"})
       |> assign(:layout_options, @layout_options)
       |> assign(:layout_count, @default_layout_count)
+      |> assign(:quality_options, @quality_options)
+      |> assign(:stream_quality, @default_stream_quality)
       |> assign(:camera_tiles, [])
       |> assign(:camera_relay_subscriptions, MapSet.new())
       |> assign(:camera_layout_open_in_flight?, false)
-      |> assign(:camera_layout_opening_count, nil)
-      |> assign(:pending_layout_count, nil)
+      |> assign(:camera_layout_opening_key, nil)
+      |> assign(:pending_layout_request, nil)
+      |> assign(:initial_layout_opened?, false)
       |> assign(:relay_notice, nil)
+      |> assign(:can_view_recordings?, can_view_recordings?(scope))
       |> assign(:can_semantic_search?, CameraSemanticSearch.can_search?(scope))
       |> assign(:semantic_search_form, to_form(default_search_params(), as: :search))
       |> assign(:semantic_search_executed?, false)
@@ -45,14 +56,39 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
       |> assign(:semantic_embedder_unavailable?, false)
       |> stream(:semantic_search_results, [], reset: true)
 
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    count =
+      if Map.has_key?(params, "layout"),
+        do: normalize_layout_count(params["layout"]),
+        else: socket.assigns.layout_count
+
+    quality =
+      if Map.has_key?(params, "quality"),
+        do: CameraMultiview.normalize_quality(params["quality"]),
+        else: socket.assigns.stream_quality
+
+    quality_changed? = quality != socket.assigns.stream_quality
+    layout_changed? = count != socket.assigns.layout_count
+
     socket =
-      if connected?(socket) do
-        open_camera_layout(socket, @default_layout_count)
+      socket
+      |> assign(:layout_count, count)
+      |> assign(:stream_quality, quality)
+
+    socket =
+      if connected?(socket) and (not socket.assigns.initial_layout_opened? or quality_changed? or layout_changed?) do
+        socket
+        |> assign(:initial_layout_opened?, true)
+        |> open_camera_layout(count, quality, reset_existing?: quality_changed?)
       else
         socket
       end
 
-    {:ok, socket}
+    {:noreply, socket}
   end
 
   @impl true
@@ -67,16 +103,47 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
             <h2>Camera Multiview</h2>
             <p>Live relay-backed views from discovered camera inventory.</p>
           </div>
-          <div class="sr-camera-layout-controls" role="group" aria-label="Camera layout">
-            <button
-              :for={count <- @layout_options}
-              type="button"
-              phx-click="set_layout"
-              phx-value-count={count}
-              class={["sr-camera-layout-button", @layout_count == count && "is-active"]}
-            >
-              {count}
-            </button>
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[11px] font-medium text-sr-muted">Quality</span>
+              <div
+                id="camera-multiview-quality-controls"
+                class="sr-camera-layout-controls"
+                role="group"
+                aria-label="Stream quality"
+              >
+                <button
+                  :for={{val, label} <- @quality_options}
+                  id={"camera-multiview-quality-#{val}"}
+                  type="button"
+                  phx-click="set_quality"
+                  phx-value-quality={val}
+                  aria-pressed={to_string(@stream_quality == val)}
+                  class={[
+                    "sr-camera-layout-button px-2.5",
+                    @stream_quality == val && "is-active"
+                  ]}
+                >
+                  {label}
+                </button>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[11px] font-medium text-sr-muted">Grid</span>
+              <div class="sr-camera-layout-controls" role="group" aria-label="Camera layout">
+                <button
+                  :for={count <- @layout_options}
+                  id={"camera-multiview-layout-#{count}"}
+                  type="button"
+                  phx-click="set_layout"
+                  phx-value-count={count}
+                  aria-pressed={to_string(@layout_count == count)}
+                  class={["sr-camera-layout-button", @layout_count == count && "is-active"]}
+                >
+                  {count}
+                </button>
+              </div>
+            </div>
           </div>
         </header>
 
@@ -305,8 +372,33 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
             class="sr-camera-cell"
           >
             <header>
-              <span>{tile.label}</span>
-              <small>{tile.detail || tile.source_status || "Camera stream"}</small>
+              <div class="flex min-w-0 items-center gap-2">
+                <%= if is_binary(Map.get(tile, :camera_source_id)) do %>
+                  <.link
+                    id={"camera-multiview-tile-link-#{tile.camera_source_id}"}
+                    navigate={camera_workspace_path(tile.camera_source_id, @can_view_recordings?)}
+                    class="truncate text-xs font-bold text-slate-50 transition-colors hover:text-emerald-300"
+                  >
+                    {tile.label}
+                  </.link>
+                <% else %>
+                  <span>{tile.label}</span>
+                <% end %>
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <small>{tile.detail || tile.source_status || "Camera stream"}</small>
+                <.link
+                  :if={is_binary(Map.get(tile, :camera_source_id))}
+                  id={"camera-multiview-open-workspace-#{tile.camera_source_id}"}
+                  data-role="multiview-open-workspace"
+                  navigate={camera_workspace_path(tile.camera_source_id, @can_view_recordings?)}
+                  title="Open Live & Timeline workspace"
+                  class="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200 transition-colors hover:border-emerald-400 hover:bg-emerald-500/25 hover:text-white"
+                >
+                  <.icon name="hero-arrow-top-right-on-square" class="size-3" />
+                  <span>{if(@can_view_recordings?, do: "Workspace", else: "Live")}</span>
+                </.link>
+              </div>
             </header>
             <CameraRelayComponents.relay_player
               :if={tile.session}
@@ -327,7 +419,26 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   @impl true
   def handle_event("set_layout", %{"count" => count}, socket) do
     count = normalize_layout_count(count)
-    {:noreply, open_camera_layout(socket, count)}
+    quality = socket.assigns.stream_quality
+
+    {:noreply,
+     socket
+     |> open_camera_layout(count, quality, reset_existing?: false)
+     |> push_patch(to: ~p"/cameras?#{%{layout: count, quality: quality}}")}
+  end
+
+  def handle_event("set_quality", %{"quality" => quality}, socket) do
+    quality = CameraMultiview.normalize_quality(quality)
+    count = socket.assigns.layout_count
+
+    if quality == socket.assigns.stream_quality do
+      {:noreply, socket}
+    else
+      {:noreply,
+       socket
+       |> open_camera_layout(count, quality, reset_existing?: true)
+       |> push_patch(to: ~p"/cameras?#{%{layout: count, quality: quality}}")}
+    end
   end
 
   def handle_event("semantic_search", params, socket) do
@@ -376,7 +487,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   end
 
   @impl true
-  def handle_async(:camera_layout_open, {:ok, {count, tiles}}, socket) do
+  def handle_async(:camera_layout_open, {:ok, {count, quality, tiles}}, socket) do
     Enum.each(tiles, &schedule_camera_refresh/1)
 
     socket =
@@ -385,7 +496,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
       |> assign(:camera_tiles, pad_camera_tiles(tiles, count))
       |> assign(:relay_notice, camera_layout_notice(tiles, count))
 
-    {:noreply, finish_camera_layout_open(socket, count)}
+    {:noreply, finish_camera_layout_open(socket, {count, quality})}
   end
 
   def handle_async(:camera_layout_open, {:exit, reason}, socket) do
@@ -402,7 +513,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
       |> assign(:camera_tiles, pad_camera_tiles(kept, count))
       |> assign(:relay_notice, "Camera relay sessions could not be opened.")
 
-    {:noreply, finish_camera_layout_open(socket, socket.assigns.camera_layout_opening_count)}
+    {:noreply, finish_camera_layout_open(socket, socket.assigns.camera_layout_opening_key)}
   end
 
   @impl true
@@ -532,48 +643,65 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   # Opening a relay session reads the source, resolves its gateway and
   # dispatches an agent command, once per viewport. That runs in a task so the
   # page renders its viewports at once and fills them in as sessions open.
-  defp open_camera_layout(socket, count) do
+  defp open_camera_layout(socket, count, quality, opts) do
+    reset_existing? = Keyword.get(opts, :reset_existing?, false)
+    request_key = {count, quality}
+
     if RBAC.can?(socket.assigns.current_scope, "devices.cameras.view") do
+      existing = if reset_existing?, do: [], else: socket.assigns.camera_tiles
+
       socket =
         socket
         |> assign(:layout_count, count)
-        |> assign(:camera_tiles, opening_camera_tiles(socket.assigns.camera_tiles, count))
+        |> assign(:stream_quality, quality)
+        |> assign(:camera_tiles, opening_camera_tiles(existing, count))
         |> assign(:relay_notice, nil)
 
       if socket.assigns.camera_layout_open_in_flight? do
-        assign(socket, :pending_layout_count, count)
+        assign(socket, :pending_layout_request, {count, quality, reset_existing?})
       else
         scope = socket.assigns.current_scope
 
         socket
         |> assign(:camera_layout_open_in_flight?, true)
-        |> assign(:camera_layout_opening_count, count)
-        |> assign(:pending_layout_count, nil)
+        |> assign(:camera_layout_opening_key, request_key)
+        |> assign(:pending_layout_request, nil)
         |> start_async(:camera_layout_open, fn ->
-          {count, CameraMultiview.open_preview_tiles(scope, count)}
+          {count, quality, CameraMultiview.open_preview_tiles(scope, count, quality: quality)}
         end)
       end
     else
       socket
+      |> assign(:layout_count, count)
+      |> assign(:stream_quality, quality)
       |> assign(:camera_tiles, pad_camera_tiles([], count))
       |> assign(:relay_notice, "You are not authorized to view camera streams.")
     end
   end
 
-  defp finish_camera_layout_open(socket, opened_count) do
-    pending = socket.assigns.pending_layout_count
+  defp finish_camera_layout_open(socket, opened_key) do
+    pending = socket.assigns.pending_layout_request
 
     socket =
       socket
       |> assign(:camera_layout_open_in_flight?, false)
-      |> assign(:pending_layout_count, nil)
+      |> assign(:pending_layout_request, nil)
 
-    if is_integer(pending) and pending != opened_count do
-      open_camera_layout(socket, pending)
-    else
-      socket
+    case pending do
+      {next_count, next_quality, reset?} when {next_count, next_quality} != opened_key ->
+        open_camera_layout(socket, next_count, next_quality, reset_existing?: reset?)
+
+      _ ->
+        socket
     end
   end
+
+  defp can_view_recordings?(scope) do
+    RBAC.can?(scope, "devices.view") and RBAC.can?(scope, "devices.cameras.recordings.view")
+  end
+
+  defp camera_workspace_path(camera_source_id, true), do: ~p"/cameras/#{camera_source_id}/recordings?mode=timeline"
+  defp camera_workspace_path(camera_source_id, false), do: ~p"/cameras/#{camera_source_id}"
 
   # Viewports that already show a session keep it while the new layout opens.
   defp opening_camera_tiles(tiles, count) do

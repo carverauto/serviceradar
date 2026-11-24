@@ -9,25 +9,46 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   require Ash.Query
 
   @source_limit 96
+  @quality_options ["auto", "low", "medium", "high"]
   # Tiles follow relay state broadcasts; this timer is only a fallback for a
   # missed broadcast and for a session that never leaves `opening`, which
   # stale_pending_session?/1 times out after 45s. Tiles used to re-read their
   # session from the database every second, per tile, per viewer.
   @default_fallback_refresh_ms 15_000
 
-  def open_preview_tiles(scope, count) when is_integer(count) and count > 0 do
+  def quality_options, do: @quality_options
+
+  def normalize_quality(value) when is_binary(value) do
+    normalized = value |> String.trim() |> String.downcase()
+    if normalized in @quality_options, do: normalized, else: "auto"
+  end
+
+  def normalize_quality(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_quality()
+  def normalize_quality(_), do: "auto"
+
+  def open_preview_tiles(scope, count, opts \\ [])
+
+  def open_preview_tiles(scope, count, opts) when is_integer(count) and count > 0 and is_list(opts) do
+    quality = opts |> Keyword.get(:quality, "auto") |> normalize_quality()
+    loader_opts = Keyword.merge(opts, quality: quality, layout_count: count)
+
     scope
-    |> load_relay_candidates(@source_limit)
+    |> load_relay_candidates(@source_limit, loader_opts)
     |> open_preview_candidates(scope, count)
   end
 
-  def open_preview_tiles(_scope, _count), do: []
+  def open_preview_tiles(_scope, _count, _opts), do: []
 
-  def open_source_preview(scope, camera_source_id) when is_binary(camera_source_id) do
+  def open_source_preview(scope, camera_source_id, opts \\ [])
+
+  def open_source_preview(scope, camera_source_id, opts) when is_binary(camera_source_id) and is_list(opts) do
+    quality = opts |> Keyword.get(:quality, "high") |> normalize_quality()
+    profile_id = Keyword.get(opts, :stream_profile_id)
+
     case CameraSource.get_by_id(camera_source_id, load: [:stream_profiles], scope: scope) do
       {:ok, source} ->
         source
-        |> candidate_from_source()
+        |> candidate_from_source(quality: quality, stream_profile_id: profile_id, layout_count: 1)
         |> case do
           nil -> %{label: "Camera", detail: "Primary stream", session: nil, error: preview_unavailable_reason(source)}
           candidate -> open_tile(candidate, scope)
@@ -38,20 +59,23 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
     end
   end
 
-  def open_source_preview(_scope, _camera_source_id),
+  def open_source_preview(_scope, _camera_source_id, _opts),
     do: %{label: "Camera", detail: "Primary stream", session: nil, error: "Invalid camera source"}
 
-  def load_relay_candidates(scope, limit \\ @source_limit) do
+  def load_relay_candidates(scope, limit \\ @source_limit, opts \\ []) do
     case Application.get_env(:serviceradar_web_ng, :camera_relay_candidate_loader) do
+      loader when is_function(loader, 3) ->
+        loader.(scope, limit, opts)
+
       loader when is_function(loader, 2) ->
         loader.(scope, limit)
 
       _other ->
-        load_relay_candidates_from_db(scope, limit)
+        load_relay_candidates_from_db(scope, limit, opts)
     end
   end
 
-  defp load_relay_candidates_from_db(scope, limit) do
+  defp load_relay_candidates_from_db(scope, limit, opts) do
     query =
       CameraSource
       |> Ash.Query.for_read(:read)
@@ -63,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
       {:ok, results} ->
         results
         |> page_results()
-        |> Enum.map(&candidate_from_source/1)
+        |> Enum.map(&candidate_from_source(&1, opts))
         |> Enum.reject(&is_nil/1)
 
       {:error, _reason} ->
@@ -184,12 +208,11 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
     end
   end
 
-  defp candidate_from_source(%{id: source_id, stream_profiles: profiles} = source) when is_list(profiles) do
-    profile =
-      profiles
-      |> Enum.filter(&relay_eligible?/1)
-      |> Enum.sort_by(&profile_preference/1)
-      |> List.first()
+  defp candidate_from_source(%{id: source_id, stream_profiles: profiles} = source, opts) when is_list(profiles) do
+    quality = opts |> Keyword.get(:quality, "auto") |> normalize_quality()
+    layout_count = Keyword.get(opts, :layout_count)
+    requested_profile_id = Keyword.get(opts, :stream_profile_id)
+    profile = select_profile_for_quality(profiles, quality, layout_count, requested_profile_id)
 
     cond do
       is_nil(profile) ->
@@ -215,12 +238,39 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
     end
   end
 
-  defp candidate_from_source(_source), do: nil
+  defp candidate_from_source(_source, _opts), do: nil
+
+  @doc """
+  Selects the best relay-eligible stream profile for the requested `quality`
+  (`"auto" | "low" | "medium" | "high"`) and optional `layout_count` /
+  explicit `requested_profile_id`.
+  """
+  def select_profile_for_quality(profiles, quality \\ "auto", layout_count \\ nil, requested_profile_id \\ nil)
+
+  def select_profile_for_quality(profiles, quality, layout_count, requested_profile_id) when is_list(profiles) do
+    eligible = Enum.filter(profiles, &relay_eligible?/1)
+
+    explicit =
+      if is_binary(requested_profile_id) and String.trim(requested_profile_id) != "" do
+        Enum.find(eligible, &(to_string(Map.get(&1, :id)) == String.trim(requested_profile_id)))
+      end
+
+    explicit ||
+      eligible
+      |> Enum.sort_by(&profile_preference(&1, effective_quality(quality, layout_count)))
+      |> List.first()
+  end
+
+  def select_profile_for_quality(_profiles, _quality, _layout_count, _requested_profile_id), do: nil
+
+  defp effective_quality("auto", layout_count) when is_integer(layout_count) and layout_count <= 4, do: "medium"
+  defp effective_quality("auto", _layout_count), do: "low"
+  defp effective_quality(quality, _layout_count), do: normalize_quality(quality)
 
   defp relay_eligible?(%{relay_eligible: false}), do: false
   defp relay_eligible?(_profile), do: true
 
-  defp profile_preference(profile) do
+  defp profile_preference(profile, quality) do
     label =
       [
         Map.get(profile, :profile_name),
@@ -230,13 +280,25 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
       |> to_string()
       |> String.downcase()
 
-    cond do
-      String.contains?(label, "low") -> 0
-      String.contains?(label, "medium") -> 1
-      String.contains?(label, "main") -> 2
-      String.contains?(label, "high") -> 3
-      String.contains?(label, "package") -> 4
-      true -> 5
+    tier =
+      cond do
+        String.contains?(label, "high") -> :high
+        String.contains?(label, "main") -> :main
+        String.contains?(label, "medium") or String.contains?(label, "med") -> :medium
+        String.contains?(label, "low") or String.contains?(label, "sub") -> :low
+        String.contains?(label, "package") -> :package
+        true -> :other
+      end
+
+    case quality do
+      "high" ->
+        Map.get(%{high: 0, main: 1, medium: 2, low: 3, package: 4, other: 5}, tier, 5)
+
+      "medium" ->
+        Map.get(%{medium: 0, main: 1, high: 2, low: 3, package: 4, other: 5}, tier, 5)
+
+      _low ->
+        Map.get(%{low: 0, medium: 1, main: 2, high: 3, package: 4, other: 5}, tier, 5)
     end
   end
 

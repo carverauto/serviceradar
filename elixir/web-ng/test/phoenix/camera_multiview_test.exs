@@ -207,6 +207,52 @@ defmodule ServiceRadarWebNGWeb.CameraMultiviewTest do
                %{camera_source_id: "offline-side", session: nil, error: "Assigned agent agent-sr-test-pve04 is offline"}
              ] = CameraMultiview.open_preview_tiles(nil, 2)
     end
+
+    test "passes selected quality and layout_count to arity-3 candidate loaders" do
+      parent = self()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_candidate_loader,
+        fn _scope, _limit, opts ->
+          send(parent, {:loaded_with_opts, opts})
+          [preview_candidate("hd-camera", "HD front")]
+        end
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        fn camera_source_id, _stream_profile_id, _opts ->
+          {:ok, %{id: "session-#{camera_source_id}", status: :opening}}
+        end
+      )
+
+      assert [%{camera_source_id: "hd-camera"}] = CameraMultiview.open_preview_tiles(nil, 4, quality: "high")
+      assert_received {:loaded_with_opts, opts}
+      assert opts[:quality] == "high"
+      assert opts[:layout_count] == 4
+    end
+  end
+
+  describe "select_profile_for_quality/4" do
+    test "selects matching stream profile for high, medium, low, auto, and explicit profile id" do
+      profiles = [
+        %{id: "p-low", profile_name: "Low", relay_eligible: true},
+        %{id: "p-med", profile_name: "Medium", relay_eligible: true},
+        %{id: "p-high", profile_name: "High", relay_eligible: true},
+        %{id: "p-disabled", profile_name: "High", relay_eligible: false}
+      ]
+
+      assert %{id: "p-high"} = CameraMultiview.select_profile_for_quality(profiles, "high", 4)
+      assert %{id: "p-med"} = CameraMultiview.select_profile_for_quality(profiles, "medium", 4)
+      assert %{id: "p-low"} = CameraMultiview.select_profile_for_quality(profiles, "low", 4)
+      # Auto adapts: medium for <= 4 tiles, low for 8+ dense walls
+      assert %{id: "p-med"} = CameraMultiview.select_profile_for_quality(profiles, "auto", 4)
+      assert %{id: "p-low"} = CameraMultiview.select_profile_for_quality(profiles, "auto", 8)
+      # Explicit profile id wins when eligible
+      assert %{id: "p-low"} = CameraMultiview.select_profile_for_quality(profiles, "high", 1, "p-low")
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

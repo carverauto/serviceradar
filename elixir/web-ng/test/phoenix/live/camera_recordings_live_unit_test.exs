@@ -1198,25 +1198,27 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
       on_exit(fn -> cancel_timers(socket) end)
 
-      assert_receive {:clips_queried, 1, 12, "all", "all"}
+      # Defaults to Smart when smart detections exist in the window
+      assert_receive {:clips_queried, 1, 12, "smart", "all"}
+      assert socket.assigns.timeline_clips_mode == "smart"
       assert length(socket.assigns.timeline_event_clips) == 12
       assert socket.assigns.timeline_clips_total_count == 25
       assert socket.assigns.timeline_clips_total_pages == 3
       assert socket.assigns.timeline_clips_page == 1
 
       {:noreply, page2} = Recordings.handle_event("paginate_event_clips", %{"page" => "2"}, socket)
-      assert_receive {:clips_queried, 2, 12, "all", "all"}
+      assert_receive {:clips_queried, 2, 12, "smart", "all"}
       assert page2.assigns.timeline_clips_page == 2
       assert length(page2.assigns.timeline_event_clips) == 12
 
       {:noreply, page3} = Recordings.handle_event("paginate_event_clips", %{"page" => "3"}, page2)
-      assert_receive {:clips_queried, 3, 12, "all", "all"}
+      assert_receive {:clips_queried, 3, 12, "smart", "all"}
       assert page3.assigns.timeline_clips_page == 3
       assert length(page3.assigns.timeline_event_clips) == 1
 
       # Switching filter resets page back to 1
-      {:noreply, filtered} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "smart"}, page3)
-      assert_receive {:clips_queried, 1, 12, "smart", "all"}
+      {:noreply, filtered} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "all"}, page3)
+      assert_receive {:clips_queried, 1, 12, "all", "all"}
       assert filtered.assigns.timeline_clips_page == 1
     end
 
@@ -1278,6 +1280,9 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
       on_exit(fn -> cancel_timers(socket) end)
+
+      # Switch to "all" so the 15 newer recording segments push the older person clip off page 1
+      {:noreply, socket} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "all"}, socket)
 
       off_page_clip_id = "evt-#{off_page_frame_id}-person"
       refute Enum.any?(socket.assigns.timeline_event_clips, &(&1.id == off_page_clip_id))
@@ -1378,6 +1383,9 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
       on_exit(fn -> cancel_timers(socket) end)
+
+      # Switch to "all" to display the :recording fallback segment alongside smart detections
+      {:noreply, socket} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "all"}, socket)
 
       # Recording segment opens exact [start_us, end_us] without pre/post-roll padding
       {:noreply, rec_selected} =
@@ -1682,8 +1690,10 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       assert refreshed.assigns.timeline_overlay_detections == [window_det_1, window_det_2, extra_live_det]
 
       # 4. Selecting :recording segment (visual_frame_id == nil) still loads window overlays across [rec_start, rec_end]
+      {:noreply, refreshed_all} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "all"}, refreshed)
+
       {:noreply, rec_selected} =
-        Recordings.handle_event("select_event_clip", %{"clip_id" => "rec-seg-window"}, refreshed)
+        Recordings.handle_event("select_event_clip", %{"clip_id" => "rec-seg-window"}, refreshed_all)
 
       assert_receive {:window_overlays_queried, @camera_id, ^rec_start, ^rec_end, ""}
       assert rec_selected.assigns.timeline_overlay_detections == [window_det_1, window_det_2, extra_live_det]
@@ -1900,6 +1910,227 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       end)
 
     Map.put(paged, :markers, markers)
+  end
+
+  describe "workspace UX pass (in-place live, smart default, confidence slider, non-PTZ ROI grid)" do
+    test "enters in-place live mode and exits automatically on exit_live_mode, Latest, seek, or clip selection" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+      block = playable_block(from_us, to_us, :verified)
+      clip = sample_clip("evt-live-exit", from_us + 600_000_000, from_us + 610_000_000)
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end,
+          list_event_clips: fn _source_id, params, _scope ->
+            {:ok, list_page_result([clip], params)}
+          end,
+          open_source_preview: fn _scope, _source_id, _opts ->
+            %{
+              camera_source_id: @camera_id,
+              label: "Camera",
+              detail: "High",
+              session: %{id: Ecto.UUID.generate(), status: :active, media_ingest_id: "ingest-live"},
+              error: nil
+            }
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      refute socket.assigns.live_mode?
+
+      {:noreply, live_socket} = Recordings.handle_event("enter_live_mode", %{}, socket)
+      assert live_socket.assigns.live_mode? == true
+      assert is_map(live_socket.assigns.live_tile)
+
+      # Explicit one-click exit back to timeline
+      {:noreply, exited} = Recordings.handle_event("exit_live_mode", %{}, live_socket)
+      refute exited.assigns.live_mode?
+      assert exited.assigns.live_tile == nil
+
+      # Clicking Latest exits live mode
+      {:noreply, live_again} = Recordings.handle_event("enter_live_mode", %{}, exited)
+      assert live_again.assigns.live_mode? == true
+
+      {:noreply, after_latest} =
+        Recordings.handle_event("navigate_timeline_window", %{"direction" => "latest"}, live_again)
+
+      refute after_latest.assigns.live_mode?
+
+      # Clicking vertical timeline scrubber exits live mode
+      {:noreply, live_seek} = Recordings.handle_event("enter_live_mode", %{}, after_latest)
+      {:noreply, after_seek} = Recordings.handle_event("seek_timeline_fraction", %{"fraction" => 0.5}, live_seek)
+      refute after_seek.assigns.live_mode?
+
+      # Clicking an event clip card exits live mode
+      {:noreply, live_clip} = Recordings.handle_event("enter_live_mode", %{}, after_seek)
+      {:noreply, after_clip} = Recordings.handle_event("select_event_clip", %{"clip_id" => clip.id}, live_clip)
+      refute after_clip.assigns.live_mode?
+    end
+
+    test "falls back gracefully to Motion or All when zero smart detections exist, and filters clips + overlays by confidence threshold" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+      block = playable_block(from_us, to_us, :verified)
+
+      # 1. Zero smart events, 1 motion event -> falls back to Motion
+      motion_clip =
+        "evt-motion-only"
+        |> sample_clip(from_us + 100_000_000, from_us + 110_000_000)
+        |> Map.merge(%{category: :motion, smart_type: :basic, label: "Motion", confidence: nil})
+
+      rec_clip =
+        "rec-fallback-1"
+        |> sample_clip(from_us + 200_000_000, from_us + 320_000_000)
+        |> Map.merge(%{category: :recording, smart_type: :basic, label: "Recording", confidence: nil})
+
+      motion_deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end,
+          list_event_clips: fn _source_id, params, _scope ->
+            {:ok, list_page_result([motion_clip, rec_clip], params)}
+          end
+        })
+
+      motion_socket = mount_connected(@camera_id, motion_deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(motion_socket) end)
+
+      assert motion_socket.assigns.timeline_clips_mode == "basic"
+      assert motion_socket.assigns.timeline_clips_category == "motion"
+      assert Enum.map(motion_socket.assigns.timeline_event_clips, & &1.id) == ["evt-motion-only"]
+
+      # 2. Confidence slider filters both smart clips and overlay detections
+      high_clip = Map.put(sample_clip("evt-high", from_us + 300_000_000, from_us + 304_000_000), :confidence, 0.88)
+      low_clip = Map.put(sample_clip("evt-low", from_us + 400_000_000, from_us + 404_000_000), :confidence, 0.42)
+
+      high_det = %{
+        visual_frame_id: "frame-high",
+        timeline_ts_us: from_us + 300_000_000,
+        start_us: from_us + 298_000_000,
+        end_us: from_us + 302_000_000,
+        bbox: [0.1, 0.1, 0.4, 0.4],
+        object_class: "person",
+        score: 0.88,
+        dominant_colors: [],
+        time_basis: "received"
+      }
+
+      low_det = %{high_det | visual_frame_id: "frame-low", score: 0.42}
+
+      conf_deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end,
+          list_event_clips: fn _source_id, params, _scope ->
+            {:ok, list_page_result([high_clip, low_clip], params)}
+          end,
+          list_window_overlays: fn _source_id, _from, _to, _profile, _scope ->
+            [high_det, low_det]
+          end
+        })
+
+      conf_socket = mount_connected(@camera_id, conf_deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(conf_socket) end)
+
+      # Default 50% keeps high (0.88) and filters out low (0.42)
+      assert conf_socket.assigns.timeline_min_confidence == 50
+      assert Enum.map(conf_socket.assigns.timeline_event_clips, & &1.id) == ["evt-high"]
+      assert Enum.map(conf_socket.assigns.timeline_overlay_detections, & &1.visual_frame_id) == ["frame-high"]
+
+      # Lowering slider to 35% reveals both clips and both overlays
+      {:noreply, lowered} = Recordings.handle_event("set_min_confidence", %{"min_confidence" => "35"}, conf_socket)
+      assert lowered.assigns.timeline_min_confidence == 35
+      assert Enum.map(lowered.assigns.timeline_event_clips, & &1.id) == ["evt-high", "evt-low"]
+
+      assert Enum.map(lowered.assigns.timeline_overlay_detections, & &1.visual_frame_id) == [
+               "frame-high",
+               "frame-low"
+             ]
+    end
+
+    test "toggles, resets, clears, and persists non-PTZ ROI detection zones while blocking PTZ cameras" do
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          save_roi_grid: fn source, payload, _scope ->
+            send(parent, {:roi_saved, source.id, payload})
+            {:ok, Map.put(source, :metadata, Map.put(Map.get(source, :metadata) || %{}, "detection_roi_grid", payload))}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      {:noreply, opened} = Recordings.handle_event("toggle_roi_drawer", %{}, socket)
+      assert opened.assigns.roi_drawer_open? == true
+      assert opened.assigns.roi_paint_mode == "focus"
+
+      # Paint cell 5 as focus
+      {:noreply, s1} = Recordings.handle_event("roi_toggle_cell", %{"cell" => "5"}, opened)
+      assert MapSet.member?(s1.assigns.roi_focus_cells, 5)
+
+      # Switch to ignore mode and paint cell 12 as ignore
+      {:noreply, s2} = Recordings.handle_event("roi_set_paint_mode", %{"mode" => "ignore"}, s1)
+      {:noreply, s3} = Recordings.handle_event("roi_toggle_cell", %{"cell" => "12"}, s2)
+      assert MapSet.member?(s3.assigns.roi_ignore_cells, 12)
+
+      # View-only scope cannot save detection zones
+      {:noreply, denied} = Recordings.handle_event("roi_save_grid", %{}, s3)
+      assert denied.assigns.roi_feedback == "Not authorized to edit detection zones."
+      refute_received {:roi_saved, _, _}
+
+      # Operator with recording manage permission can save
+      manager_scope = %{
+        s3.assigns.current_scope
+        | permissions: MapSet.put(s3.assigns.current_scope.permissions, "settings.recording.manage")
+      }
+
+      {:noreply, saved} = Recordings.handle_event("roi_save_grid", %{}, assign(s3, :current_scope, manager_scope))
+
+      assert_receive {:roi_saved, @camera_id,
+                      %{"version" => 1, "cols" => 12, "rows" => 8, "focus" => [5], "ignore" => [12]}}
+
+      assert saved.assigns.roi_feedback == "Detection zones saved."
+
+      # Clear removes draft cells, Reset restores saved cells
+      {:noreply, cleared} = Recordings.handle_event("roi_clear_grid", %{}, saved)
+      assert MapSet.size(cleared.assigns.roi_focus_cells) == 0
+      assert MapSet.size(cleared.assigns.roi_ignore_cells) == 0
+
+      {:noreply, restored} = Recordings.handle_event("roi_reset_grid", %{}, cleared)
+      assert MapSet.member?(restored.assigns.roi_focus_cells, 5)
+      assert MapSet.member?(restored.assigns.roi_ignore_cells, 12)
+
+      # PTZ camera detection helper and save guard
+      assert Recordings.ptz_camera?(%{metadata: %{"ptz" => true}})
+      assert Recordings.ptz_camera?(%{metadata: %{"capabilities" => ["pan_tilt_zoom"]}})
+      refute Recordings.ptz_camera?(%{metadata: %{"site" => "lab"}})
+
+      ptz_deps =
+        stub_deps(%{
+          authorize_timeline_view: fn sock ->
+            {:ok, sock.assigns.current_scope,
+             Map.put(synthetic_source(sock.assigns.camera_source_id), :metadata, %{"ptz" => true})}
+          end
+        })
+
+      {:noreply, ptz_blocked} =
+        Recordings.handle_event(
+          "roi_save_grid",
+          %{},
+          saved |> assign(:current_scope, manager_scope) |> assign(:recordings_deps, ptz_deps)
+        )
+
+      assert ptz_blocked.assigns.roi_feedback == "Detection zones are not applicable for PTZ cameras."
+    end
   end
 
   defp cancel_timers(socket) do

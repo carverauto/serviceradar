@@ -246,6 +246,68 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert attr_of(moved_doc, "#camera-clip-card-rec-seg-1", "aria-pressed") == ["false"]
   end
 
+  test "renders in-place live stream stage, confidence slider, and non-PTZ vs PTZ detection zones drawer" do
+    live_session = %{
+      id: "33333333-3333-4333-8333-333333333333",
+      status: :active,
+      media_ingest_id: "ingest-live-1",
+      viewer_count: 1
+    }
+
+    live_doc =
+      %{
+        live_mode?: true,
+        live_tile: %{label: "Synthetic South Gate", detail: "High", session: live_session, error: nil},
+        timeline_min_confidence: 65,
+        roi_drawer_open?: true,
+        roi_focus_cells: MapSet.new([0, 1]),
+        roi_ignore_cells: MapSet.new([95]),
+        can_edit_detection_zones: true
+      }
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    # In-place live mode button & stage
+    assert attr_of(live_doc, "#camera-timeline-live-button", "phx-click") == ["enter_live_mode"]
+    assert attr_of(live_doc, "#camera-timeline-live-button", "aria-pressed") == ["true"]
+    assert has_selector?(live_doc, "#camera-header-live-badge")
+    assert has_selector?(live_doc, "#camera-timeline-live-stage")
+    assert has_selector?(live_doc, "#camera-timeline-live-indicator")
+    assert attr_of(live_doc, "#camera-timeline-exit-live", "phx-click") == ["exit_live_mode"]
+    assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id}")
+
+    # Confidence threshold slider
+    assert attr_of(live_doc, "#camera-clips-confidence-slider", "value") == ["65"]
+    assert text_of(live_doc, "#camera-clips-confidence-value") == "65%"
+
+    # Non-PTZ Detection Zones interactive 12x8 grid
+    assert attr_of(live_doc, "#camera-timeline-roi-drawer", "aria-hidden") == ["false"]
+    refute has_selector?(live_doc, "#camera-roi-ptz-notice")
+    assert Enum.count(LazyHTML.query(live_doc, "#camera-roi-grid button")) == 96
+    assert attr_of(live_doc, "#camera-roi-cell-0", "data-roi-state") == ["focus"]
+    assert attr_of(live_doc, "#camera-roi-cell-95", "data-roi-state") == ["ignore"]
+    assert attr_of(live_doc, "#camera-roi-cell-10", "data-roi-state") == ["neutral"]
+    assert has_selector?(live_doc, "#camera-roi-clear")
+    assert has_selector?(live_doc, "#camera-roi-reset")
+    assert has_selector?(live_doc, "#camera-roi-save")
+
+    # PTZ camera shows informational notice instead of fixed grid
+    ptz_source = %{
+      id: @source_id,
+      device_uid: "sr:device-ptz",
+      display_name: "Synthetic PTZ Dome",
+      metadata: %{"ptz" => true}
+    }
+
+    ptz_doc =
+      %{source: ptz_source, roi_drawer_open?: true}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert has_selector?(ptz_doc, "#camera-roi-ptz-notice")
+    refute has_selector?(ptz_doc, "#camera-roi-grid")
+  end
+
   test "paginates recorded gaps newest-first with reason summary strip" do
     gaps =
       for idx <- 1..25 do

@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
+  alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraSemanticSearch
 
   require Ash.Query
@@ -40,12 +41,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     "settings.recording.operate"
   ]
 
+  @roi_edit_permissions [
+    "settings.recording.manage",
+    "settings.recording.operate",
+    "devices.cameras.recordings.hold"
+  ]
+
   @max_playlist_window_us 3_600_000_000
   @max_overlay_frames_per_window 500
   @default_refresh_interval_ms 15_000
   @default_debounce_ms 500
   @default_switcher_per_page 20
   @gaps_per_page 10
+  @default_min_confidence 50
+  @min_confidence_min 30
+  @min_confidence_max 95
+  @roi_grid_cols 12
+  @roi_grid_rows 8
+  @roi_grid_cell_count @roi_grid_cols * @roi_grid_rows
 
   @span_order ["15m", "1h", "6h", "24h", "7d"]
 
@@ -100,14 +113,26 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_holds: [],
         timeline_event_clips: [],
         timeline_event_markers: [],
-        timeline_clips_mode: "all",
+        timeline_clips_mode: "smart",
+        timeline_clips_mode_user_set?: false,
         timeline_clips_category: "all",
+        timeline_min_confidence: @default_min_confidence,
         timeline_clips_page: 1,
         timeline_clips_per_page: RecordingEventClips.default_per_page(),
         timeline_clips_total_count: 0,
         timeline_clips_total_pages: 1,
         timeline_clips_counts: default_clip_counts(),
         timeline_selected_clip_id: nil,
+        live_mode?: false,
+        live_tile: nil,
+        live_relay_subscriptions: MapSet.new(),
+        roi_drawer_open?: false,
+        roi_paint_mode: "focus",
+        roi_focus_cells: MapSet.new(),
+        roi_ignore_cells: MapSet.new(),
+        roi_saved_focus_cells: MapSet.new(),
+        roi_saved_ignore_cells: MapSet.new(),
+        roi_feedback: nil,
         gaps_page: 1,
         gaps_per_page: @gaps_per_page,
         timeline_user_selected_window?: false,
@@ -176,8 +201,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         (query_param_present? and next_search_query != socket.assigns.timeline_search_query) or
         (object_class_param_present? and next_search_object_class != socket.assigns.timeline_search_object_class)
 
+    enter_live_from_param? = requested_mode == :live
+
     inferred_mode =
       cond do
+        requested_mode == :live ->
+          :timeline
+
         requested_mode in [:timeline, :published] ->
           requested_mode
 
@@ -224,15 +254,37 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
     switcher_reset_assigns =
       if camera_changed? do
-        [switcher_open_mobile?: false]
+        [
+          switcher_open_mobile?: false,
+          live_mode?: enter_live_from_param?,
+          live_tile: nil,
+          timeline_clips_mode: "smart",
+          timeline_clips_mode_user_set?: false,
+          timeline_clips_category: "all",
+          roi_drawer_open?: false,
+          roi_feedback: nil
+        ]
       else
-        []
+        if enter_live_from_param? do
+          [live_mode?: true]
+        else
+          []
+        end
       end
 
     socket = assign(socket, base_assigns ++ search_reset_assigns ++ switcher_reset_assigns)
 
     if connected?(socket) do
-      {:noreply, load_initial_or_switched_mode(socket)}
+      socket = load_initial_or_switched_mode(socket)
+
+      socket =
+        if enter_live_from_param? and is_nil(socket.assigns.error) do
+          start_live_stream(socket)
+        else
+          socket
+        end
+
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
@@ -253,7 +305,20 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timezone={@current_scope.user.timezone || "Etc/UTC"}
         can_view_recording_settings={can_view_recording_settings?(@current_scope)}
         can_manage_holds={RBAC.can?(@current_scope, "devices.cameras.recordings.hold")}
+        can_view_live={RBAC.can?(@current_scope, "devices.cameras.view")}
+        can_edit_detection_zones={can_edit_detection_zones?(@current_scope)}
         stream_profiles={@stream_profiles}
+        live_mode?={@live_mode?}
+        live_tile={@live_tile}
+        roi_drawer_open?={@roi_drawer_open?}
+        roi_paint_mode={@roi_paint_mode}
+        roi_focus_cells={@roi_focus_cells}
+        roi_ignore_cells={@roi_ignore_cells}
+        roi_saved_focus_cells={@roi_saved_focus_cells}
+        roi_saved_ignore_cells={@roi_saved_ignore_cells}
+        roi_feedback={@roi_feedback}
+        roi_grid_cols={12}
+        roi_grid_rows={8}
         timeline_profile_id={@timeline_profile_id}
         timeline_span={@timeline_span}
         timeline_source={@timeline_source}
@@ -279,6 +344,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_event_markers={@timeline_event_markers}
         timeline_clips_mode={@timeline_clips_mode}
         timeline_clips_category={@timeline_clips_category}
+        timeline_min_confidence={@timeline_min_confidence}
         timeline_clips_page={@timeline_clips_page}
         timeline_clips_total_count={@timeline_clips_total_count}
         timeline_clips_total_pages={@timeline_clips_total_pages}
@@ -302,17 +368,59 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   @impl true
   def handle_event("switch_recordings_mode", %{"mode" => raw_mode}, socket) do
     case parse_mode_param(raw_mode) do
+      :live ->
+        socket =
+          socket
+          |> assign(mode: :timeline, requested_mode: :timeline, live_mode?: true, error: nil)
+          |> start_live_stream()
+
+        {:noreply, socket}
+
       :timeline ->
-        socket = assign(socket, mode: :timeline, requested_mode: :timeline, error: nil)
+        socket =
+          assign(socket,
+            mode: :timeline,
+            requested_mode: :timeline,
+            live_mode?: false,
+            live_tile: nil,
+            error: nil
+          )
+
         {:noreply, load_timeline(socket)}
 
       :published ->
-        socket = assign(socket, mode: :published, requested_mode: :published, error: nil)
+        socket =
+          assign(socket,
+            mode: :published,
+            requested_mode: :published,
+            live_mode?: false,
+            live_tile: nil,
+            error: nil
+          )
+
         {:noreply, load_inventory(socket, nil)}
 
       nil ->
         {:noreply, authorize_only_or_unavailable(socket)}
     end
+  end
+
+  def handle_event("enter_live_mode", _params, socket) do
+    socket =
+      socket
+      |> assign(
+        mode: :timeline,
+        live_mode?: true,
+        timeline_selected_clip_id: nil,
+        error: nil
+      )
+      |> start_live_stream()
+
+    {:noreply, socket}
+  end
+
+  def handle_event("exit_live_mode", _params, socket) do
+    {:noreply, assign(socket, live_mode?: false, live_tile: nil)}
   end
 
   def handle_event("refresh_recordings", _, socket), do: {:noreply, load_inventory(socket, nil)}
@@ -403,7 +511,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       # Vertical timeline: top (0.0) = newest (cov_to_us), bottom (1.0) = oldest (cov_from_us)
       target_us = round(cov_to_us - fraction * (cov_to_us - cov_from_us))
       target_us = min(max(target_us, cov_from_us), cov_to_us)
-      {:noreply, focus_playback_on_timestamp(socket, scope, source, cov, target_us)}
+
+      socket =
+        socket
+        |> exit_live_mode_assigns()
+        |> focus_playback_on_timestamp(scope, source, cov, target_us)
+
+      {:noreply, socket}
     else
       {:error, reason}
       when reason in [:unauthorized, :permission_revoked, :recording_block_not_found, :invalid_id] ->
@@ -497,7 +611,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       end
 
     socket =
-      assign(socket,
+      socket
+      |> exit_live_mode_assigns()
+      |> assign(
         timeline_custom_from_us: nil,
         timeline_anchor_to_us: next_anchor_to_us,
         timeline_clips_page: 1,
@@ -527,6 +643,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
       socket =
         socket
+        |> exit_live_mode_assigns()
         |> assign(
           current_scope: scope,
           source: source,
@@ -654,7 +771,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us, socket)
 
       {:noreply,
-       assign(socket,
+       socket
+       |> exit_live_mode_assigns()
+       |> assign(
          current_scope: scope,
          source: source,
          timeline_selected_clip_id: nil,
@@ -746,7 +865,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       cov = socket.assigns.timeline_coverage
 
       socket =
-        assign(socket,
+        socket
+        |> exit_live_mode_assigns()
+        |> assign(
           current_scope: scope,
           source: source,
           timeline_selected_clip_id: nil,
@@ -801,7 +922,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
     socket =
       socket
-      |> assign(timeline_clips_mode: mode, timeline_clips_page: 1)
+      |> assign(
+        timeline_clips_mode: mode,
+        timeline_clips_mode_user_set?: true,
+        timeline_clips_page: 1
+      )
       |> reload_event_clips_page()
 
     {:noreply, socket}
@@ -812,8 +937,28 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
     socket =
       socket
-      |> assign(timeline_clips_category: category, timeline_clips_page: 1)
+      |> assign(
+        timeline_clips_category: category,
+        timeline_clips_mode_user_set?: true,
+        timeline_clips_page: 1
+      )
       |> reload_event_clips_page()
+
+    {:noreply, socket}
+  end
+
+  def handle_event("set_min_confidence", params, socket) do
+    raw = Map.get(params, "min_confidence", Map.get(params, "value"))
+    min_confidence = parse_min_confidence(raw, socket.assigns.timeline_min_confidence)
+
+    socket =
+      socket
+      |> assign(
+        timeline_min_confidence: min_confidence,
+        timeline_clips_page: 1
+      )
+      |> reload_event_clips_page()
+      |> refresh_overlay_detections_for_current_window()
 
     {:noreply, socket}
   end
@@ -823,12 +968,124 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       socket
       |> assign(
         timeline_clips_mode: "all",
+        timeline_clips_mode_user_set?: true,
         timeline_clips_category: "all",
+        timeline_min_confidence: @default_min_confidence,
         timeline_clips_page: 1
       )
       |> reload_event_clips_page()
+      |> refresh_overlay_detections_for_current_window()
 
     {:noreply, socket}
+  end
+
+  def handle_event("toggle_roi_drawer", _params, socket) do
+    next_open? = not socket.assigns.roi_drawer_open?
+
+    socket =
+      if next_open? do
+        socket
+        |> assign(roi_drawer_open?: true, roi_feedback: nil)
+        |> hydrate_roi_from_source(socket.assigns.source, reset_draft?: true)
+      else
+        assign(socket, roi_drawer_open?: false, roi_feedback: nil)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("close_roi_drawer", _params, socket) do
+    {:noreply, assign(socket, roi_drawer_open?: false, roi_feedback: nil)}
+  end
+
+  def handle_event("roi_set_paint_mode", %{"mode" => mode}, socket) when mode in ["focus", "ignore", "erase"] do
+    {:noreply, assign(socket, roi_paint_mode: mode, roi_feedback: nil)}
+  end
+
+  def handle_event("roi_set_paint_mode", _params, socket), do: {:noreply, socket}
+
+  def handle_event("roi_toggle_cell", %{"cell" => raw_cell}, socket) do
+    case parse_roi_cell_index(raw_cell) do
+      {:ok, idx} ->
+        focus = socket.assigns.roi_focus_cells
+        ignore = socket.assigns.roi_ignore_cells
+
+        {next_focus, next_ignore} =
+          case socket.assigns.roi_paint_mode do
+            "focus" ->
+              if MapSet.member?(focus, idx) do
+                {MapSet.delete(focus, idx), ignore}
+              else
+                {MapSet.put(focus, idx), MapSet.delete(ignore, idx)}
+              end
+
+            "ignore" ->
+              if MapSet.member?(ignore, idx) do
+                {focus, MapSet.delete(ignore, idx)}
+              else
+                {MapSet.delete(focus, idx), MapSet.put(ignore, idx)}
+              end
+
+            "erase" ->
+              {MapSet.delete(focus, idx), MapSet.delete(ignore, idx)}
+          end
+
+        {:noreply, assign(socket, roi_focus_cells: next_focus, roi_ignore_cells: next_ignore, roi_feedback: nil)}
+
+      :error ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("roi_clear_grid", _params, socket) do
+    {:noreply,
+     assign(socket,
+       roi_focus_cells: MapSet.new(),
+       roi_ignore_cells: MapSet.new(),
+       roi_feedback: nil
+     )}
+  end
+
+  def handle_event("roi_reset_grid", _params, socket) do
+    {:noreply,
+     assign(socket,
+       roi_focus_cells: socket.assigns.roi_saved_focus_cells,
+       roi_ignore_cells: socket.assigns.roi_saved_ignore_cells,
+       roi_feedback: nil
+     )}
+  end
+
+  def handle_event("roi_save_grid", _params, socket) do
+    with {:ok, scope, source} <- authorize_timeline_view(socket),
+         true <- can_edit_detection_zones?(scope),
+         false <- ptz_camera?(source) do
+      roi_payload = build_roi_grid_payload(socket.assigns.roi_focus_cells, socket.assigns.roi_ignore_cells)
+
+      case deps(socket).save_roi_grid.(source, roi_payload, scope) do
+        {:ok, updated_source} ->
+          {:noreply,
+           assign(socket,
+             current_scope: scope,
+             source: updated_source,
+             roi_saved_focus_cells: socket.assigns.roi_focus_cells,
+             roi_saved_ignore_cells: socket.assigns.roi_ignore_cells,
+             roi_feedback: "Detection zones saved."
+           )}
+
+        {:error, reason} ->
+          Logger.warning("Failed to save camera ROI grid for #{source.id}: #{inspect(reason)}")
+          {:noreply, assign(socket, roi_feedback: "Could not save detection zones.")}
+      end
+    else
+      false ->
+        {:noreply, assign(socket, roi_feedback: "Not authorized to edit detection zones.")}
+
+      true ->
+        {:noreply, assign(socket, roi_feedback: "Detection zones are not applicable for PTZ cameras.")}
+
+      {:error, reason} ->
+        {:noreply, unavailable(socket, reason)}
+    end
   end
 
   def handle_event("paginate_event_clips", %{"page" => raw_page}, socket) do
@@ -851,7 +1108,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
            find_event_clip(socket.assigns.timeline_event_clips, clip_id) ||
              find_event_clip(socket.assigns.timeline_event_markers, clip_id) do
       cov = socket.assigns.timeline_coverage
-      {:noreply, focus_playback_on_event_clip(socket, scope, source, cov, clip)}
+
+      socket =
+        socket
+        |> exit_live_mode_assigns()
+        |> focus_playback_on_event_clip(scope, source, cov, clip)
+
+      {:noreply, socket}
     else
       {:error, reason} -> {:noreply, unavailable(socket, reason)}
       nil -> {:noreply, socket}
@@ -930,6 +1193,46 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   @impl true
+  def handle_async(:camera_live_open, {:ok, tile}, socket) do
+    if socket.assigns.live_mode? do
+      schedule_live_relay_refresh(tile)
+      {:noreply, socket |> assign(:live_tile, tile) |> subscribe_live_tile(tile)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async(:camera_live_open, {:exit, reason}, socket) do
+    Logger.warning("Camera workspace live relay open failed: #{inspect(reason, limit: 20, printable_limit: 200)}")
+
+    if socket.assigns.live_mode? do
+      {:noreply,
+       assign(socket, :live_tile, %{
+         label: (socket.assigns.source && socket.assigns.source.display_name) || "Camera",
+         detail: "Primary stream",
+         session: nil,
+         error: "Camera relay session could not be opened"
+       })}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_info({:refresh_camera_live_relay_session, relay_session_id}, socket) do
+    {:noreply, refresh_live_tile(socket, relay_session_id, rearm: true)}
+  end
+
+  def handle_info({:camera_relay_state, %{relay_session_id: relay_session_id}}, socket)
+      when is_binary(relay_session_id) do
+    {:noreply, refresh_live_tile(socket, relay_session_id, rearm: false)}
+  end
+
+  def handle_info({:camera_relay_state, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:camera_relay_webrtc_closed, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:camera_relay_chunk, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:camera_relay_viewer_chunk, _payload}, socket), do: {:noreply, socket}
+
   def handle_info({:camera_recording_updated, %{camera_source_id: source_id}}, socket) do
     if connected?(socket) and source_id == current_source_id(socket) do
       {:noreply, schedule_debounced_refresh(socket)}
@@ -1131,8 +1434,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us, socket)
       tz = user_timezone(scope)
 
-      clips_page =
-        load_event_clips_page(
+      {effective_clips_mode, effective_clips_category, clips_page} =
+        load_event_clips_with_smart_default(
           socket,
           source.id,
           cov_from_us,
@@ -1154,6 +1457,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
       socket
       |> maybe_rearm_live_refresh(source.id)
+      |> hydrate_roi_from_source(source, reset_draft?: not socket.assigns.roi_drawer_open?)
       |> assign(
         current_scope: scope,
         source: source,
@@ -1171,6 +1475,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_holds: all_holds,
         timeline_event_clips: clips_page.clips,
         timeline_event_markers: clips_page.markers,
+        timeline_clips_mode: effective_clips_mode,
+        timeline_clips_category: effective_clips_category,
         timeline_clips_page: clips_page.page,
         timeline_clips_total_count: clips_page.total_count,
         timeline_clips_total_pages: clips_page.total_pages,
@@ -1540,6 +1846,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     naive |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_iso8601()
   end
 
+  defp parse_mode_param("live"), do: :live
   defp parse_mode_param("timeline"), do: :timeline
   defp parse_mode_param("published"), do: :published
   defp parse_mode_param(_), do: nil
@@ -2131,6 +2438,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       list_cameras: &default_list_cameras/2,
       list_window_overlays: &default_list_window_overlays/5,
       get_frame_overlay: &default_get_frame_overlay/3,
+      open_source_preview: &CameraMultiview.open_source_preview/3,
+      save_roi_grid: &default_save_roi_grid/3,
       subscribe: &RecordingPubSub.subscribe/1,
       unsubscribe: &RecordingPubSub.unsubscribe/1,
       now_us: fn -> System.system_time(:microsecond) end
@@ -2375,7 +2684,18 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         []
       end
 
-    deduplicate_overlay_detections(from_highlight ++ from_results ++ from_window)
+    min_conf = (socket.assigns[:timeline_min_confidence] || @default_min_confidence) / 100.0
+
+    (from_highlight ++ from_results ++ from_window)
+    |> deduplicate_overlay_detections()
+    |> filter_overlay_detections_by_confidence(min_conf)
+  end
+
+  defp filter_overlay_detections_by_confidence(detections, min_conf) when is_number(min_conf) do
+    Enum.filter(detections, fn det ->
+      score = det[:score] || det["score"]
+      not is_number(score) or score >= min_conf
+    end)
   end
 
   defp detections_from_search_results(results, play_from_us, play_to_us) when is_list(results) do
@@ -2603,14 +2923,93 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end)
   end
 
-  defp load_event_clips_page(socket, source_id, from_us, to_us, profile_id, catalog_blocks, scope) do
+  defp load_event_clips_with_smart_default(socket, source_id, from_us, to_us, profile_id, catalog_blocks, scope) do
+    if socket.assigns[:timeline_clips_mode_user_set?] do
+      mode = socket.assigns.timeline_clips_mode
+      category = socket.assigns.timeline_clips_category
+
+      page =
+        load_event_clips_page(
+          socket,
+          source_id,
+          from_us,
+          to_us,
+          profile_id,
+          catalog_blocks,
+          scope,
+          mode: mode,
+          category: category
+        )
+
+      {mode, category, page}
+    else
+      smart_page =
+        load_event_clips_page(
+          socket,
+          source_id,
+          from_us,
+          to_us,
+          profile_id,
+          catalog_blocks,
+          scope,
+          mode: "smart",
+          category: "all"
+        )
+
+      counts = smart_page.counts || %{}
+
+      cond do
+        Map.get(counts, :smart, 0) > 0 ->
+          {"smart", "all", smart_page}
+
+        Map.get(counts, :motion, 0) > 0 ->
+          motion_page =
+            load_event_clips_page(
+              socket,
+              source_id,
+              from_us,
+              to_us,
+              profile_id,
+              catalog_blocks,
+              scope,
+              mode: "basic",
+              category: "motion"
+            )
+
+          {"basic", "motion", motion_page}
+
+        true ->
+          all_page =
+            load_event_clips_page(
+              socket,
+              source_id,
+              from_us,
+              to_us,
+              profile_id,
+              catalog_blocks,
+              scope,
+              mode: "all",
+              category: "all"
+            )
+
+          {"all", "all", all_page}
+      end
+    end
+  end
+
+  defp load_event_clips_page(socket, source_id, from_us, to_us, profile_id, catalog_blocks, scope, overrides \\ []) do
+    mode = Keyword.get(overrides, :mode, socket.assigns.timeline_clips_mode)
+    category = Keyword.get(overrides, :category, socket.assigns.timeline_clips_category)
+    min_confidence = (socket.assigns[:timeline_min_confidence] || @default_min_confidence) / 100.0
+
     params = %{
       from_us: from_us,
       to_us: to_us,
       stream_profile_id: profile_id,
       catalog_blocks: catalog_blocks,
-      mode: socket.assigns.timeline_clips_mode,
-      category: socket.assigns.timeline_clips_category,
+      mode: mode,
+      category: category,
+      min_confidence: min_confidence,
       page: socket.assigns.timeline_clips_page,
       per_page: socket.assigns.timeline_clips_per_page
     }
@@ -2621,6 +3020,28 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
       _ ->
         empty_event_clips_page(params.per_page)
+    end
+  end
+
+  defp refresh_overlay_detections_for_current_window(socket) do
+    source = socket.assigns.source
+    scope = socket.assigns.current_scope
+
+    if is_map(source) and is_binary(source[:id]) do
+      overlay_detections =
+        resolve_overlay_detections(
+          socket,
+          scope,
+          source.id,
+          socket.assigns.timeline_play_from_us,
+          socket.assigns.timeline_play_to_us,
+          socket.assigns.timeline_highlight_frame_id,
+          socket.assigns.timeline_search_results
+        )
+
+      assign(socket, timeline_overlay_detections: overlay_detections)
+    else
+      socket
     end
   end
 
@@ -3057,4 +3478,222 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp can_view_recording_settings?(scope) do
     RBAC.can_any?(scope, @recording_settings_permissions)
   end
+
+  defp can_edit_detection_zones?(scope) do
+    RBAC.can_any?(scope, @roi_edit_permissions)
+  end
+
+  defp exit_live_mode_assigns(socket) do
+    if socket.assigns[:live_mode?] do
+      assign(socket, live_mode?: false, live_tile: nil)
+    else
+      socket
+    end
+  end
+
+  defp start_live_stream(socket) do
+    scope = socket.assigns.current_scope
+    source_id = current_source_id(socket)
+    source_label = (socket.assigns.source && socket.assigns.source.display_name) || "Camera Feed"
+
+    if RBAC.can?(scope, "devices.cameras.view") do
+      profile_id = blank_to_nil(socket.assigns.timeline_profile_id)
+      open_fn = deps(socket).open_source_preview
+
+      socket
+      |> assign(:live_tile, %{
+        label: source_label,
+        detail: "Opening live camera relay...",
+        session: nil,
+        error: "Opening camera relay"
+      })
+      |> start_async(:camera_live_open, fn ->
+        open_fn.(scope, source_id, quality: "high", stream_profile_id: profile_id)
+      end)
+    else
+      assign(socket, :live_tile, %{
+        label: source_label,
+        detail: "Live stream",
+        session: nil,
+        error: "Not authorized to view live camera streams"
+      })
+    end
+  end
+
+  defp refresh_live_tile(socket, relay_session_id, rearm: rearm?) do
+    tile = socket.assigns[:live_tile]
+
+    if socket.assigns[:live_mode?] and CameraMultiview.session_id(tile) == relay_session_id do
+      refreshed = CameraMultiview.refresh_tile_session(socket.assigns.current_scope, tile)
+
+      if rearm? or CameraMultiview.session_id(refreshed) != relay_session_id,
+        do: schedule_live_relay_refresh(refreshed)
+
+      socket
+      |> assign(:live_tile, refreshed)
+      |> subscribe_live_tile(refreshed)
+    else
+      socket
+    end
+  end
+
+  defp subscribe_live_tile(socket, tile) do
+    subscribed =
+      CameraMultiview.subscribe_relay_state(
+        socket.assigns[:live_relay_subscriptions] || MapSet.new(),
+        tile
+      )
+
+    assign(socket, :live_relay_subscriptions, subscribed)
+  end
+
+  defp schedule_live_relay_refresh(tile) do
+    case CameraMultiview.session_id(tile) do
+      session_id when is_binary(session_id) ->
+        Process.send_after(
+          self(),
+          {:refresh_camera_live_relay_session, session_id},
+          CameraMultiview.fallback_refresh_ms()
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp parse_min_confidence(val, fallback) when is_integer(val) do
+    val |> max(@min_confidence_min) |> min(@min_confidence_max)
+  rescue
+    _ -> fallback
+  end
+
+  defp parse_min_confidence(val, fallback) when is_binary(val) do
+    case Integer.parse(String.trim(val)) do
+      {n, ""} -> parse_min_confidence(n, fallback)
+      _ -> fallback
+    end
+  end
+
+  defp parse_min_confidence(_val, fallback), do: fallback
+
+  defp parse_roi_cell_index(val) when is_integer(val) and val >= 0 and val < @roi_grid_cell_count, do: {:ok, val}
+
+  defp parse_roi_cell_index(val) when is_binary(val) do
+    case Integer.parse(String.trim(val)) do
+      {n, ""} when n >= 0 and n < @roi_grid_cell_count -> {:ok, n}
+      _ -> :error
+    end
+  end
+
+  defp parse_roi_cell_index(_), do: :error
+
+  defp hydrate_roi_from_source(socket, source, opts) do
+    {focus_set, ignore_set} = extract_roi_sets(source)
+    reset_draft? = Keyword.get(opts, :reset_draft?, true)
+
+    base = [
+      roi_saved_focus_cells: focus_set,
+      roi_saved_ignore_cells: ignore_set
+    ]
+
+    draft =
+      if reset_draft? do
+        [roi_focus_cells: focus_set, roi_ignore_cells: ignore_set]
+      else
+        []
+      end
+
+    assign(socket, base ++ draft)
+  end
+
+  defp extract_roi_sets(%{metadata: %{} = metadata}) do
+    case Map.get(metadata, "detection_roi_grid") || Map.get(metadata, :detection_roi_grid) do
+      %{} = grid ->
+        focus = parse_roi_cell_list(Map.get(grid, "focus") || Map.get(grid, :focus))
+        ignore = parse_roi_cell_list(Map.get(grid, "ignore") || Map.get(grid, :ignore))
+        {focus, MapSet.difference(ignore, focus)}
+
+      _ ->
+        {MapSet.new(), MapSet.new()}
+    end
+  end
+
+  defp extract_roi_sets(_), do: {MapSet.new(), MapSet.new()}
+
+  defp parse_roi_cell_list(list) when is_list(list) do
+    list
+    |> Enum.filter(&(is_integer(&1) and &1 >= 0 and &1 < @roi_grid_cell_count))
+    |> MapSet.new()
+  end
+
+  defp parse_roi_cell_list(_), do: MapSet.new()
+
+  defp build_roi_grid_payload(focus_cells, ignore_cells) do
+    %{
+      "version" => 1,
+      "cols" => @roi_grid_cols,
+      "rows" => @roi_grid_rows,
+      "focus" => focus_cells |> MapSet.to_list() |> Enum.sort(),
+      "ignore" => ignore_cells |> MapSet.to_list() |> Enum.sort()
+    }
+  end
+
+  defp default_save_roi_grid(%Source{} = source, roi_payload, _scope) do
+    updated_metadata = Map.put(source.metadata || %{}, "detection_roi_grid", roi_payload)
+
+    Source.update_source(
+      source,
+      %{metadata: updated_metadata},
+      actor: SystemActor.system(:camera_detection_zones)
+    )
+  end
+
+  defp default_save_roi_grid(%{metadata: metadata} = source, roi_payload, _scope) when is_map(metadata) do
+    {:ok, %{source | metadata: Map.put(metadata, "detection_roi_grid", roi_payload)}}
+  end
+
+  defp default_save_roi_grid(source, roi_payload, _scope) when is_map(source) do
+    {:ok, Map.put(source, :metadata, %{"detection_roi_grid" => roi_payload})}
+  end
+
+  @doc false
+  def ptz_camera?(%{metadata: %{} = metadata}) do
+    ptz_flag? =
+      Enum.any?(
+        ["ptz", "ptz_capable", "has_ptz", "is_ptz", :ptz, :ptz_capable, :has_ptz, :is_ptz],
+        fn key -> truthy_meta?(Map.get(metadata, key)) end
+      )
+
+    ptz_capability? =
+      case Map.get(metadata, "capabilities") || Map.get(metadata, :capabilities) do
+        caps when is_list(caps) ->
+          Enum.any?(caps, fn cap ->
+            cap |> to_string() |> String.downcase() |> String.contains?("ptz") or
+              cap |> to_string() |> String.downcase() |> String.contains?("pan_tilt")
+          end)
+
+        %{} = caps ->
+          truthy_meta?(Map.get(caps, "ptz") || Map.get(caps, :ptz) || Map.get(caps, "pan_tilt"))
+
+        _ ->
+          false
+      end
+
+    ptz_type? =
+      ["camera_type", "model", :camera_type, :model]
+      |> Enum.map(&Map.get(metadata, &1))
+      |> Enum.any?(fn val ->
+        is_binary(val) and String.contains?(String.downcase(val), "ptz")
+      end)
+
+    ptz_flag? or ptz_capability? or ptz_type?
+  end
+
+  def ptz_camera?(_), do: false
+
+  defp truthy_meta?(true), do: true
+  defp truthy_meta?("true"), do: true
+  defp truthy_meta?("1"), do: true
+  defp truthy_meta?(1), do: true
+  defp truthy_meta?(_), do: false
 end
