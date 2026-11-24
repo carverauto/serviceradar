@@ -18,6 +18,7 @@
 {{- end -}}
 {{- include "serviceradar.validateNvrIngest" . -}}
 {{- include "serviceradar.validateNvrRead" . -}}
+{{- include "serviceradar.validateNvrAnalysisRead" . -}}
 {{- include "serviceradar.validateMediaWorkerNvrReadPort" . -}}
 {{- $maxBlockFragments := int $nvr.maxBlockFragments -}}
 {{- if or (lt $maxBlockFragments 8) (gt $maxBlockFragments 256) -}}{{- fail "nvr.maxBlockFragments must be from 8 through 256" -}}{{- end -}}
@@ -37,6 +38,9 @@
 {{- $read := default (dict) $nvr.read -}}
 {{- $readEnabled := default false $read.enabled -}}
 {{- $readPort := int (default 8444 $read.port) -}}
+{{- $analysisRead := default (dict) $nvr.analysisRead -}}
+{{- $analysisReadEnabled := default false $analysisRead.enabled -}}
+{{- $analysisReadPort := int (default 8445 $analysisRead.port) -}}
 {{- $archive := default (dict) $nvr.archive -}}
 {{- $mediaWorker := default (dict) .Values.mediaWorker -}}
 {{- $mediaWorkerPolicy := default (dict) $mediaWorker.networkPolicy -}}
@@ -146,6 +150,11 @@ spec:
       port: {{ $readPort }}
       targetPort: read-https
     {{- end }}
+    {{- if $analysisReadEnabled }}
+    - name: analysis-read-https
+      port: {{ $analysisReadPort }}
+      targetPort: analysis-read-https
+    {{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -205,6 +214,10 @@ spec:
             - name: read-https
               containerPort: {{ $readPort }}
             {{- end }}
+            {{- if $analysisReadEnabled }}
+            - name: analysis-read-https
+              containerPort: {{ $analysisReadPort }}
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -250,6 +263,14 @@ spec:
             - name: SERVICERADAR_NVR_PLAYBACK_READ_SLOTS
               value: {{ printf "%d" (int (default 8 $read.playbackReadSlots)) | quote }}
             {{- end }}
+            {{- if $analysisReadEnabled }}
+            - name: SERVICERADAR_NVR_ANALYSIS_READ_CONFIG_FILE
+              value: /etc/serviceradar/nvr-analysis-read/config/config.json
+            - name: SERVICERADAR_NVR_ANALYSIS_READ_TOKEN_FILE
+              value: /etc/serviceradar/nvr-analysis-read/auth/analysis-read-token
+            - name: SERVICERADAR_NVR_ANALYSIS_READ_SLOTS
+              value: {{ printf "%d" (int (default 4 $analysisRead.analysisReadSlots)) | quote }}
+            {{- end }}
           resources: {{ toYaml $nvr.resources | nindent 12 }}
           startupProbe:
             httpGet: {path: /healthz, port: health}
@@ -285,6 +306,17 @@ spec:
               readOnly: true
             - name: read-tls
               mountPath: /etc/serviceradar/nvr-read/tls
+              readOnly: true
+            {{- end }}
+            {{- if $analysisReadEnabled }}
+            - name: analysis-read-config
+              mountPath: /etc/serviceradar/nvr-analysis-read/config
+              readOnly: true
+            - name: analysis-read-auth
+              mountPath: /etc/serviceradar/nvr-analysis-read/auth
+              readOnly: true
+            - name: analysis-read-tls
+              mountPath: /etc/serviceradar/nvr-analysis-read/tls
               readOnly: true
             {{- end }}
       volumes:
@@ -330,6 +362,28 @@ spec:
         - name: read-tls
           secret:
             secretName: {{ $read.tlsSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: tls.crt, path: tls.crt}
+              - {key: tls.key, path: tls.key}
+              - {key: ca.crt, path: ca.crt}
+        {{- end }}
+        {{- if $analysisReadEnabled }}
+        - name: analysis-read-config
+          secret:
+            secretName: {{ $analysisRead.configSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: config.json, path: config.json}
+        - name: analysis-read-auth
+          secret:
+            secretName: {{ $analysisRead.tokenSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: analysis-read-token, path: analysis-read-token}
+        - name: analysis-read-tls
+          secret:
+            secretName: {{ $analysisRead.tlsSecretName | quote }}
             defaultMode: 0440
             items:
               - {key: tls.crt, path: tls.crt}
