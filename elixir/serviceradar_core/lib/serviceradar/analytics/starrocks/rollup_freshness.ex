@@ -17,7 +17,9 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   behind its own source table. This catches failed refreshes and late rows
   that bucket maxima alone cannot detect. The cadences below must match the
   newest `REFRESH ASYNC EVERY` in `priv/starrocks`; a gate stricter than the
-  schedule would send every rollup read to the raw table.
+  schedule would send every rollup read to the raw table. MV-only views with no
+  raw-table fallback, such as `horizon_isp_accountability_mv` (`0045`), are
+  intentionally omitted from `@sources` and pass straight through `settle/3`.
   After that health check, a source table holding no rows reads as fresh.
   Any error, empty result, or unparseable
   high-water mark reads as stale, which routes the query to the StarRocks

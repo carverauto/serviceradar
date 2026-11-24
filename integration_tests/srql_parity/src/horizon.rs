@@ -20,8 +20,7 @@ const FILTERED_DAY2_QUERY: &str = concat!(
 );
 const DAY1_PRUNE_QUERY: &str =
     "in:horizon_isp_accountability time:[2026-11-22T10:00:00Z,2026-11-22T11:00:00Z] limit:10";
-const LATE_TARGET_QUERY: &str =
-    "in:horizon_isp_accountability target_id:tgt-late time:[2026-11-23T14:00:00Z,2026-11-23T15:00:00Z] limit:5";
+const LATE_TARGET_QUERY: &str = "in:horizon_isp_accountability target_id:tgt-late time:[2026-11-23T14:00:00Z,2026-11-23T15:00:00Z] limit:5";
 
 pub(crate) async fn verify(conn: &mut Conn, database: &str) -> Result<()> {
     verify_mv_metadata(conn, database).await?;

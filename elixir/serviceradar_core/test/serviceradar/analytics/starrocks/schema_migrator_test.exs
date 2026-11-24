@@ -1113,7 +1113,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     refute Enum.any?(ddl, &String.contains?(&1, ~s|"replication_num" = "3"|))
 
     create_mv =
-      Enum.find(ddl, &String.starts_with?(&1, "CREATE MATERIALIZED VIEW IF NOT EXISTS lab.horizon_isp_accountability_mv"))
+      Enum.find(
+        ddl,
+        &String.starts_with?(
+          &1,
+          "CREATE MATERIALIZED VIEW IF NOT EXISTS lab.horizon_isp_accountability_mv"
+        )
+      )
 
     assert create_mv
     assert create_mv =~ ~s|"replication_num" = "1"|
@@ -1122,10 +1128,7 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
     assert create_mv =~ "FROM lab.horizon_bgp_events"
     assert create_mv =~ "FROM lab.horizon_bgp_zombies"
 
-    assert Enum.member?(
-             ddl,
-             "ALTER MATERIALIZED VIEW lab.horizon_isp_accountability_mv REFRESH ASYNC EVERY(INTERVAL 1 MINUTE)"
-           )
+    assert "ALTER MATERIALIZED VIEW lab.horizon_isp_accountability_mv REFRESH ASYNC EVERY(INTERVAL 1 MINUTE)" in ddl
 
     assert migrate(agent, migrations: [shipped(45)], database: "lab") == {:ok, []}
   end
