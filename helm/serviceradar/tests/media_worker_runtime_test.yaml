@@ -691,7 +691,7 @@ tests:
           value: StatefulSet
         contains:
           path: spec.template.spec.containers[0].ports
-          content: {name: analysis-read-https, containerPort: 8445}
+          content: {name: analysis-https, containerPort: 8445}
       - template: templates/media-worker.yaml
         documentSelector:
           path: kind
