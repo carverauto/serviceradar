@@ -2282,6 +2282,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         socket.assigns.timeline_search_results
       )
 
+    has_adjacent_window? =
+      is_nil(socket.assigns.timeline_selected_clip_id) and
+        is_nil(socket.assigns.timeline_highlight_frame_id) and
+        adjacent_window_available?(play_to_us || cov_to_us, cov_to_us, socket)
+
     base_assigns = [
       current_scope: scope,
       source: source,
@@ -2289,7 +2294,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       stream_profiles: profiles,
       timeline_coverage: coverage,
       timeline_overlay_detections: overlay_detections,
-      timeline_has_adjacent_window: adjacent_window_available?(play_to_us || cov_to_us, cov_to_us, socket),
+      timeline_has_adjacent_window: has_adjacent_window?,
       timeline_holds: all_holds,
       timeline_event_clips: clips_page.clips,
       timeline_event_markers: clips_page.markers,
@@ -2602,7 +2607,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_overlay_detections: overlay_detections,
       timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
       timeline_playlist_path: playlist_path,
-      timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov.to_us, socket),
+      timeline_has_adjacent_window: false,
       hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold)
     )
   end
@@ -3364,8 +3369,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         socket.assigns.timeline_search_results
       )
 
-    cov_to_us = (cov && cov.to_us) || play_to_us
-
     assign(socket,
       current_scope: scope,
       source: source,
@@ -3380,7 +3383,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_overlay_detections: overlay_detections,
       timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
       timeline_playlist_path: playlist_path,
-      timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov_to_us, socket),
+      timeline_has_adjacent_window: false,
       hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold),
       error: nil
     )

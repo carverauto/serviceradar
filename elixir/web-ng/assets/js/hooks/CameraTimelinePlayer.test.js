@@ -52,6 +52,7 @@ function makeElement({
     duration: 60,
     currentTime: 0,
     paused: false,
+    ended: false,
     clientWidth,
     clientHeight,
     videoWidth,
@@ -210,15 +211,23 @@ describe("CameraTimelinePlayer hook", () => {
       expect(copyBadge.textContent).toBe("Serving: local; provisional")
       expect(copyBadge.dataset.servedCopy).toBe("local; provisional")
 
-      // Far from window end (> 15s remaining): does not advance
-      video.currentTime = 40
+      // Not yet at window end (10s remaining): does not advance prematurely
+      video.currentTime = 50
       video.emit("timeupdate")
       expect(pushedEvents).toEqual([])
 
-      // Within 15s of window end: pushes advance_timeline_window once
-      video.currentTime = 46
+      // Paused even within 1s of window end (and not ended): does not auto-advance
+      video.paused = true
+      video.ended = false
+      video.currentTime = 59.5
+      video.emit("seeked")
+      expect(pushedEvents).toEqual([])
+
+      // Playing within 1.0s of window end: pushes advance_timeline_window once
+      video.paused = false
+      video.currentTime = 59.2
       video.emit("timeupdate")
-      video.currentTime = 48
+      video.currentTime = 59.6
       video.emit("timeupdate")
 
       expect(pushedEvents).toEqual([
@@ -233,8 +242,11 @@ describe("CameraTimelinePlayer hook", () => {
       expect(instances).toHaveLength(2)
       expect(copyBadge.textContent).toBe("Serving: —")
 
-      video.currentTime = 50
-      video.emit("timeupdate")
+      // Reaching ended event (even when browser sets paused=true on ended) advances the next window
+      video.paused = true
+      video.ended = true
+      video.currentTime = 60
+      video.emit("ended")
       expect(pushedEvents).toHaveLength(2)
       expect(pushedEvents[1]).toEqual([
         "advance_timeline_window",
@@ -505,8 +517,8 @@ describe("CameraTimelinePlayer hook", () => {
     expect(video.currentTime).toBe(24.5)
     expect(copyBadge.textContent).toBe("Serving: local")
 
-    // Advancing near window end now triggers advance_timeline_window because hasAdjacentWindow became true.
-    video.currentTime = 50
+    // Advancing near window end (<= 1.0s remaining while playing) triggers advance_timeline_window because hasAdjacentWindow became true.
+    video.currentTime = 59.3
     video.emit("timeupdate")
     expect(pushedEvents).toEqual([["advance_timeline_window", {window_end_us: "2000"}]])
 

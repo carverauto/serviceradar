@@ -1966,10 +1966,32 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       {:noreply, after_seek} = Recordings.handle_event("seek_timeline_fraction", %{"fraction" => 0.5}, live_seek)
       refute after_seek.assigns.live_mode?
 
-      # Clicking an event clip card exits live mode
+      # Clicking an event clip card exits live mode and disables adjacent-window auto-advance
       {:noreply, live_clip} = Recordings.handle_event("enter_live_mode", %{}, after_seek)
       {:noreply, after_clip} = Recordings.handle_event("select_event_clip", %{"clip_id" => clip.id}, live_clip)
       refute after_clip.assigns.live_mode?
+      assert after_clip.assigns.timeline_has_adjacent_window == false
+
+      # Live refresh while an event clip is selected keeps timeline_has_adjacent_window false
+      {:noreply, refreshed_clip} =
+        Recordings.handle_info({:refresh_timeline_tick, after_clip.assigns.recording_refresh_token}, after_clip)
+
+      assert refreshed_clip.assigns.timeline_has_adjacent_window == false
+
+      # Selecting a semantic hit also disables adjacent-window auto-advance
+      {:noreply, after_hit} =
+        Recordings.handle_event(
+          "select_timeline_semantic_hit",
+          %{
+            "seek_us" => Integer.to_string(from_us + 605_000_000),
+            "start_us" => Integer.to_string(from_us + 600_000_000),
+            "end_us" => Integer.to_string(from_us + 610_000_000),
+            "frame_id" => Ecto.UUID.generate()
+          },
+          refreshed_clip
+        )
+
+      assert after_hit.assigns.timeline_has_adjacent_window == false
     end
 
     test "falls back gracefully to Motion or All when zero smart detections exist, and filters clips + overlays by confidence threshold" do

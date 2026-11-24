@@ -46,15 +46,17 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeadersTest do
   end
 
   describe "Permissions-Policy" do
-    test "denies camera, microphone, geolocation, payment, etc. by default" do
+    test "denies camera, microphone, geolocation, payment, etc. and allows same-origin fullscreen by default" do
       conn = run_plug(http_conn(), [])
       conn = send_resp(conn, 200, "ok")
 
       assert [policy] = get_resp_header(conn, "permissions-policy")
 
-      for feature <- ~w(camera microphone geolocation payment usb serial fullscreen display-capture) do
+      for feature <- ~w(camera microphone geolocation payment usb serial display-capture) do
         assert policy =~ "#{feature}=()", "expected permissions-policy to deny #{feature}"
       end
+
+      assert policy =~ "fullscreen=(self)", "expected permissions-policy to allow same-origin fullscreen"
     end
 
     test "respects an explicit override" do
