@@ -267,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
       |> base_assigns()
       |> render_recordings_doc()
 
-    # In-place live mode button & stage
+    # In-place live mode button & stage (and recorded player unmounted so no duplicate video stage)
     assert attr_of(live_doc, "#camera-timeline-live-button", "phx-click") == ["enter_live_mode"]
     assert attr_of(live_doc, "#camera-timeline-live-button", "aria-pressed") == ["true"]
     assert has_selector?(live_doc, "#camera-header-live-badge")
@@ -275,6 +275,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert has_selector?(live_doc, "#camera-timeline-live-indicator")
     assert attr_of(live_doc, "#camera-timeline-exit-live", "phx-click") == ["exit_live_mode"]
     assert has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id}")
+    refute has_selector?(live_doc, "#camera-timeline-player")
 
     # Confidence threshold slider
     assert attr_of(live_doc, "#camera-clips-confidence-slider", "value") == ["65"]
@@ -397,6 +398,142 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
 
     assert LazyHTML.attribute(page3_rows, "id") ==
              for(i <- 5..1//-1, do: "camera-timeline-gap-gap-#{String.pad_leading(Integer.to_string(i), 2, "0")}")
+  end
+
+  test "renders event-highlighted horizontal scrubber, zoom slider, pinned LIVE playhead, and de-overlapped inline vertical thumbnails" do
+    clips = [
+      %{
+        id: "evt-person-close-1",
+        camera_source_id: @source_id,
+        started_at: DateTime.from_unix!(@base_us + 100_000_000, :microsecond),
+        ended_at: DateTime.from_unix!(@base_us + 110_000_000, :microsecond),
+        start_us: @base_us + 100_000_000,
+        end_us: @base_us + 110_000_000,
+        peak_ts_us: @base_us + 105_000_000,
+        duration_seconds: 10,
+        category: :person,
+        smart_type: :smart,
+        label: "Person",
+        confidence: 0.92,
+        visual_frame_id: "frame-p1",
+        thumbnail_url: "https://thumbnails.example.com/p1.jpg"
+      },
+      %{
+        id: "evt-person-close-2",
+        camera_source_id: @source_id,
+        started_at: DateTime.from_unix!(@base_us + 120_000_000, :microsecond),
+        ended_at: DateTime.from_unix!(@base_us + 130_000_000, :microsecond),
+        start_us: @base_us + 120_000_000,
+        end_us: @base_us + 130_000_000,
+        peak_ts_us: @base_us + 125_000_000,
+        duration_seconds: 10,
+        category: :person,
+        smart_type: :smart,
+        label: "Person",
+        confidence: 0.88,
+        visual_frame_id: "frame-p2",
+        thumbnail_url: "https://thumbnails.example.com/p2.jpg"
+      },
+      %{
+        id: "evt-animal-far",
+        camera_source_id: @source_id,
+        started_at: DateTime.from_unix!(@base_us + 2_400_000_000, :microsecond),
+        ended_at: DateTime.from_unix!(@base_us + 2_412_000_000, :microsecond),
+        start_us: @base_us + 2_400_000_000,
+        end_us: @base_us + 2_412_000_000,
+        peak_ts_us: @base_us + 2_405_000_000,
+        duration_seconds: 12,
+        category: :animal,
+        smart_type: :smart,
+        label: "Animal",
+        confidence: 0.85,
+        visual_frame_id: "frame-a1",
+        thumbnail_url: nil
+      }
+    ]
+
+    live_doc =
+      clips
+      |> page_assigns(%{
+        timeline_span: "1h",
+        timeline_anchored_latest?: true,
+        timeline_playlist_path: "/api/cameras/#{@source_id}/timeline/playlist.m3u8?from=1&to=2"
+      })
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    # Horizontal playback scrubber under the video stage
+    assert has_selector?(live_doc, "#camera-timeline-scrubber[data-role='playback-scrubber']")
+    assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-events']")
+    assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-playhead']")
+
+    [window_events_json] = attr_of(live_doc, "#camera-timeline-player", "data-window-events")
+    decoded_events = Jason.decode!(window_events_json)
+    assert length(decoded_events) == 2
+    assert hd(decoded_events)["category"] == "person"
+
+    # Top zoom slider + date label + pinned LIVE playhead + live data attributes
+    assert has_selector?(live_doc, "#camera-timeline-zoom-slider[value='3']")
+    assert has_selector?(live_doc, "#camera-timeline-date-label")
+    assert has_selector?(live_doc, "#camera-timeline-live-playhead[data-role='vertical-live-playhead']")
+    assert attr_of(live_doc, "#camera-timeline-coverage-bar", "data-anchored-latest") == ["true"]
+
+    # Two adjacent events collapse to 1 inline thumbnail while distant event gets its own (using frame URL fallback)
+    thumbs = LazyHTML.query(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker']")
+    assert Enum.count(thumbs) == 2
+    assert LazyHTML.attribute(thumbs, "phx-click") == ["select_event_clip", "select_event_clip"]
+    assert has_selector?(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[loading='lazy']")
+
+    assert has_selector?(
+             live_doc,
+             "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[src='/api/cameras/#{@source_id}/timeline/thumbnails/frame/frame-a1.jpg']"
+           )
+
+    # Historical (not anchored to latest) hides pinned LIVE playhead and sets data-anchored-latest=false
+    hist_doc =
+      %{timeline_anchored_latest?: false}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    refute has_selector?(hist_doc, "#camera-timeline-live-playhead")
+    assert attr_of(hist_doc, "#camera-timeline-coverage-bar", "data-anchored-latest") == ["false"]
+  end
+
+  test "renders thumbnail and object class badge on inline semantic search result cards" do
+    hits = [
+      %{
+        best_timeline_ts_us: @base_us + 200_000_000,
+        clip_start_us: @base_us + 195_000_000,
+        clip_end_us: @base_us + 205_000_000,
+        visual_frame_id: "frame-hit-1",
+        score: 0.91,
+        object_class: "animal",
+        time_basis: "received"
+      },
+      %{
+        best_timeline_ts_us: @base_us + 400_000_000,
+        clip_start_us: @base_us + 395_000_000,
+        clip_end_us: @base_us + 405_000_000,
+        visual_frame_id: nil,
+        score: 0.77,
+        object_class: "person",
+        time_basis: "received"
+      }
+    ]
+
+    doc =
+      %{timeline_search_results: hits, timeline_search_executed?: true}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert has_selector?(
+             doc,
+             "#select-timeline-semantic-hit-0 img[loading='lazy'][src='/api/cameras/#{@source_id}/timeline/thumbnails/frame/frame-hit-1.jpg']"
+           )
+
+    assert text_of(doc, "#select-timeline-semantic-hit-0 [data-role='semantic-hit-object-class']") == "Animal"
+    refute has_selector?(doc, "#select-timeline-semantic-hit-1 img")
+    assert text_of(doc, "#select-timeline-semantic-hit-1 [data-role='semantic-hit-object-class']") == "Person"
   end
 
   test "renders sticky camera switcher rail and explicit empty states for single-camera and zero-match filters" do

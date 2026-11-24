@@ -2153,6 +2153,61 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       assert ptz_blocked.assigns.roi_feedback == "Detection zones are not applicable for PTZ cameras."
     end
+
+    test "set_timeline_zoom slider maps 0..4 smoothly between 7d and 15m spans" do
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, empty_coverage(source_id, params.from_us, params.to_us)}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 60_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      for {zoom_val, expected_span} <- [{"0", "7d"}, {"1", "24h"}, {"2", "6h"}, {"3", "1h"}, {"4", "15m"}] do
+        {:noreply, updated} = Recordings.handle_event("set_timeline_zoom", %{"zoom" => zoom_val}, socket)
+        assert updated.assigns.timeline_span == expected_span
+      end
+    end
+
+    test "select_timeline_semantic_hit focuses playback onto a tight padded clip window instead of the full 1h coverage span" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+      block = playable_block(from_us, to_us, :verified)
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 60_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      clip_start_us = from_us + 1_200_000_000
+      clip_end_us = clip_start_us + 10_000_000
+      seek_us = clip_start_us + 4_000_000
+
+      {:noreply, focused} =
+        Recordings.handle_event(
+          "select_timeline_semantic_hit",
+          %{
+            "start_us" => Integer.to_string(clip_start_us),
+            "end_us" => Integer.to_string(clip_end_us),
+            "seek_us" => Integer.to_string(seek_us),
+            "frame_id" => Ecto.UUID.generate()
+          },
+          socket
+        )
+
+      # Tight clip window: [clip_start_us - 5s, clip_end_us + 10s] = 25 seconds total
+      assert focused.assigns.timeline_play_from_us == clip_start_us - 5_000_000
+      assert focused.assigns.timeline_play_to_us == clip_end_us + 10_000_000
+      assert focused.assigns.timeline_seek_us == seek_us
+      assert focused.assigns.timeline_play_to_us - focused.assigns.timeline_play_from_us == 25_000_000
+    end
   end
 
   defp cancel_timers(socket) do

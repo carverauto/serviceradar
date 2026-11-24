@@ -377,6 +377,231 @@ export function createSerialFragmentLoader(BaseLoader = Hls.DefaultConfig.loader
 
 const ADJACENT_PREFETCH_THRESHOLD_SECONDS = 1.0
 
+const SCRUBBER_CATEGORY_STYLES = {
+  person: {label: "Person", bg: "bg-sky-400/90 hover:bg-sky-300", ring: "ring-sky-300/60"},
+  animal: {label: "Animal", bg: "bg-amber-400/90 hover:bg-amber-300", ring: "ring-amber-300/60"},
+  vehicle: {label: "Vehicle", bg: "bg-cyan-400/90 hover:bg-cyan-300", ring: "ring-cyan-300/60"},
+  package: {label: "Package", bg: "bg-violet-400/90 hover:bg-violet-300", ring: "ring-violet-300/60"},
+  motion: {label: "Motion", bg: "bg-slate-200/80 hover:bg-white", ring: "ring-white/50"},
+  object: {label: "Detection", bg: "bg-emerald-400/90 hover:bg-emerald-300", ring: "ring-emerald-300/60"},
+}
+
+export function normalizeEventCategory(rawClass) {
+  const normalized = String(rawClass ?? "").trim().toLowerCase()
+  if (!normalized) return "object"
+  if (normalized.includes("person") || normalized.includes("human") || normalized.includes("pedestrian")) {
+    return "person"
+  }
+  if (
+    normalized.includes("vehicle") ||
+    normalized.includes("car") ||
+    normalized.includes("truck") ||
+    normalized.includes("bus") ||
+    normalized.includes("van") ||
+    normalized.includes("motorcycle") ||
+    normalized.includes("bicycle")
+  ) {
+    return "vehicle"
+  }
+  if (
+    normalized.includes("animal") ||
+    normalized.includes("dog") ||
+    normalized.includes("cat") ||
+    normalized.includes("bird") ||
+    normalized.includes("pet") ||
+    normalized.includes("deer")
+  ) {
+    return "animal"
+  }
+  if (normalized.includes("package") || normalized.includes("parcel") || normalized.includes("box")) {
+    return "package"
+  }
+  if (normalized.includes("motion")) {
+    return "motion"
+  }
+  return "object"
+}
+
+export function formatScrubberTime(seconds) {
+  const sec = Math.max(0, Math.floor(Number(seconds) || 0))
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+  }
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
+export function computeScrubberFraction(clientX, rect) {
+  if (!rect || !Number.isFinite(rect.width) || rect.width <= 0) return null
+  const raw = (clientX - rect.left) / rect.width
+  const clamped = Math.min(1, Math.max(0, raw))
+  return Number(clamped.toFixed(6))
+}
+
+export function parseScrubberEvents(rawJson, {windowStartUs = null} = {}) {
+  if (!rawJson || typeof rawJson !== "string" || rawJson.trim() === "") return []
+
+  let parsed
+  try {
+    parsed = JSON.parse(rawJson)
+  } catch (_err) {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+
+  const winStart =
+    windowStartUs !== null && windowStartUs !== undefined && String(windowStartUs).trim() !== ""
+      ? Number(windowStartUs)
+      : null
+
+  const out = []
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") continue
+
+    let startSec = Number(item.start_offset_seconds ?? item.offset_seconds ?? item.offsetSeconds)
+    if (!Number.isFinite(startSec)) {
+      const tsUs = Number(item.start_us ?? item.peak_ts_us ?? item.timeline_ts_us)
+      if (Number.isFinite(tsUs) && Number.isFinite(winStart)) {
+        startSec = Math.max(0, (tsUs - winStart) / 1_000_000)
+      }
+    }
+    if (!Number.isFinite(startSec)) continue
+
+    let endSec = Number(item.end_offset_seconds)
+    if (!Number.isFinite(endSec)) {
+      const endUs = Number(item.end_us)
+      if (Number.isFinite(endUs) && Number.isFinite(winStart)) {
+        endSec = Math.max(startSec, (endUs - winStart) / 1_000_000)
+      } else {
+        endSec = startSec
+      }
+    }
+
+    const rawScore = Number(item.score ?? item.confidence)
+    const score = Number.isFinite(rawScore)
+      ? Math.min(1, Math.max(0, rawScore > 1 ? rawScore / 100 : rawScore))
+      : null
+
+    out.push({
+      startSec: Math.max(0, startSec),
+      endSec: Math.max(startSec, endSec),
+      category: normalizeEventCategory(item.category ?? item.object_class ?? item.class ?? item.label),
+      label: String(item.label ?? item.object_class ?? item.category ?? "Event"),
+      score,
+    })
+  }
+
+  return out
+}
+
+export function buildScrubberEventSegments(
+  detections = [],
+  windowEvents = [],
+  durationSeconds = 0,
+  {mergeGapSeconds = 2.0, minWidthPct = 1.4} = {}
+) {
+  const duration = Number(durationSeconds)
+  if (!Number.isFinite(duration) || duration <= 0) return []
+
+  const rawPoints = []
+
+  if (Array.isArray(detections)) {
+    for (const det of detections) {
+      if (!det || !Number.isFinite(det.offsetSeconds)) continue
+      if (det.offsetSeconds < 0 || det.offsetSeconds > duration) continue
+      const category = normalizeEventCategory(det.objectClass)
+      rawPoints.push({
+        startSec: det.offsetSeconds,
+        endSec: det.offsetSeconds,
+        category,
+        label: SCRUBBER_CATEGORY_STYLES[category]?.label || det.objectClass || "Detection",
+        score: Number.isFinite(det.score) ? det.score : null,
+      })
+    }
+  }
+
+  if (Array.isArray(windowEvents)) {
+    for (const evt of windowEvents) {
+      if (!evt || !Number.isFinite(evt.startSec)) continue
+      const clampedStart = Math.min(duration, Math.max(0, evt.startSec))
+      const clampedEnd = Math.min(duration, Math.max(clampedStart, evt.endSec ?? clampedStart))
+      if (evt.endSec < 0 || evt.startSec > duration) continue
+      const category = normalizeEventCategory(evt.category)
+      rawPoints.push({
+        startSec: clampedStart,
+        endSec: clampedEnd,
+        category,
+        label: SCRUBBER_CATEGORY_STYLES[category]?.label || evt.label || "Event",
+        score: Number.isFinite(evt.score) ? evt.score : null,
+      })
+    }
+  }
+
+  if (rawPoints.length === 0) return []
+
+  // Group by category and merge adjacent points within mergeGapSeconds
+  const byCategory = new Map()
+  for (const pt of rawPoints) {
+    if (!byCategory.has(pt.category)) byCategory.set(pt.category, [])
+    byCategory.get(pt.category).push(pt)
+  }
+
+  const segments = []
+  for (const [category, pts] of byCategory.entries()) {
+    pts.sort((a, b) => a.startSec - b.startSec)
+    let current = null
+
+    for (const pt of pts) {
+      if (!current) {
+        current = {
+          category,
+          label: SCRUBBER_CATEGORY_STYLES[category]?.label || pt.label,
+          startSec: pt.startSec,
+          endSec: pt.endSec,
+          maxScore: pt.score,
+          count: 1,
+        }
+      } else if (pt.startSec <= current.endSec + mergeGapSeconds) {
+        current.endSec = Math.max(current.endSec, pt.endSec)
+        if (pt.score !== null && (current.maxScore === null || pt.score > current.maxScore)) {
+          current.maxScore = pt.score
+        }
+        current.count += 1
+      } else {
+        segments.push(current)
+        current = {
+          category,
+          label: SCRUBBER_CATEGORY_STYLES[category]?.label || pt.label,
+          startSec: pt.startSec,
+          endSec: pt.endSec,
+          maxScore: pt.score,
+          count: 1,
+        }
+      }
+    }
+    if (current) segments.push(current)
+  }
+
+  segments.sort((a, b) => a.startSec - b.startSec)
+
+  return segments.map(seg => {
+    const rawLeft = (seg.startSec / duration) * 100
+    const rawWidth = ((seg.endSec - seg.startSec) / duration) * 100
+    const widthPct = Math.min(100, Math.max(minWidthPct, rawWidth))
+    const leftPct = Math.min(Math.max(0, rawLeft), Math.max(0, 100 - widthPct))
+    const scorePart = seg.maxScore !== null ? ` · ${Math.round(seg.maxScore * 100)}%` : ""
+    const timePart = formatScrubberTime(seg.startSec)
+    return {
+      ...seg,
+      leftPct: Number(leftPct.toFixed(3)),
+      widthPct: Number(widthPct.toFixed(3)),
+      tooltip: `${seg.label} · ${timePart}${scorePart}`,
+    }
+  })
+}
+
 export default {
   mounted() {
     this.video = this.el.querySelector("[data-role='timeline-video']")
@@ -386,6 +611,15 @@ export default {
     this.copyBadge = this.el.querySelector("[data-role='served-copy-badge']")
     this.overlay = this.el.querySelector("[data-role='semantic-bbox-overlay']")
     this.overlayToggle = this.el.querySelector("[data-role='toggle-bbox-overlay']")
+    this.scrubber = this.el.querySelector("[data-role='playback-scrubber']")
+    this.scrubberTrack = this.el.querySelector("[data-role='scrubber-track']")
+    this.scrubberBuffered = this.el.querySelector("[data-role='scrubber-buffered']")
+    this.scrubberProgress = this.el.querySelector("[data-role='scrubber-progress']")
+    this.scrubberPlayhead = this.el.querySelector("[data-role='scrubber-playhead']")
+    this.scrubberEvents = this.el.querySelector("[data-role='scrubber-events']")
+    this.scrubberTicks = this.el.querySelector("[data-role='scrubber-ticks']")
+    this.scrubberHoverLine = this.el.querySelector("[data-role='scrubber-hover-line']")
+    this.scrubberHoverTooltip = this.el.querySelector("[data-role='scrubber-hover-tooltip']")
     this.btnBack10 = this.el.querySelector("[data-role='transport-back-10']")
     this.btnPlayPause = this.el.querySelector("[data-role='transport-play-pause']")
     this.btnFwd10 = this.el.querySelector("[data-role='transport-fwd-10']")
@@ -397,6 +631,10 @@ export default {
     this.overlayEnabled = true
     this.metadataLoaded = false
     this.detections = []
+    this.windowEvents = []
+    this.scrubberSegments = []
+    this.scrubberDragging = false
+    this.scrubberRafId = null
     this.lastAppliedSeekAttr = ""
     this.pendingSeekOffsetSeconds = null
 
@@ -409,11 +647,15 @@ export default {
     this.btnMute?.addEventListener("click", () => this.toggleMute(), options)
     this.btnFullscreen?.addEventListener("click", () => this.toggleFullscreen(), options)
 
+    this.bindScrubberListeners(options)
+
     this.video?.addEventListener(
       "loadedmetadata",
       () => {
         this.metadataLoaded = true
         this.applyPendingSeek()
+        this.renderScrubberEvents()
+        this.syncScrubberPosition()
         this.renderOverlay()
       },
       options
@@ -422,7 +664,15 @@ export default {
       "loadeddata",
       () => {
         this.report("Ready")
+        this.syncScrubberPosition()
         this.renderOverlay()
+      },
+      options
+    )
+    this.video?.addEventListener(
+      "progress",
+      () => {
+        this.syncScrubberBuffered()
       },
       options
     )
@@ -431,6 +681,7 @@ export default {
       () => {
         this.report("Playing")
         this.syncTransportControls()
+        this.startScrubberAnimation()
         this.renderOverlay()
       },
       options
@@ -441,6 +692,7 @@ export default {
       () => {
         this.report(this.video.paused ? "Paused" : "Playing")
         this.syncTransportControls()
+        this.syncScrubberPosition()
         this.maybeAdvanceWindow()
         this.renderOverlay()
       },
@@ -450,6 +702,7 @@ export default {
       "timeupdate",
       () => {
         this.syncTransportControls()
+        this.syncScrubberPosition()
         this.maybeAdvanceWindow()
         this.renderOverlay()
       },
@@ -459,7 +712,9 @@ export default {
       "pause",
       () => {
         if (this.player) this.report("Paused")
+        this.stopScrubberAnimation()
         this.syncTransportControls()
+        this.syncScrubberPosition()
         this.renderOverlay()
       },
       options
@@ -474,8 +729,10 @@ export default {
     this.video?.addEventListener(
       "ended",
       () => {
+        this.stopScrubberAnimation()
         this.maybeAdvanceWindow()
         this.report("End of timeline window")
+        this.syncScrubberPosition()
         this.renderOverlay()
       },
       options
@@ -497,6 +754,8 @@ export default {
 
     this.syncOverlayDataset()
     this.syncOverlayToggleButton()
+    this.renderScrubberEvents()
+    this.syncScrubberPosition()
     this.syncTransportControls()
     this.start()
   },
@@ -507,6 +766,8 @@ export default {
     this.overlayToggle = this.el.querySelector("[data-role='toggle-bbox-overlay']")
     this.syncOverlayDataset()
     this.syncOverlayToggleButton()
+    this.renderScrubberEvents()
+    this.syncScrubberPosition()
 
     const nextPlaylistPath = this.el.dataset.playlistPath || ""
     const nextSeekAttr = this.el.dataset.seekOffsetSeconds || ""
@@ -540,10 +801,207 @@ export default {
   },
 
   destroyed() {
+    this.stopScrubberAnimation()
     this.resizeObserver?.disconnect()
     this.resizeObserver = null
     this.listeners?.abort()
     this.stop()
+  },
+
+  bindScrubberListeners(options) {
+    const track = this.scrubberTrack || this.scrubber
+    if (!track) return
+
+    const seekFromPointer = event => {
+      const duration = this.effectiveDurationSeconds()
+      if (duration <= 0) return
+      const rect = track.getBoundingClientRect?.()
+      const fraction = computeScrubberFraction(event.clientX, rect)
+      if (fraction === null) return
+      const targetSeconds = fraction * duration
+      this.seekToSeconds(targetSeconds)
+      this.updateScrubberHover(event, fraction)
+    }
+
+    track.addEventListener(
+      "pointerdown",
+      event => {
+        const segEl = event.target?.closest?.("[data-role='scrubber-event-segment']")
+        if (segEl && segEl.dataset?.seekSeconds !== undefined) {
+          const seekSec = Number.parseFloat(segEl.dataset.seekSeconds)
+          if (Number.isFinite(seekSec)) {
+            this.seekToSeconds(seekSec)
+          }
+        } else {
+          seekFromPointer(event)
+        }
+        this.scrubberDragging = true
+        track.setPointerCapture?.(event.pointerId)
+      },
+      options
+    )
+
+    track.addEventListener(
+      "pointermove",
+      event => {
+        const rect = track.getBoundingClientRect?.()
+        const fraction = computeScrubberFraction(event.clientX, rect)
+        if (fraction === null) return
+        if (this.scrubberDragging) {
+          const duration = this.effectiveDurationSeconds()
+          if (duration > 0) this.seekToSeconds(fraction * duration)
+        }
+        this.updateScrubberHover(event, fraction)
+      },
+      options
+    )
+
+    const endDrag = event => {
+      if (!this.scrubberDragging) return
+      this.scrubberDragging = false
+      track.releasePointerCapture?.(event.pointerId)
+    }
+
+    track.addEventListener("pointerup", endDrag, options)
+    track.addEventListener("pointercancel", endDrag, options)
+    track.addEventListener(
+      "pointerleave",
+      () => {
+        if (this.scrubberHoverLine) this.scrubberHoverLine.hidden = true
+        if (this.scrubberHoverTooltip) this.scrubberHoverTooltip.hidden = true
+      },
+      options
+    )
+  },
+
+  effectiveDurationSeconds() {
+    const videoDur = Number(this.video?.duration)
+    if (Number.isFinite(videoDur) && videoDur > 0) return videoDur
+
+    const startUs = Number(this.el.dataset?.windowStartUs)
+    const endUs = Number(this.el.dataset?.windowEndUs)
+    if (Number.isFinite(startUs) && Number.isFinite(endUs) && endUs > startUs) {
+      return (endUs - startUs) / 1_000_000
+    }
+    return 0
+  },
+
+  seekToSeconds(seconds) {
+    if (!this.video) return
+    const duration = this.effectiveDurationSeconds()
+    const target = duration > 0 ? Math.min(duration, Math.max(0, seconds)) : Math.max(0, seconds)
+    this.video.currentTime = target
+    this.syncScrubberPosition()
+    this.syncTransportControls()
+    this.renderOverlay()
+  },
+
+  updateScrubberHover(event, fraction) {
+    const duration = this.effectiveDurationSeconds()
+    const pct = `${(fraction * 100).toFixed(2)}%`
+    if (this.scrubberHoverLine) {
+      this.scrubberHoverLine.style.left = pct
+      this.scrubberHoverLine.hidden = false
+    }
+    if (this.scrubberHoverTooltip && duration > 0) {
+      const hoverSec = fraction * duration
+      const segEl = event?.target?.closest?.("[data-role='scrubber-event-segment']")
+      const segTitle = segEl?.getAttribute?.("title")
+      this.scrubberHoverTooltip.textContent = segTitle || formatScrubberTime(hoverSec)
+      this.scrubberHoverTooltip.style.left = pct
+      this.scrubberHoverTooltip.hidden = false
+    }
+  },
+
+  renderScrubberEvents() {
+    if (!this.scrubberEvents && !this.scrubberTicks) return
+    const duration = this.effectiveDurationSeconds()
+    this.scrubberSegments = buildScrubberEventSegments(this.detections, this.windowEvents, duration)
+
+    if (this.scrubberEvents) {
+      this.scrubberEvents.innerHTML = this.scrubberSegments
+        .map(seg => {
+          const style = SCRUBBER_CATEGORY_STYLES[seg.category] || SCRUBBER_CATEGORY_STYLES.object
+          const title = escapeOverlayText(seg.tooltip)
+          const cat = escapeOverlayText(seg.category)
+          const seekSec = seg.startSec.toFixed(3)
+          return (
+            `<button type="button" data-role="scrubber-event-segment" ` +
+            `data-event-category="${cat}" data-seek-seconds="${seekSec}" ` +
+            `title="${title}" aria-label="${title}" ` +
+            `style="left: ${seg.leftPct}%; width: ${seg.widthPct}%;" ` +
+            `class="absolute top-1 bottom-1 z-[4] cursor-pointer rounded-full ${style.bg} ring-1 ${style.ring} transition-transform hover:scale-y-125">` +
+            `</button>`
+          )
+        })
+        .join("")
+    }
+
+    if (this.scrubberTicks) {
+      if (duration <= 0) {
+        this.scrubberTicks.innerHTML = ""
+      } else {
+        const ticks = [0, 0.25, 0.5, 0.75, 1].map(frac => {
+          const label = formatScrubberTime(frac * duration)
+          return `<span>${escapeOverlayText(label)}</span>`
+        })
+        this.scrubberTicks.innerHTML = ticks.join("")
+      }
+    }
+  },
+
+  syncScrubberPosition() {
+    if (!this.scrubber && !this.scrubberPlayhead && !this.scrubberProgress) return
+    const duration = this.effectiveDurationSeconds()
+    const current = Math.max(0, Number(this.video?.currentTime) || 0)
+    const pct = duration > 0 ? Math.min(100, Math.max(0, (current / duration) * 100)) : 0
+    const pctStr = `${pct.toFixed(3)}%`
+
+    if (this.scrubberProgress) {
+      this.scrubberProgress.style.width = pctStr
+    }
+    if (this.scrubberPlayhead) {
+      this.scrubberPlayhead.style.left = pctStr
+    }
+    if (this.scrubber) {
+      this.scrubber.setAttribute?.("aria-valuenow", String(Math.round(current)))
+      this.scrubber.setAttribute?.("aria-valuemax", String(Math.round(duration)))
+    }
+    this.syncScrubberBuffered()
+  },
+
+  syncScrubberBuffered() {
+    if (!this.scrubberBuffered || !this.video) return
+    const duration = this.effectiveDurationSeconds()
+    const buffered = this.video.buffered
+    if (duration <= 0 || !buffered || buffered.length === 0) {
+      this.scrubberBuffered.style.width = "0%"
+      return
+    }
+    const endSec = buffered.end(buffered.length - 1)
+    const pct = Math.min(100, Math.max(0, (endSec / duration) * 100))
+    this.scrubberBuffered.style.width = `${pct.toFixed(2)}%`
+  },
+
+  startScrubberAnimation() {
+    if (typeof requestAnimationFrame !== "function") return
+    if (this.scrubberRafId !== null) return
+    const step = () => {
+      this.syncScrubberPosition()
+      if (this.video && !this.video.paused && !this.video.ended) {
+        this.scrubberRafId = requestAnimationFrame(step)
+      } else {
+        this.scrubberRafId = null
+      }
+    }
+    this.scrubberRafId = requestAnimationFrame(step)
+  },
+
+  stopScrubberAnimation() {
+    if (this.scrubberRafId !== null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(this.scrubberRafId)
+    }
+    this.scrubberRafId = null
   },
 
   start() {
@@ -608,6 +1066,7 @@ export default {
   },
 
   stop() {
+    this.stopScrubberAnimation()
     if (this.loaderClass?.cancelAll) {
       this.loaderClass.cancelAll()
       this.loaderClass = null
@@ -705,8 +1164,12 @@ export default {
   },
 
   syncOverlayDataset() {
+    const windowStartUs = this.el.dataset.windowStartUs || null
     this.detections = parseOverlayDetections(this.el.dataset.overlayDetections || "", {
-      windowStartUs: this.el.dataset.windowStartUs || null,
+      windowStartUs,
+    })
+    this.windowEvents = parseScrubberEvents(this.el.dataset.windowEvents || "", {
+      windowStartUs,
     })
   },
 
