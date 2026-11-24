@@ -12,16 +12,20 @@ so you stay informed even during network or power outages.
 
 ## What is ServiceRadar?
 
-ServiceRadar brings four capabilities together in one platform:
+ServiceRadar brings five capabilities together in one platform:
 
-- **Network management** — discover, map, and monitor your network with SNMP, NetFlow,
+- **Network management** -- discover, map, and monitor your network with SNMP, NetFlow,
   BGP, network sweeps, and live topology.
-- **IT operations** — track devices, services, and infrastructure health with a
+- **IT operations** -- track devices, services, and infrastructure health with a
   distributed, agent-based architecture built for the edge.
-- **Observability** — collect metrics, traces, and logs with OpenTelemetry and query
+- **Observability** -- collect metrics, traces, and logs with OpenTelemetry and query
   everything with SRQL, ServiceRadar's unified query language.
-- **Security analytics** — ingest syslog, runtime security events, and vulnerability
+- **Security analytics** -- ingest syslog, runtime security events, and vulnerability
   scans into one normalized, alertable event store.
+- **Visual intelligence (Vantage) and extensibility** -- manage IP cameras with local
+  GPU visual search and NVR playback ([ServiceRadar Vantage](./vantage.md)), and extend
+  the platform with [Wasm Plugins](./wasm-plugins.md), [Dashboard SDK](./dashboard-sdk.md)
+  modules, and signed [Solution Packs](./solution-packs.md).
 
 :::tip What you'll need
 - Linux-based system (Ubuntu/Debian recommended)
