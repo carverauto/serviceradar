@@ -267,13 +267,25 @@
 {{- $allowNvrRead := eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true" -}}
 {{- $nvrReadPort := int (default 8444 $np.nvrReadPort) -}}
 {{- include "serviceradar.validateMediaWorkerNvrReadPort" . -}}
-{{- $s3Cidrs := list "0.0.0.0/0" -}}
+{{- $defaultS3Cidrs := list "0.0.0.0/0" "::/0" -}}
+{{- $s3Cidrs := $defaultS3Cidrs -}}
 {{- if hasKey $np "s3EgressCidrs" -}}
 {{- $s3Cidrs = default (list) $np.s3EgressCidrs -}}
 {{- end -}}
-{{- $s3Except := list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" -}}
+{{- $defaultS3ExceptV4 := list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" -}}
+{{- $defaultS3ExceptV6 := list "fc00::/7" "fe80::/10" -}}
+{{- $s3Except := concat $defaultS3ExceptV4 $defaultS3ExceptV6 -}}
 {{- if hasKey $np "s3ExceptCidrs" -}}
 {{- $s3Except = default (list) $np.s3ExceptCidrs -}}
+{{- end -}}
+{{- $s3ExceptV4 := list -}}
+{{- $s3ExceptV6 := list -}}
+{{- range $exc := $s3Except -}}
+{{- if contains ":" $exc -}}
+{{- $s3ExceptV6 = append $s3ExceptV6 $exc -}}
+{{- else -}}
+{{- $s3ExceptV4 = append $s3ExceptV4 $exc -}}
+{{- end -}}
 {{- end -}}
 {{- $baseResources := deepCopy (default (dict) $mw.resources) -}}
 {{- $requests := deepCopy (default (dict) $baseResources.requests) -}}
@@ -634,11 +646,21 @@ spec:
     {{- if gt (len $s3Cidrs) 0 }}
     - to:
         {{- range $cidr := $s3Cidrs }}
+        {{- $isV6 := contains ":" $cidr }}
+        {{- $rawExcept := ternary $s3ExceptV6 $s3ExceptV4 $isV6 }}
+        {{- $isCatchAll := or (eq $cidr "0.0.0.0/0") (eq $cidr "::/0") }}
+        {{- $defaultExceptForFamily := ternary $defaultS3ExceptV6 $defaultS3ExceptV4 $isV6 }}
+        {{- $cidrExcept := list }}
+        {{- range $exc := $rawExcept }}
+        {{- if or $isCatchAll (not (has $exc $defaultExceptForFamily)) }}
+        {{- $cidrExcept = append $cidrExcept $exc }}
+        {{- end }}
+        {{- end }}
         - ipBlock:
             cidr: {{ $cidr | quote }}
-            {{- if gt (len $s3Except) 0 }}
+            {{- if gt (len $cidrExcept) 0 }}
             except:
-              {{- range $exc := $s3Except }}
+              {{- range $exc := $cidrExcept }}
               - {{ $exc | quote }}
               {{- end }}
             {{- end }}
