@@ -151,9 +151,9 @@ spec:
       targetPort: read-https
     {{- end }}
     {{- if $analysisReadEnabled }}
-    - name: analysis-read-https
+    - name: analysis-https
       port: {{ $analysisReadPort }}
-      targetPort: analysis-read-https
+      targetPort: analysis-https
     {{- end }}
 ---
 apiVersion: apps/v1
@@ -215,7 +215,7 @@ spec:
               containerPort: {{ $readPort }}
             {{- end }}
             {{- if $analysisReadEnabled }}
-            - name: analysis-read-https
+            - name: analysis-https
               containerPort: {{ $analysisReadPort }}
             {{- end }}
           securityContext:
