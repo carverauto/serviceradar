@@ -49,6 +49,19 @@ defmodule ServiceRadar.Types.Cidr do
 
   def dump_to_native(_, _), do: :error
 
+  @impl true
+  def dump_to_embedded(nil, _), do: {:ok, nil}
+  def dump_to_embedded(%Postgrex.INET{} = inet, _), do: {:ok, inet_to_string(inet)}
+
+  def dump_to_embedded(value, _constraints) when is_binary(value) do
+    case parse_inet(value) do
+      {:ok, inet} -> {:ok, inet_to_string(inet)}
+      :error -> :error
+    end
+  end
+
+  def dump_to_embedded(_, _), do: :error
+
   defp parse_inet(value) when is_binary(value) do
     value = String.trim(value)
 
