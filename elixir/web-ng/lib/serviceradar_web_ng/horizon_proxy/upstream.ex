@@ -74,20 +74,24 @@ defmodule ServiceRadarWebNG.HorizonProxy.Upstream do
   def validate_base_url(url) when is_binary(url) do
     trimmed = String.trim(url)
 
-    case URI.parse(trimmed) do
-      %URI{scheme: scheme, host: host, port: port, userinfo: nil, query: nil, fragment: nil} = uri
-      when is_binary(scheme) and is_binary(host) and host != "" ->
-        with "https" <- String.downcase(scheme),
-             :ok <- validate_port(port),
-             :ok <- validate_host(host) do
-          normalized_path = uri.path |> to_string() |> String.trim_trailing("/")
-          {:ok, URI.to_string(%{uri | scheme: "https", path: normalized_path})}
-        else
-          _ -> {:error, :invalid_upstream_url}
-        end
+    if contains_control_chars?(url) do
+      {:error, :invalid_upstream_url}
+    else
+      case URI.new(trimmed) do
+        {:ok, %URI{scheme: scheme, host: host, port: port, userinfo: nil, query: nil, fragment: nil} = uri}
+        when is_binary(scheme) and is_binary(host) and host != "" ->
+          with "https" <- String.downcase(scheme),
+               :ok <- validate_port(port),
+               {:ok, normalized_host} <- validate_host(host) do
+            normalized_path = uri.path |> to_string() |> String.trim_trailing("/")
+            {:ok, URI.to_string(%{uri | scheme: "https", host: normalized_host, path: normalized_path})}
+          else
+            _ -> {:error, :invalid_upstream_url}
+          end
 
-      _ ->
-        {:error, :invalid_upstream_url}
+        _ ->
+          {:error, :invalid_upstream_url}
+      end
     end
   end
 
@@ -207,31 +211,50 @@ defmodule ServiceRadarWebNG.HorizonProxy.Upstream do
   defp validate_port(port) when is_integer(port) and port > 0 and port <= 65_535, do: :ok
   defp validate_port(_), do: {:error, :invalid_port}
 
-  defp validate_host(host) do
-    host_down = host |> String.trim() |> String.downcase()
+  defp contains_control_chars?(value), do: Regex.match?(~r/[\x00-\x1f\x7f]/, value)
+
+  defp valid_host_chars?(host), do: Regex.match?(~r/\A[A-Za-z0-9._:-]+\z/, host)
+
+  defp validate_host(host) when is_binary(host) do
+    host_down = String.downcase(host)
+    has_trailing_dot = String.ends_with?(host_down, ".")
+    normalized = String.trim_trailing(host_down, ".")
 
     cond do
-      host_down == "" ->
+      not valid_host_chars?(host) ->
         {:error, :invalid_host}
 
-      MapSet.member?(@forbidden_hosts, host_down) ->
+      normalized == "" or String.starts_with?(host_down, ".") or String.contains?(host_down, "..") ->
+        {:error, :invalid_host}
+
+      MapSet.member?(@forbidden_hosts, normalized) ->
         {:error, :disallowed_host}
 
-      String.ends_with?(host_down, ".localhost") ->
+      String.ends_with?(normalized, ".localhost") ->
         {:error, :disallowed_host}
 
       true ->
-        validate_host_address(host_down)
+        validate_host_address(normalized, has_trailing_dot)
     end
   end
 
-  defp validate_host_address(host) do
+  defp validate_host_address(host, has_trailing_dot) do
     case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, _ip} when has_trailing_dot ->
+        {:error, :invalid_host}
+
       {:ok, ip} ->
-        if forbidden_ip?(ip), do: {:error, :disallowed_host}, else: :ok
+        if forbidden_ip?(ip), do: {:error, :disallowed_host}, else: {:ok, host}
 
       {:error, _} ->
-        check_resolved_addresses(host)
+        if String.contains?(host, ":") do
+          {:error, :invalid_host}
+        else
+          case check_resolved_addresses(host) do
+            :ok -> {:ok, host}
+            error -> error
+          end
+        end
     end
   end
 
@@ -259,10 +282,16 @@ defmodule ServiceRadarWebNG.HorizonProxy.Upstream do
 
   defp forbidden_ip?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
   defp forbidden_ip?({0, 0, 0, 0, 0, 0, 0, 0}), do: true
-
-  defp forbidden_ip?({0, 0, 0, 0, 0, 0xFFFF, high, low}) do
-    forbidden_ip?({high >>> 8, high &&& 0xFF, low >>> 8, low &&& 0xFF})
-  end
+  # IPv4-compatible (::/96)
+  defp forbidden_ip?({0, 0, 0, 0, 0, 0, high, low}), do: embedded_ipv4_forbidden?(high, low)
+  # IPv4-mapped (::ffff:0:0/96)
+  defp forbidden_ip?({0, 0, 0, 0, 0, 0xFFFF, high, low}), do: embedded_ipv4_forbidden?(high, low)
+  # IPv4-translated (::ffff:0:0:0/96)
+  defp forbidden_ip?({0, 0, 0, 0, 0xFFFF, 0, high, low}), do: embedded_ipv4_forbidden?(high, low)
+  # NAT64 well-known prefix (64:ff9b::/96)
+  defp forbidden_ip?({0x0064, 0xFF9B, 0, 0, 0, 0, high, low}), do: embedded_ipv4_forbidden?(high, low)
+  # 6to4 (2002::/16)
+  defp forbidden_ip?({0x2002, high, low, _, _, _, _, _}), do: embedded_ipv4_forbidden?(high, low)
 
   # fe80::/10 link-local
   defp forbidden_ip?({w1, _, _, _, _, _, _, _}) when (w1 &&& 0xFFC0) == 0xFE80, do: true
@@ -270,6 +299,10 @@ defmodule ServiceRadarWebNG.HorizonProxy.Upstream do
   defp forbidden_ip?({w1, _, _, _, _, _, _, _}) when (w1 &&& 0xFF00) == 0xFF00, do: true
   defp forbidden_ip?({_, _, _, _, _, _, _, _}), do: false
   defp forbidden_ip?(_), do: true
+
+  defp embedded_ipv4_forbidden?(high, low) do
+    forbidden_ip?({high >>> 8, high &&& 0xFF, low >>> 8, low &&& 0xFF})
+  end
 
   defp in_ipv4_cidr?({a, b, c, d}, {ba, bb, bc, bd}, bits) do
     mask = bnot((1 <<< (32 - bits)) - 1) &&& 0xFFFFFFFF

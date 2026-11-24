@@ -60,7 +60,8 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   @doc """
   Validates a query string for forwarding to Horizon. Rejects control
-  characters and `token` query parameters (tokens must never travel in URLs).
+  characters, malformed RFC 3986 percent-encoding or query syntax, and `token`
+  query parameters (tokens must never travel in URLs).
   """
   @spec validate_query_string(String.t() | nil) :: {:ok, String.t()} | {:error, :invalid_query}
   def validate_query_string(nil), do: {:ok, ""}
@@ -68,7 +69,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   def validate_query_string(query_string) when is_binary(query_string) do
     cond do
-      String.contains?(query_string, ["\r", "\n", "\0"]) ->
+      not valid_query_syntax?(query_string) ->
         {:error, :invalid_query}
 
       has_token_query_param?(query_string) ->
@@ -256,9 +257,14 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   defp valid_id?(_), do: false
 
+  defp valid_query_syntax?(query_string) do
+    not Regex.match?(~r/%(?![0-9A-Fa-f]{2})/, query_string) and
+      match?({:ok, %URI{query: ^query_string, fragment: nil}}, URI.new("?" <> query_string))
+  end
+
   defp has_token_query_param?(query_string) do
     query_string
-    |> URI.query_decoder()
+    |> URI.query_decoder(:rfc3986)
     |> Enum.any?(fn {key, _val} -> String.downcase(key) == "token" end)
   rescue
     ArgumentError -> true

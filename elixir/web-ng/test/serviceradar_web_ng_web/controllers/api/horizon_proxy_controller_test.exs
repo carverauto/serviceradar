@@ -198,7 +198,41 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
     end
 
     test "rejects token query parameter with 400", %{admin_scope: admin_scope} do
-      conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist?token=leaked", admin_scope)
+      for query <- [
+            "token=leaked",
+            "TOKEN=leaked",
+            "%74oken=leaked",
+            "limit=10&token=leaked"
+          ] do
+        conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist?#{query}", admin_scope)
+
+        assert json_response(conn, 400) == %{"error" => "invalid_query"}
+        refute_received {:upstream_request, _}
+      end
+    end
+
+    test "rejects malformed percent-encoded and invalid query strings with 400", %{admin_scope: admin_scope} do
+      for bad_query <- [
+            "foo=%ZZ",
+            "foo=%2",
+            "foo=%",
+            "a=1&%ZZ=2",
+            "foo=bar baz",
+            "foo=bar#frag",
+            "foo=bar\r\n"
+          ] do
+        assert {:error, :invalid_query} = HorizonProxy.validate_query_string(bad_query)
+      end
+
+      for valid_query <- [
+            "prefix=198.51.100.0%2F24&limit=25",
+            "q=hello+world",
+            "next_page_token=abc"
+          ] do
+        assert {:ok, ^valid_query} = HorizonProxy.validate_query_string(valid_query)
+      end
+
+      conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist?foo=%ZZ", admin_scope)
 
       assert json_response(conn, 400) == %{"error" => "invalid_query"}
       refute_received {:upstream_request, _}
@@ -222,9 +256,44 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
             "https://localhost",
             "https://[::1]",
             "https://[::ffff:169.254.169.254]",
-            "https://metadata.google.internal"
+            "https://metadata.google.internal",
+            "https://localhost.",
+            "https://localhost..",
+            "https://localhost.localdomain.",
+            "https://sub.localhost.",
+            "https://metadata.google.internal.",
+            "https://metadata.goog.",
+            "https://instance-data.",
+            "https://127.0.0.1.",
+            "https://169.254.169.254.",
+            "https://10.0.0.1.",
+            "https://[::127.0.0.1]",
+            "https://[::169.254.169.254]",
+            "https://[::ffff:0:127.0.0.1]",
+            "https://[::ffff:0:169.254.169.254]",
+            "https://[64:ff9b::127.0.0.1]",
+            "https://[64:ff9b::169.254.169.254]",
+            "https://[2002:7f00:0001::1]",
+            "https://[2002:a9fe:a9fe::1]",
+            "https://[fe80::1%25eth0]",
+            "https://api.horizon.example.com\r\nX-Injected: 1",
+            "https://api.horizon.example.com\nX-Injected: 1",
+            "https://api.horizon.example.com\0",
+            "https://local%68ost",
+            "https://%31%32%37.0.0.1"
           ] do
-        assert {:error, :invalid_upstream_url} = HorizonProxy.validate_base_url(bad_url)
+        assert HorizonProxy.validate_base_url(bad_url) == {:error, :invalid_upstream_url},
+               "expected #{inspect(bad_url)} to be rejected"
+      end
+
+      for bad_url <- [
+            "https://169.254.169.254",
+            "https://metadata.google.internal.",
+            "https://localhost.",
+            "https://[::169.254.169.254]"
+          ] do
+        stub_upstream({:ok, %{base_url: bad_url, api_key: @secret_api_key}})
+        assert {:error, :invalid_upstream_url} = HorizonProxy.resolve_upstream()
       end
 
       stub_upstream({:ok, %{base_url: "https://169.254.169.254", api_key: @secret_api_key}})
@@ -233,6 +302,26 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
 
       assert json_response(conn, 502) == %{"error" => "horizon_upstream_invalid"}
       refute conn.resp_body =~ @secret_api_key
+    end
+
+    test "accepts and normalizes valid HTTPS upstream URLs" do
+      assert {:ok, "https://api.horizon.example.com"} =
+               HorizonProxy.validate_base_url("https://api.horizon.example.com/")
+
+      assert {:ok, "https://api.horizon.example.com"} =
+               HorizonProxy.validate_base_url("HTTPS://API.HORIZON.EXAMPLE.COM./")
+
+      assert {:ok, "https://api.horizon.example.com:8443/v2"} =
+               HorizonProxy.validate_base_url("https://api.horizon.example.com:8443/v2/")
+
+      assert {:ok, "https://10.0.0.5"} =
+               HorizonProxy.validate_base_url("https://10.0.0.5/")
+
+      assert {:ok, "https://[fd00::1]"} =
+               HorizonProxy.validate_base_url("https://[fd00::1]/")
+
+      assert {:ok, "https://[2001:db8::1]:8443"} =
+               HorizonProxy.validate_base_url("https://[2001:db8::1]:8443/")
     end
   end
 
