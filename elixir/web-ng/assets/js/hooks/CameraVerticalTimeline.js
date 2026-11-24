@@ -1,3 +1,5 @@
+import {canonicalUtcInstant, formatUserTime} from "../utils/user_time"
+
 const MAX_LIVE_DRIFT_US = 60_000_000
 
 export function computeVerticalFraction(clientY, rect) {
@@ -35,24 +37,15 @@ export function computeMarkerTopPct(eventTsUs, fromUs, toUs, {minPct = 0.5, maxP
 export function formatRailTime(tsUs, timezone = "Etc/UTC", {includeSeconds = false} = {}) {
   const us = Number(tsUs)
   if (!Number.isFinite(us)) return ""
-  const date = new Date(Math.round(us / 1000))
-  if (Number.isNaN(date.getTime())) return ""
+  const canonical = canonicalUtcInstant(Math.round(us / 1000))
+  if (!canonical) return ""
 
-  const baseOptions = includeSeconds
-    ? {hour: "2-digit", minute: "2-digit", second: "2-digit"}
-    : {hour: "2-digit", minute: "2-digit"}
+  const style = includeSeconds ? "time" : "axis"
+  const formatted =
+    formatUserTime(canonical, {timeZone: timezone || "Etc/UTC", style}) ||
+    formatUserTime(canonical, {timeZone: "Etc/UTC", style})
 
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      ...baseOptions,
-      timeZone: timezone || "Etc/UTC",
-    }).format(date)
-  } catch (_err) {
-    return new Intl.DateTimeFormat(undefined, {
-      ...baseOptions,
-      timeZone: "Etc/UTC",
-    }).format(date)
-  }
+  return formatted?.text || canonical
 }
 
 export default {

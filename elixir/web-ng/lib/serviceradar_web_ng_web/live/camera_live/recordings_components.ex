@@ -512,7 +512,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       build_play_window_band(assigns.timeline_play_from_us, assigns.timeline_play_to_us, cov_from_us, cov_to_us)
 
     time_ticks = build_vertical_time_ticks(cov_from_us, cov_to_us)
-    timeline_date_label = format_rail_date_label(cov_to_us || now_us, assigns.timezone)
+    timeline_date_us = cov_to_us || now_us
 
     other_switcher_cameras =
       Enum.reject(assigns.switcher_cameras || [], &(to_string(&1.id) == active_source_id))
@@ -546,7 +546,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:window_scrubber_events, window_scrubber_events)
       |> assign(:play_window_band, play_window_band)
       |> assign(:time_ticks, time_ticks)
-      |> assign(:timeline_date_label, timeline_date_label)
+      |> assign(:timeline_date_us, timeline_date_us)
       |> assign(:clip_counts, clip_counts)
       |> assign(:filtered_event_clip_total, filtered_event_clip_total)
       |> assign(:filtered_event_clips, filtered_event_clips)
@@ -761,7 +761,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               id="camera-timeline-date-label"
               class="truncate font-medium text-sr-muted"
             >
-              {@timeline_date_label}
+              <.user_time
+                id="camera-timeline-date-label-time"
+                value={us_to_datetime(@timeline_date_us)}
+                timezone={@timezone}
+                style={:date}
+              />
             </span>
             <span class="shrink-0 rounded bg-sr-canvas px-1 py-0.5 font-mono text-[10px] font-semibold text-sr-ink">
               {@timeline_span}
@@ -2944,20 +2949,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   defp span_zoom_index("1h"), do: 3
   defp span_zoom_index("15m"), do: 4
   defp span_zoom_index(_), do: 3
-
-  defp format_rail_date_label(ts_us, timezone) when is_integer(ts_us) do
-    dt = DateTime.from_unix!(ts_us, :microsecond)
-
-    localized =
-      case DateTime.shift_zone(dt, timezone || "Etc/UTC") do
-        {:ok, shifted} -> shifted
-        _ -> dt
-      end
-
-    Calendar.strftime(localized, "%b %d")
-  end
-
-  defp format_rail_date_label(_, _), do: "Today"
 
   defp build_event_markers(clips, from_us, to_us, now_us)
        when is_list(clips) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
