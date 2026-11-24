@@ -57,6 +57,53 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
     })
   end
 
+  defp path_hop_row(overrides \\ %{}) do
+    unmapped =
+      Map.merge(
+        %{
+          "source" => "horizon.path_hops",
+          "observed_at_unix_ms" => 1_763_914_500_000,
+          "round_id" => "round-42",
+          "target_id" => "saas-github-web",
+          "pop_id" => "vantage-deadbeef",
+          "hop_ttl" => 5,
+          "hop_ip" => "198.51.100.5",
+          "router_alias_id" => "rtr-iad-01",
+          "alias_confidence" => "high",
+          "asn" => 13_335,
+          "as_org" => "Cloudflare, Inc.",
+          "is_cloud" => true,
+          "cloud_provider" => "cloudflare",
+          "cloud_region" => "us-east",
+          "forwarding_loss_pct" => 12.5,
+          "avg_rtt_ms" => 8.4,
+          "effective_path_mtu" => 1500,
+          "mtu_blackhole_detected" => true,
+          "blackhole_hop_ttl" => 6
+        },
+        Map.get(overrides, "unmapped", %{})
+      )
+
+    payload =
+      %{
+        "id" => "horizon.path_hops:round-42:vantage-deadbeef:5:1763914500000",
+        "time" => "2026-11-23T16:15:00Z",
+        "class_uid" => 1008,
+        "category_uid" => 1,
+        "type_uid" => 100_801,
+        "activity_id" => 1,
+        "severity_id" => 3,
+        "log_name" => "horizon.path_hop",
+        "log_provider" => "horizon.path_hops",
+        "message" =>
+          "Horizon path hop ttl=5 198.51.100.5 for saas-github-web from vantage-deadbeef (loss=12.5%, rtt=8.4ms)"
+      }
+      |> Map.merge(Map.delete(overrides, "unmapped"))
+      |> Map.put("unmapped", unmapped)
+
+    ocsf_row(payload)
+  end
+
   describe "build_projections/1" do
     test "projects horizon.outage OCSF payload matching plugins/horizon-feed shape" do
       %{outages: [outage], bgp_events: [], bgp_zombies: []} =
@@ -249,6 +296,143 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert zombie.episode_id == "ep-88"
       assert zombie.resolved_at == ~U[2026-11-23 16:20:00Z]
     end
+
+    test "projects horizon.path_hop OCSF payload matching plugins/horizon-feed shape" do
+      %{outages: [], bgp_events: [], bgp_zombies: [], path_hops: [hop]} =
+        HorizonProjection.build_projections([path_hop_row()])
+
+      assert hop.time == ~U[2026-11-23 16:15:00Z]
+      assert hop.round_id == "round-42"
+      assert hop.target_id == "saas-github-web"
+      assert hop.pop_id == "vantage-deadbeef"
+      assert hop.hop_ttl == 5
+      assert hop.hop_ip == "198.51.100.5"
+      assert hop.router_alias_id == "rtr-iad-01"
+      assert hop.alias_confidence == 1.0
+      assert hop.asn == 13_335
+      assert hop.as_org == "Cloudflare, Inc."
+      assert hop.is_cloud == true
+      assert hop.cloud_provider == "cloudflare"
+      assert hop.cloud_region == "us-east"
+      assert hop.forwarding_loss_pct == 12.5
+      assert hop.avg_rtt_ms == 8.4
+      assert hop.effective_path_mtu == 1500
+      assert hop.mtu_blackhole_detected == true
+      assert hop.blackhole_hop_ttl == 6
+      assert hop.raw_data["alias_confidence"] == "high"
+      assert hop.raw_data["round_id"] == "round-42"
+
+      [encoded] = Rows.encode(:horizon_path_hops, [hop])
+      assert encoded["round_id"] == "round-42"
+      assert encoded["alias_confidence"] == 1.0
+      assert encoded["mtu_blackhole_detected"] == true
+      assert {:ok, _json} = Jason.encode(encoded)
+    end
+
+    test "handles horizon.path_hops timeout hops, nullable fields, coercions, dedupe, and malformed rows" do
+      timeout_hop =
+        ocsf_row(%{
+          "id" => "horizon.path_hops:round-42:vantage-deadbeef:6:1763914500000",
+          "time" => "2026-11-23T16:15:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "severity_id" => 1,
+          "log_provider" => "horizon.path_hops",
+          "unmapped" => %{
+            "source" => "horizon.path_hops",
+            "observed_at_unix_ms" => 1_763_914_500_000,
+            "round_id" => "round-42",
+            "target_id" => "saas-github-web",
+            "pop_id" => "vantage-deadbeef",
+            "hop_ttl" => 6,
+            "is_cloud" => false,
+            "forwarding_loss_pct" => 100,
+            "avg_rtt_ms" => 0,
+            "mtu_blackhole_detected" => false
+          }
+        })
+
+      unix_ms_fallback_hop = %{
+        log_provider: "horizon.path_hops",
+        time: nil,
+        unmapped: %{
+          "observed_at_unix_ms" => 1_763_914_500_000,
+          "round_id" => "round-43",
+          "target_id" => "dns-cloudflare-1111",
+          "pop_id" => "vantage-12345678",
+          "hop_ttl" => "2",
+          "hop_ip" => "1.1.1.1",
+          "alias_confidence" => "medium",
+          "asn" => "AS13335",
+          "forwarding_loss_pct" => "0.5",
+          "avg_rtt_ms" => "4"
+        }
+      }
+
+      dup1 = path_hop_row(%{"unmapped" => %{"avg_rtt_ms" => 8.4, "alias_confidence" => "low"}})
+      dup2 = path_hop_row(%{"unmapped" => %{"avg_rtt_ms" => 9.1, "alias_confidence" => 0.85}})
+
+      malformed_missing_ttl =
+        ocsf_row(%{
+          "id" => "horizon.path_hops:bad:1",
+          "time" => "2026-11-23T16:15:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.path_hop",
+          "log_provider" => "horizon.path_hops",
+          "unmapped" => %{
+            "round_id" => "round-42",
+            "target_id" => "saas-github-web",
+            "pop_id" => "vantage-deadbeef"
+          }
+        })
+
+      malformed_negative_ttl = path_hop_row(%{"unmapped" => %{"hop_ttl" => -1}})
+
+      %{path_hops: hops} =
+        HorizonProjection.build_projections([
+          timeout_hop,
+          unix_ms_fallback_hop,
+          dup1,
+          dup2,
+          malformed_missing_ttl,
+          malformed_negative_ttl
+        ])
+
+      assert length(hops) == 3
+
+      by_key = Map.new(hops, &{{&1.round_id, &1.hop_ttl}, &1})
+
+      t_hop = by_key[{"round-42", 6}]
+      assert t_hop.hop_ip == nil
+      assert t_hop.router_alias_id == nil
+      assert t_hop.alias_confidence == nil
+      assert t_hop.asn == nil
+      assert t_hop.as_org == nil
+      assert t_hop.is_cloud == false
+      assert t_hop.cloud_provider == nil
+      assert t_hop.cloud_region == nil
+      assert t_hop.forwarding_loss_pct == 100.0
+      assert t_hop.avg_rtt_ms == 0.0
+      assert t_hop.effective_path_mtu == nil
+      assert t_hop.mtu_blackhole_detected == false
+      assert t_hop.blackhole_hop_ttl == nil
+
+      fb_hop = by_key[{"round-43", 2}]
+      assert fb_hop.time == DateTime.from_unix!(1_763_914_500_000, :millisecond)
+      assert fb_hop.alias_confidence == 0.5
+      assert fb_hop.asn == 13_335
+      assert fb_hop.forwarding_loss_pct == 0.5
+      assert fb_hop.avg_rtt_ms == 4.0
+
+      deduped = by_key[{"round-42", 5}]
+      assert deduped.avg_rtt_ms == 9.1
+      assert deduped.alias_confidence == 0.85
+    end
   end
 
   describe "project_rows/2" do
@@ -374,7 +558,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       log =
         capture_log(fn ->
           assert :ok ==
-                   HorizonProjection.project_rows([outage_row(), bgp, zombie],
+                   HorizonProjection.project_rows([outage_row(), bgp, zombie, path_hop_row()],
                      starrocks_enabled: true,
                      load: load_fn
                    )
@@ -383,6 +567,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert log =~ "Horizon StarRocks projection raised for horizon_outages (fail-open)"
       assert_received {:loaded, :horizon_bgp_events, 1}
       assert_received {:loaded, :horizon_bgp_zombies, 1}
+      assert_received {:loaded, :horizon_path_hops, 1}
     end
   end
 
@@ -485,23 +670,40 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
           }
         })
 
-      assert {:ok, 2} = Events.store_event_rows([outage_row(), bgp_row])
+      assert {:ok, 3} = Events.store_event_rows([outage_row(), bgp_row, path_hop_row()])
 
       assert_receive {:stream_load_stop, :events, "events"}, 5_000
       assert_receive {:stream_load_stop, :horizon_outages, "horizon_outages"}, 5_000
       assert_receive {:stream_load_stop, :horizon_bgp_events, "horizon_bgp_events"}, 5_000
+      assert_receive {:stream_load_stop, :horizon_path_hops, "horizon_path_hops"}, 5_000
 
       assert_receive {:wire_request, event_rows}, 5_000
       assert_receive {:wire_request, outage_rows}, 5_000
       assert_receive {:wire_request, bgp_rows}, 5_000
+      assert_receive {:wire_request, hop_rows}, 5_000
 
       assert Enum.sort(Enum.map(event_rows, & &1["log_name"])) == [
                "horizon.bgp_anomaly",
-               "horizon.outage"
+               "horizon.outage",
+               "horizon.path_hop"
              ]
 
       assert [%{"outage_id" => "out-2026-001", "origin_asn" => 13_335}] = outage_rows
       assert [%{"event_id" => "bgp-cutover-1", "origin_asn" => 64_512}] = bgp_rows
+
+      assert [
+               %{
+                 "round_id" => "round-42",
+                 "target_id" => "saas-github-web",
+                 "pop_id" => "vantage-deadbeef",
+                 "hop_ttl" => 5,
+                 "hop_ip" => "198.51.100.5",
+                 "alias_confidence" => 1.0,
+                 "asn" => 13_335,
+                 "mtu_blackhole_detected" => true,
+                 "blackhole_hop_ttl" => 6
+               }
+             ] = hop_rows
     end
 
     test "encodes all four Horizon datasets for StarRocks Stream Load JSON" do

@@ -1,14 +1,15 @@
 defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   @moduledoc """
   Fail-open StarRocks projection from Horizon OCSF `log_activity` event rows
-  into `serviceradar.horizon_outages`, `serviceradar.horizon_bgp_events`, and
-  `serviceradar.horizon_bgp_zombies`.
+  into `serviceradar.horizon_outages`, `serviceradar.horizon_bgp_events`,
+  `serviceradar.horizon_bgp_zombies`, and `serviceradar.horizon_path_hops`.
 
   Called by `ServiceRadar.EventWriter.Processors.Events` after OCSF rows are
-  persisted. Batches containing no `horizon.*` `log_name` values—or running on
-  an installation without StarRocks enabled—short-circuit with zero loads.
-  Each table load is isolated and fail-open so a projection error never fails
-  primary OCSF event ingestion or blocks sibling Horizon tables.
+  persisted. Batches containing no `horizon.*` `log_name`/`log_provider`
+  values—or running on an installation without StarRocks enabled—short-circuit
+  with zero loads. Each table load is isolated and fail-open so a projection
+  error never fails primary OCSF event ingestion or blocks sibling Horizon
+  tables.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Destination
@@ -46,10 +47,11 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   @spec build_projections([map()]) :: %{
           outages: [map()],
           bgp_events: [map()],
-          bgp_zombies: [map()]
+          bgp_zombies: [map()],
+          path_hops: [map()]
         }
   def build_projections(rows) when is_list(rows) do
-    initial = %{outages: [], bgp_events: [], bgp_zombies: []}
+    initial = %{outages: [], bgp_events: [], bgp_zombies: [], path_hops: []}
 
     grouped =
       Enum.reduce(rows, initial, fn row, acc ->
@@ -57,6 +59,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
           {:outage, projected} -> %{acc | outages: [projected | acc.outages]}
           {:bgp_event, projected} -> %{acc | bgp_events: [projected | acc.bgp_events]}
           {:bgp_zombie, projected} -> %{acc | bgp_zombies: [projected | acc.bgp_zombies]}
+          {:path_hop, projected} -> %{acc | path_hops: [projected | acc.path_hops]}
           :ignore -> acc
         end
       end)
@@ -65,7 +68,11 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
       outages: grouped.outages |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.outage_id}),
       bgp_events: grouped.bgp_events |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.event_id}),
       bgp_zombies:
-        grouped.bgp_zombies |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.episode_id})
+        grouped.bgp_zombies |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.episode_id}),
+      path_hops:
+        grouped.path_hops
+        |> Enum.reverse()
+        |> dedupe_by_key(&{&1.time, &1.round_id, &1.target_id, &1.pop_id, &1.hop_ttl})
     }
   end
 
@@ -80,6 +87,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     load_table(load_fn, :horizon_outages, projections.outages)
     load_table(load_fn, :horizon_bgp_events, projections.bgp_events)
     load_table(load_fn, :horizon_bgp_zombies, projections.bgp_zombies)
+    load_table(load_fn, :horizon_path_hops, projections.path_hops)
 
     :ok
   end
@@ -107,11 +115,17 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
       :ok
   end
 
-  defp horizon_event?(%{log_name: log_name}) when is_binary(log_name) do
-    String.starts_with?(log_name, "horizon.")
+  defp horizon_event?(row) when is_map(row) do
+    starts_with_horizon?(Map.get(row, :log_name)) or
+      starts_with_horizon?(Map.get(row, :log_provider))
   end
 
   defp horizon_event?(_row), do: false
+
+  defp starts_with_horizon?(value) when is_binary(value),
+    do: String.starts_with?(value, "horizon.")
+
+  defp starts_with_horizon?(_), do: false
 
   # Exact unmapped key names emitted by plugins/horizon-feed/src/ocsf.rs.
   defp project_row(%{log_name: "horizon.outage", time: time} = row) do
@@ -231,7 +245,47 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     end
   end
 
+  defp project_row(%{log_name: "horizon.path_hop"} = row), do: project_path_hop(row)
+
+  defp project_row(%{log_provider: "horizon.path_hops"} = row), do: project_path_hop(row)
+
   defp project_row(_row), do: :ignore
+
+  defp project_path_hop(row) do
+    unmapped = unmapped_map(row)
+    round_id = non_empty_string(unmapped["round_id"])
+    target_id = non_empty_string(unmapped["target_id"])
+    pop_id = non_empty_string(unmapped["pop_id"])
+    hop_ttl = parse_int(unmapped["hop_ttl"])
+
+    if is_nil(round_id) or is_nil(target_id) or is_nil(pop_id) or not is_integer(hop_ttl) or
+         hop_ttl < 0 do
+      :ignore
+    else
+      {:path_hop,
+       %{
+         time: normalize_path_hop_time(Map.get(row, :time), unmapped["observed_at_unix_ms"]),
+         round_id: round_id,
+         target_id: target_id,
+         pop_id: pop_id,
+         hop_ttl: hop_ttl,
+         hop_ip: non_empty_string(unmapped["hop_ip"]),
+         router_alias_id: non_empty_string(unmapped["router_alias_id"]),
+         alias_confidence: parse_alias_confidence(unmapped["alias_confidence"]),
+         asn: parse_asn(unmapped["asn"]),
+         as_org: non_empty_string(unmapped["as_org"]),
+         is_cloud: parse_bool(unmapped["is_cloud"]),
+         cloud_provider: non_empty_string(unmapped["cloud_provider"]),
+         cloud_region: non_empty_string(unmapped["cloud_region"]),
+         forwarding_loss_pct: parse_float(unmapped["forwarding_loss_pct"]),
+         avg_rtt_ms: parse_float(unmapped["avg_rtt_ms"]),
+         effective_path_mtu: parse_int(unmapped["effective_path_mtu"]),
+         mtu_blackhole_detected: parse_bool(unmapped["mtu_blackhole_detected"]),
+         blackhole_hop_ttl: parse_int(unmapped["blackhole_hop_ttl"]),
+         raw_data: unmapped
+       }}
+    end
+  end
 
   defp unmapped_map(%{unmapped: map}) when is_map(map), do: map
   defp unmapped_map(_row), do: %{}
@@ -258,6 +312,47 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
 
   defp normalize_time(%DateTime{} = dt), do: dt
   defp normalize_time(other), do: FieldParser.parse_timestamp(other)
+
+  defp normalize_path_hop_time(nil, observed_at_unix_ms) do
+    case parse_unix_ms(observed_at_unix_ms) do
+      %DateTime{} = dt -> dt
+      nil -> normalize_time(nil)
+    end
+  end
+
+  defp normalize_path_hop_time("", observed_at_unix_ms),
+    do: normalize_path_hop_time(nil, observed_at_unix_ms)
+
+  defp normalize_path_hop_time(time, _observed_at_unix_ms), do: normalize_time(time)
+
+  defp parse_unix_ms(value) do
+    case parse_int(value) do
+      ms when is_integer(ms) ->
+        case DateTime.from_unix(ms, :millisecond) do
+          {:ok, dt} -> dt
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp parse_alias_confidence(nil), do: nil
+  defp parse_alias_confidence(value) when is_float(value), do: value
+  defp parse_alias_confidence(value) when is_integer(value), do: value * 1.0
+
+  defp parse_alias_confidence(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "" -> nil
+      "high" -> 1.0
+      "medium" -> 0.5
+      "low" -> 0.25
+      other -> parse_float(other)
+    end
+  end
+
+  defp parse_alias_confidence(_), do: nil
 
   defp parse_optional_timestamp(nil), do: nil
   defp parse_optional_timestamp(""), do: nil
