@@ -9,6 +9,7 @@ import CameraTimelinePlayer, {
   computeVideoContentRect,
   createSerialFragmentLoader,
   escapeOverlayText,
+  extractFragmentPdtRanges,
   extractRecordingCopy,
   findNearestScrubberThumbnail,
   formatScrubberTime,
@@ -20,6 +21,9 @@ import CameraTimelinePlayer, {
   parseScrubberEvents,
   parseScrubberThumbnails,
   projectDetectionBox,
+  resolvePlaybackTimelineUs,
+  resolveTimelineUsToPlaybackSeconds,
+  selectActiveDetections,
 } from "./CameraTimelinePlayer"
 
 class FakeBaseLoader {
@@ -158,6 +162,10 @@ function makeFakeHls() {
       this.handlers.set(event, handler)
     }
 
+    emit(event, data) {
+      this.handlers.get(event)?.(event, data)
+    }
+
     loadSource(source) {
       this.loadedSource = source
     }
@@ -171,7 +179,7 @@ function makeFakeHls() {
     }
   }
 
-  FakeHls.Events = {ERROR: "hlsError"}
+  FakeHls.Events = {ERROR: "hlsError", LEVEL_LOADED: "hlsLevelLoaded"}
   FakeHls.DefaultConfig = {loader: FakeBaseLoader}
 
   return {FakeHls, instances}
@@ -986,5 +994,151 @@ describe("CameraTimelinePlayer hook", () => {
     expect(overlayInnerHtmlWrites).toBe(0)
 
     hook.destroyed()
+  })
+
+  it("syncs bounding-box overlays, scrubber segments, and initial seek to HLS #EXT-X-PROGRAM-DATE-TIME across a 3.5s GOP lead-in", () => {
+    vi.stubGlobal("window", {addEventListener: vi.fn()})
+
+    const windowStartUs = 1_000_000_000 // 1000.0s
+    const detectionUs = windowStartUs + 5_000_000 // 1005.0s (windowStartUs + 5.0s)
+
+    const {el, video, overlay} = makeElement({
+      windowStartUs: String(windowStartUs),
+      windowEndUs: String(windowStartUs + 20_000_000),
+      seekOffsetSeconds: "5.0",
+      overlayDetections: JSON.stringify([
+        {
+          visual_frame_id: "frame-pdt-1",
+          timeline_ts_us: detectionUs,
+          offset_seconds: 5.0,
+          time_basis: "received",
+          object_class: "person",
+          score: 0.94,
+          bbox: [0.2, 0.2, 0.5, 0.8],
+        },
+      ]),
+    })
+    el.dataset.windowEvents = JSON.stringify([
+      {
+        category: "person",
+        label: "Person",
+        start_us: detectionUs,
+        end_us: detectionUs + 2_000_000,
+        start_offset_seconds: 5.0,
+        end_offset_seconds: 7.0,
+        confidence: 0.94,
+      },
+    ])
+
+    const scrubberEvents = {innerHTML: ""}
+    const origQuerySelector = el.querySelector
+    el.querySelector = selector => {
+      if (selector === "[data-role='scrubber-events']") return scrubberEvents
+      return origQuerySelector(selector)
+    }
+
+    const {FakeHls, instances} = makeFakeHls()
+    const hook = Object.create(CameraTimelinePlayer)
+    hook.el = el
+    hook.hlsClass = FakeHls
+    hook.mounted()
+
+    // HLS playlist starts 3.5s BEFORE windowStartUs (whole GOP lead-in)
+    instances[0].emit(FakeHls.Events.LEVEL_LOADED, {
+      details: {
+        fragments: [
+          {start: 0.0, duration: 5.0, programDateTime: 996_500},
+          {start: 5.0, duration: 5.0, programDateTime: 1_001_500},
+          {start: 10.0, duration: 5.0, programDateTime: 1_006_500},
+        ],
+      },
+    })
+
+    // Initial seek lands at 8.5s (3.5s GOP lead-in + 5.0s offset), NOT 5.0s
+    video.emit("loadedmetadata")
+    expect(video.currentTime).toBeCloseTo(8.5, 3)
+    expect(overlay.innerHTML).toContain("person 94% · received")
+
+    // Scrubber event segment is shifted to 8.500s to match the actual HLS playback clock
+    expect(scrubberEvents.innerHTML).toContain('data-seek-seconds="8.500"')
+
+    // At currentTime = 5.0s (wall clock = windowStartUs + 1.5s), detection at windowStartUs + 5.0s is NOT shown
+    video.currentTime = 5.0
+    video.emit("timeupdate")
+    expect(overlay.innerHTML).toBe("")
+
+    // At currentTime = 8.5s (wall clock = windowStartUs + 5.0s), detection IS shown
+    video.currentTime = 8.5
+    video.emit("timeupdate")
+    expect(overlay.innerHTML).toContain("person 94% · received")
+
+    hook.destroyed()
+    expect(hook.fragmentPdtRanges).toEqual([])
+  })
+
+  it("maps playback time cleanly across a 30s HLS discontinuity gap and falls back gracefully when PDT ranges are empty", () => {
+    const ranges = extractFragmentPdtRanges({
+      fragments: [
+        {start: 0.0, duration: 4.0, programDateTime: 1_000_000}, // 1000s..1004s
+        {start: 4.0, duration: 4.0, programDateTime: 1_034_000}, // 1034s..1038s (30s gap)
+        {start: 8.0, duration: 4.0, programDateTime: null}, // ignored
+      ],
+    })
+
+    expect(ranges).toEqual([
+      {startSec: 0, endSec: 4, startUs: 1_000_000_000, endUs: 1_004_000_000},
+      {startSec: 4, endSec: 8, startUs: 1_034_000_000, endUs: 1_038_000_000},
+    ])
+
+    // Pre-gap playback
+    expect(resolvePlaybackTimelineUs(3.5, ranges)).toBe(1_003_500_000)
+    // Boundary at discontinuity jumps cleanly across the 30s gap
+    expect(resolvePlaybackTimelineUs(4.0, ranges)).toBe(1_034_000_000)
+    // Post-gap playback
+    expect(resolvePlaybackTimelineUs(6.0, ranges)).toBe(1_036_000_000)
+    expect(resolveTimelineUsToPlaybackSeconds(1_036_000_000, ranges)).toBeCloseTo(6.0, 5)
+
+    const detections = parseOverlayDetections(
+      JSON.stringify([
+        {
+          visual_frame_id: "pre-gap",
+          timeline_ts_us: 1_003_000_000,
+          object_class: "vehicle",
+          score: 0.88,
+          bbox: [0.1, 0.1, 0.4, 0.4],
+        },
+        {
+          visual_frame_id: "post-gap",
+          timeline_ts_us: 1_036_000_000,
+          object_class: "person",
+          score: 0.92,
+          bbox: [0.3, 0.2, 0.6, 0.8],
+        },
+      ]),
+      {windowStartUs: 1_000_000_000}
+    )
+
+    expect(detections[0].timelineTsUs).toBe(1_003_000_000)
+    expect(detections[1].timelineTsUs).toBe(1_036_000_000)
+    // Naive offsetSeconds for post-gap would be 36.0s, which would miss currentTime = 6.0s
+    expect(detections[1].offsetSeconds).toBe(36)
+
+    const postGapActive = selectActiveDetections(detections, 6.0, {
+      currentTimelineUs: resolvePlaybackTimelineUs(6.0, ranges),
+    })
+    expect(postGapActive.map(d => d.visualFrameId)).toEqual(["post-gap"])
+
+    const scrubberSegments = buildScrubberEventSegments(detections, [], 8.0, {
+      fragmentPdtRanges: ranges,
+    })
+    expect(scrubberSegments.find(s => s.category === "person")?.startSec).toBeCloseTo(6.0, 3)
+
+    // Graceful fallback when fragmentPdtRanges is empty (native HLS / tests)
+    expect(resolvePlaybackTimelineUs(5.0, [])).toBeNull()
+    expect(resolveTimelineUsToPlaybackSeconds(1_005_000_000, [])).toBeNull()
+    const fallbackActive = selectActiveDetections(detections, 3.0, {
+      currentTimelineUs: null,
+    })
+    expect(fallbackActive.map(d => d.visualFrameId)).toEqual(["pre-gap"])
   })
 })
