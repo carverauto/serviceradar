@@ -5,7 +5,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   Warehouse-owned datasets follow the enabled flag in `mode_for/1`; the
   remaining datasets use `cutover_datasets`. NetFlow (`:flows`) and Horizon
   telemetry (`:horizon_outages`, `:horizon_bgp_events`, `:horizon_bgp_zombies`,
-  `:horizon_path_hops`) are warehouse-only: they are served from the warehouse
+  `:horizon_path_hops`, `:horizon_isp_accountability`) are warehouse-only: they are served from the warehouse
   or not at all, so when the warehouse is not serving them `mode_for/1` returns
   `{:error, :starrocks_required}` rather than CNPG rows. Flows ship in the
   default cutover set of a warehouse-enabled installation (`Env`), so their
@@ -208,6 +208,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       "horizon_paths" ->
         :horizon_path_hops
 
+      "horizon_isp_accountability" ->
+        :horizon_isp_accountability
+
       e
       when e in ~w(device_availability_history device_availability_transitions
                    availability_history) ->
@@ -245,7 +248,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     :horizon_outages,
     :horizon_bgp_events,
     :horizon_bgp_zombies,
-    :horizon_path_hops
+    :horizon_path_hops,
+    :horizon_isp_accountability
   ]
 
   @spec mode_for(atom() | String.t() | nil) ::

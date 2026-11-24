@@ -96,9 +96,12 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
   # `REFRESH ASYNC EVERY` each view has in the shipped DDL.
   test "each scheduled view is trusted for exactly its DDL cadence plus slack" do
     schedules = ddl_refresh_seconds()
-    assert map_size(schedules) == 7
+    assert Map.fetch!(schedules, "horizon_isp_accountability_mv") == 60
 
-    for {view, cadence} <- schedules do
+    gated_schedules = Map.delete(schedules, "horizon_isp_accountability_mv")
+    assert map_size(gated_schedules) == 7
+
+    for {view, cadence} <- gated_schedules do
       dataset = RollupFreshness.dataset_for_sql("SELECT 1 FROM #{Env.table(view)}")
       assert dataset, "#{view} is scheduled in the DDL but not gated"
 
@@ -610,6 +613,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
            ) ==
              :mtr_destination
 
+    assert RollupFreshness.dataset_for_sql(
+             "SELECT bucket_hour FROM #{Env.table("horizon_isp_accountability_mv")}"
+           ) == nil
+
     # The raw-hop fallback names no rollup, so it is never gated.
     assert RollupFreshness.dataset_for_sql("SELECT `time` FROM #{Env.table("mtr_hops")}") == nil
 
@@ -622,5 +629,16 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
            ) == nil
 
     assert RollupFreshness.dataset_for_sql(nil) == nil
+  end
+
+  test "MV-only horizon_isp_accountability settles directly on starrocks without retranslating" do
+    translation = %{
+      "sql" => "SELECT bucket_hour FROM #{Env.table("horizon_isp_accountability_mv")}"
+    }
+
+    assert {:ok, ^translation, "starrocks"} =
+             RollupFreshness.settle(translation, "starrocks", fn mode ->
+               flunk("MV-only dataset must not retranslate to #{mode}")
+             end)
   end
 end

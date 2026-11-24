@@ -58,6 +58,7 @@ impl QueryEngine {
                 | Entity::HorizonBgp
                 | Entity::HorizonZombies
                 | Entity::HorizonPaths
+                | Entity::HorizonIspAccountability
         ) {
             return Err(ServiceError::InvalidRequest(
                 "horizon entities require the StarRocks telemetry warehouse".into(),
@@ -150,7 +151,8 @@ impl QueryEngine {
                 Entity::HorizonOutages
                 | Entity::HorizonBgp
                 | Entity::HorizonZombies
-                | Entity::HorizonPaths => {
+                | Entity::HorizonPaths
+                | Entity::HorizonIspAccountability => {
                     unreachable!("horizon entities require the StarRocks telemetry warehouse")
                 }
                 Entity::MtrHops => mtr_hops::execute(&mut conn, &plan).await?,

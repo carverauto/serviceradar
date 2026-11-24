@@ -393,6 +393,7 @@ fields; using a field that the entity does not support returns an
 | `horizon_bgp` | | Horizon BGP anomalies and watchlist events (`serviceradar.horizon_bgp_events`). StarRocks-only (`:starrocks_required` when StarRocks is disabled). Row listing only. Requires `observability.events.view`. |
 | `horizon_zombies` | | Horizon BGP zombie route episodes (`serviceradar.horizon_bgp_zombies`). StarRocks-only (`:starrocks_required` when StarRocks is disabled). Row listing only. Requires `observability.events.view`. |
 | `horizon_paths` | | Horizon path hop telemetry (`serviceradar.horizon_path_hops`). StarRocks-only (`:starrocks_required` when StarRocks is disabled). Row listing only. Requires `observability.traces.view`. |
+| `horizon_isp_accountability` | | Hourly per-ASN, per-target ISP accountability rollups (`serviceradar.horizon_isp_accountability_mv`, 1-minute async materialized view). StarRocks-only (`:starrocks_required` when StarRocks is disabled). Row listing only. Requires `observability.events.view`. |
 | `alerts` | `alert` | Generated alerts |
 | `cpu_metrics` | `cpu` | CPU utilization time-series |
 | `memory_metrics` | `memory` | Memory utilization time-series |
@@ -888,13 +889,14 @@ and `other:true` are rejected. `time:` filters `time`.
 | `entity_key` | text (`=`, `!=`, `%`, list) | Affected entity key |
 | `region` | text (`=`, `!=`, `%`, list) | Affected region |
 | `covering_prefix` | text (`=`, `!=`, `%`, list) | Covering IP prefix |
-| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Affected origin ASN |
-| `corroborating_pop_count` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Number of corroborating PoPs |
+| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Affected origin ASN |
+| `corroborating_pop_count` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Number of corroborating PoPs |
 | `avg_forwarding_loss_pct` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Average forwarding loss percentage |
 | `avg_synthetic_failure_pct` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Average synthetic failure percentage |
 
 Sortable fields: `time` (default, descending), `severity`, `status`,
-`corroborating_pop_count`, `avg_forwarding_loss_pct`.
+`corroborating_pop_count`, `avg_forwarding_loss_pct`. Unsupported sort fields
+are rejected.
 
 ```text
 in:horizon_outages status:active covering_prefix:198.51.100.0/24 origin_asn:64512 time:last_24h sort:time:desc limit:25
@@ -913,13 +915,14 @@ and `other:true` are rejected. `time:` filters `time`.
 | `kind` | text (`=`, `!=`, `%`, list) | Event kind (e.g. `hijack`, `watchlist`) |
 | `level` | text (`=`, `!=`, `%`, list) | Severity level (e.g. `warning`, `critical`) |
 | `prefix` | text (`=`, `!=`, `%`, list) | Observed or covering IP prefix |
-| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Origin ASN |
+| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Origin ASN |
 | `rpki_status` | text (`=`, `!=`, `%`, list) | RPKI validation status |
 | `caida_leak_inference` | text (`=`, `!=`, `%`, list) | Route-leak inference classification |
 | `watchlist_id` | text (`=`, `!=`, `%`, list) | Matching watchlist identifier |
 | `client_label` | text (`=`, `!=`, `%`, list) | Watchlist label |
 
 Sortable fields: `time` (default, descending), `kind`, `level`, `origin_asn`.
+Unsupported sort fields are rejected.
 
 ```text
 in:horizon_bgp kind:(hijack,watchlist) prefix:198.51.100.0/24 origin_asn:64512 time:last_24h
@@ -937,12 +940,12 @@ and `other:true` are rejected. `time:` filters `time`.
 | `episode_id` | text (`=`, `!=`, `%`, list) | Zombie route episode identifier |
 | `status` | text (`=`, `!=`, `%`, list) | Episode status (e.g. `active`, `resolved`) |
 | `prefix` | text (`=`, `!=`, `%`, list) | Affected IP prefix |
-| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Origin ASN |
+| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Origin ASN |
 | `divergence_pct` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Peer divergence percentage |
 | `is_beacon` | boolean (`=`, `!=`) | Whether the prefix is a beacon |
 
 Sortable fields: `time` (default, descending), `status`, `divergence_pct`,
-`first_seen_at`.
+`first_seen_at`. Unsupported sort fields are rejected.
 
 ```text
 in:horizon_zombies status:active is_beacon:false divergence_pct:>=25 time:last_24h
@@ -960,10 +963,10 @@ and `other:true` are rejected. `time:` filters `time`.
 | `round_id` | text (`=`, `!=`, `%`, list) | Probe round identifier |
 | `target_id` | text (`=`, `!=`, `%`, list) | Probe target identifier |
 | `pop_id` | text (`=`, `!=`, `%`, list) | Vantage PoP identifier |
-| `hop_ttl` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Hop TTL position |
+| `hop_ttl` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Hop TTL position |
 | `hop_ip` | text (`=`, `!=`, `%`, list) | Hop IP address |
 | `router_alias_id` | text (`=`, `!=`, `%`, list) | Resolved router alias identifier |
-| `asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Hop ASN |
+| `asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Hop ASN |
 | `as_org` | text (`=`, `!=`, `%`, list) | Hop AS organization |
 | `is_cloud` | boolean (`=`, `!=`) | Whether the hop is in a cloud network |
 | `cloud_provider` | text (`=`, `!=`, `%`, list) | Cloud provider name |
@@ -973,10 +976,47 @@ and `other:true` are rejected. `time:` filters `time`.
 | `mtu_blackhole_detected` | boolean (`=`, `!=`) | Whether an MTU blackhole was detected |
 
 Sortable fields: `time` (default, descending), `hop_ttl`, `forwarding_loss_pct`,
-`avg_rtt_ms`.
+`avg_rtt_ms`. Unsupported sort fields are rejected.
 
 ```text
 in:horizon_paths target_id:tgt-1 pop_id:pop-a mtu_blackhole_detected:false time:last_24h sort:hop_ttl:asc
+```
+
+### horizon_isp_accountability
+
+StarRocks-only (`serviceradar.horizon_isp_accountability_mv`, a day-partitioned
+async materialized view refreshed every 1 minute from `horizon_path_hops` with
+hourly per-ASN counts from `horizon_outages`, `horizon_bgp_events`, and
+`horizon_bgp_zombies`). Requires StarRocks enabled (`:starrocks_required` when
+disabled) and `observability.events.view`. Canonical name only (no aliases). Row
+listing only: `stats:`, `rollup_stats:`, `bucket:`, and `other:true` are
+rejected. `time:` filters `bucket_hour` and emits matching `day` partition
+bounds for StarRocks partition pruning.
+
+| Field | Type / Operators | Description |
+|-------|------------------|-------------|
+| `asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Hop ASN (`0` when unassigned) |
+| `as_org` | text (`=`, `!=`, `%`, list) | Hop AS organization (`""` when unassigned) |
+| `target_id` | text (`=`, `!=`, `%`, list) | Probe target identifier |
+| `forwarding_loss_pct` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Hourly average forwarding loss percentage |
+| `avg_rtt_ms` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Hourly average round-trip time in ms |
+| `max_rtt_ms` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Hourly maximum round-trip time in ms |
+| `mtu_blackhole_count` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Hop samples with an MTU blackhole detected |
+| `min_effective_mtu` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Minimum positive effective path MTU observed in the hour |
+| `active_outage_count` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Distinct active (non-resolved/non-cleared) outages for the ASN in the hour |
+| `bgp_anomaly_count` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Distinct BGP events for the ASN in the hour |
+| `bgp_zombie_count` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Distinct active (non-resolved/non-cleared) BGP zombie episodes for the ASN in the hour |
+| `first_blame_tier` | text (`=`, `!=`, `%`, list) | Precedence-ranked blame tier (`bgp_hijack`, `bgp_route_leak`, `bgp_anomaly`, `bgp_zombie`, `active_outage`, `pmtud_blackhole`, `customer_lan`, `isp_transit`, `healthy`) |
+| `sample_count` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`, list) | Hop sample count in the hourly rollup |
+
+Sortable fields: `bucket_hour` (default, descending; `time` aliases
+`bucket_hour`), `day`, `asn`, `as_org`, `target_id`, `forwarding_loss_pct`,
+`avg_rtt_ms`, `max_rtt_ms`, `mtu_blackhole_count`, `min_effective_mtu`,
+`active_outage_count`, `bgp_anomaly_count`, `bgp_zombie_count`,
+`first_blame_tier`, `sample_count`. Unsupported sort fields are rejected.
+
+```text
+in:horizon_isp_accountability asn:64512 target_id:tgt-1 first_blame_tier:isp_transit time:last_24h sort:forwarding_loss_pct:desc limit:25
 ```
 
 ### alerts
@@ -1350,6 +1390,7 @@ seen.
 | `queries must include an in:<entity> token` | Add an `in:<entity>` selector. |
 | `unsupported entity '<x>'` | The entity name is not recognized. See [Queryable entities](#queryable-entities). |
 | `unsupported filter field` | The field is not valid for the chosen entity. Check [Filterable fields by entity](#filterable-fields-by-entity). |
+| `unsupported sort field` | The sort field is not valid for the chosen entity. Check the entity's sortable fields under [Filterable fields by entity](#filterable-fields-by-entity). |
 | `unsupported time token` / `invalid time literal` | The `time:` value is malformed. Use `last_<n><unit>`, `today`/`yesterday`, or `[start,end]`. |
 | `time range cannot exceed <N> days` | Narrow the window to that entity's cap: 90 days for most queries, 395 for aggregated metric queries, 400 for `in:sweep_coverage`. |
 | `invalid limit` / `limit must be a positive integer` | `limit:` requires a positive integer. |

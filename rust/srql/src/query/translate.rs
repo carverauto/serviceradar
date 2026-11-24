@@ -50,7 +50,11 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         ));
     } else if matches!(
         plan.entity,
-        Entity::HorizonOutages | Entity::HorizonBgp | Entity::HorizonZombies | Entity::HorizonPaths
+        Entity::HorizonOutages
+            | Entity::HorizonBgp
+            | Entity::HorizonZombies
+            | Entity::HorizonPaths
+            | Entity::HorizonIspAccountability
     ) {
         return Err(ServiceError::InvalidRequest(
             "horizon entities require the StarRocks telemetry warehouse".into(),
@@ -101,7 +105,8 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::HorizonOutages
             | Entity::HorizonBgp
             | Entity::HorizonZombies
-            | Entity::HorizonPaths => {
+            | Entity::HorizonPaths
+            | Entity::HorizonIspAccountability => {
                 unreachable!("horizon entities require the StarRocks telemetry warehouse")
             }
             Entity::MtrHops => mtr_hops::to_sql_and_params(&plan)?,

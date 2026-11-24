@@ -1,5 +1,5 @@
 //! Viz metadata builders for Horizon entities: outages, BGP events, BGP
-//! zombies, and path hops.
+//! zombies, path hops, and ISP accountability.
 
 use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
@@ -133,6 +133,62 @@ pub(super) fn path_hops() -> VizMeta {
             col("mtu_blackhole_detected", ColumnType::Bool, None),
             col("blackhole_hop_ttl", ColumnType::Int, None),
             col("raw_data", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn isp_accountability() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("day", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+            col(
+                "bucket_hour",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("asn", ColumnType::Int, None),
+            col("as_org", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("target_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "forwarding_loss_pct",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            ),
+            col("avg_rtt_ms", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("max_rtt_ms", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col(
+                "mtu_blackhole_count",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col("min_effective_mtu", ColumnType::Int, None),
+            col(
+                "active_outage_count",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "bgp_anomaly_count",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "bgp_zombie_count",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "first_blame_tier",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("sample_count", ColumnType::Int, Some(ColumnSemantic::Value)),
         ],
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,

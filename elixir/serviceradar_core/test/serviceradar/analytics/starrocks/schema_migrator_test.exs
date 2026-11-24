@@ -1040,8 +1040,9 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
     # 17 and 22 are the earlier rollups; 25 and 28 create the MTR rollups; 40
     # rebuilds all of them with one bucket per day; 41 recreates the two span
-    # rollups after widening the span columns.
-    assert waiting == [17, 22, 25, 28, 40, 41]
+    # rollups after widening the span columns; 45 creates the Horizon ISP
+    # accountability materialized view.
+    assert waiting == [17, 22, 25, 28, 40, 41, 45]
   end
 
   test "a column change waits for a running optimize job on the table before altering" do
@@ -1099,5 +1100,36 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
              ddl,
              &(&1 =~ ~s|srql_parity_ci.flows (id INT) PROPERTIES ("replication_num" = "1")|)
            )
+  end
+
+  test "migration 45 creates and schedules horizon_isp_accountability_mv with retargeted database" do
+    agent = start_warehouse(%{backends: 1})
+
+    assert migrate(agent, migrations: [shipped(45)], database: "lab") == {:ok, [45]}
+    assert state(agent).ledger == [45]
+
+    ddl = state(agent).ddl
+    refute Enum.any?(ddl, &String.contains?(&1, "serviceradar."))
+    refute Enum.any?(ddl, &String.contains?(&1, ~s|"replication_num" = "3"|))
+
+    create_mv =
+      Enum.find(
+        ddl,
+        &String.starts_with?(
+          &1,
+          "CREATE MATERIALIZED VIEW IF NOT EXISTS lab.horizon_isp_accountability_mv"
+        )
+      )
+
+    assert create_mv
+    assert create_mv =~ ~s|"replication_num" = "1"|
+    assert create_mv =~ "FROM lab.horizon_path_hops h"
+    assert create_mv =~ "FROM lab.horizon_outages"
+    assert create_mv =~ "FROM lab.horizon_bgp_events"
+    assert create_mv =~ "FROM lab.horizon_bgp_zombies"
+
+    assert "ALTER MATERIALIZED VIEW lab.horizon_isp_accountability_mv REFRESH ASYNC EVERY(INTERVAL 1 MINUTE)" in ddl
+
+    assert migrate(agent, migrations: [shipped(45)], database: "lab") == {:ok, []}
   end
 end
