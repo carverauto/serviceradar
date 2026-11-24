@@ -2268,6 +2268,158 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
     end
   end
 
+  describe "detection clips mode and category reconciliation" do
+    test "selecting Motion while Smart is active switches mode to basic" do
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          list_event_clips: fn _source_id, params, _scope ->
+            send(parent, {:clips_queried, params.mode, params.category})
+            {:ok, list_page_result([sample_clip("clip-1", @base_now_us - 60_000_000, @base_now_us - 50_000_000)], params)}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      assert_receive {:clips_queried, "smart", "all"}
+      assert socket.assigns.timeline_clips_mode == "smart"
+      assert socket.assigns.timeline_clips_category == "all"
+
+      {:noreply, updated} = Recordings.handle_event("filter_event_clips_category", %{"category" => "motion"}, socket)
+      assert_receive {:clips_queried, "basic", "motion"}
+      assert updated.assigns.timeline_clips_mode == "basic"
+      assert updated.assigns.timeline_clips_category == "motion"
+    end
+
+    test "selecting Smart while Motion is active resets category to all and preserves reconciliation across span change" do
+      parent = self()
+      smart_clip = sample_clip("clip-smart-6h", @base_now_us - 3 * @hour_us, @base_now_us - 3 * @hour_us + 10_000_000)
+
+      motion_clip =
+        Map.merge(
+          sample_clip("clip-motion-1h", @base_now_us - 60_000_000, @base_now_us - 50_000_000),
+          %{category: :motion, smart_type: :basic}
+        )
+
+      deps =
+        stub_deps(%{
+          list_event_clips: fn _source_id, params, _scope ->
+            send(parent, {:clips_queried, params.to_us - params.from_us, params.mode, params.category})
+
+            if params.to_us - params.from_us > @hour_us do
+              clips = if params.mode == "smart" and params.category == "all", do: [smart_clip], else: []
+
+              {:ok,
+               %{
+                 clips: clips,
+                 total_count: length(clips),
+                 page: params.page,
+                 per_page: params.per_page,
+                 total_pages: 1,
+                 counts: %{all: 2, smart: 1, basic: 1, person: 1, motion: 1},
+                 markers: clips
+               }}
+            else
+              clips = if params.mode == "basic" and params.category in ["all", "motion"], do: [motion_clip], else: []
+
+              {:ok,
+               %{
+                 clips: clips,
+                 total_count: length(clips),
+                 page: params.page,
+                 per_page: params.per_page,
+                 total_pages: 1,
+                 counts: %{all: 1, smart: 0, basic: 1, person: 0, motion: 1},
+                 markers: clips
+               }}
+            end
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      # Initial 1h window has only motion clips, so smart-default selects basic + motion.
+      assert_receive {:clips_queried, @hour_us, "smart", "all"}
+      assert_receive {:clips_queried, @hour_us, "basic", "motion"}
+      assert socket.assigns.timeline_clips_mode == "basic"
+      assert socket.assigns.timeline_clips_category == "motion"
+
+      # Clicking Smart resets category from motion to all.
+      {:noreply, smart_socket} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "smart"}, socket)
+      assert_receive {:clips_queried, @hour_us, "smart", "all"}
+      assert smart_socket.assigns.timeline_clips_mode == "smart"
+      assert smart_socket.assigns.timeline_clips_category == "all"
+
+      # Switching span from 1h to 6h reloads clips with reconciled (smart, all) and returns smart clips.
+      {:noreply, span_6h} = Recordings.handle_event("select_timeline_span", %{"span" => "6h"}, smart_socket)
+      six_hours_us = 6 * @hour_us
+      assert_receive {:clips_queried, ^six_hours_us, "smart", "all"}
+      assert span_6h.assigns.timeline_clips_mode == "smart"
+      assert span_6h.assigns.timeline_clips_category == "all"
+      assert Enum.map(span_6h.assigns.timeline_event_clips, & &1.id) == ["clip-smart-6h"]
+    end
+
+    test "selecting Person while Basic is active switches mode to smart" do
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          list_event_clips: fn _source_id, params, _scope ->
+            send(parent, {:clips_queried, params.mode, params.category})
+            {:ok, list_page_result([sample_clip("clip-1", @base_now_us - 60_000_000, @base_now_us - 50_000_000)], params)}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+      assert_receive {:clips_queried, "smart", "all"}
+
+      {:noreply, basic_socket} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "basic"}, socket)
+      assert_receive {:clips_queried, "basic", "all"}
+      assert basic_socket.assigns.timeline_clips_mode == "basic"
+
+      {:noreply, person_socket} =
+        Recordings.handle_event("filter_event_clips_category", %{"category" => "person"}, basic_socket)
+
+      assert_receive {:clips_queried, "smart", "person"}
+      assert person_socket.assigns.timeline_clips_mode == "smart"
+      assert person_socket.assigns.timeline_clips_category == "person"
+    end
+
+    test "selecting Basic while Person is active resets category to all" do
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          list_event_clips: fn _source_id, params, _scope ->
+            send(parent, {:clips_queried, params.mode, params.category})
+            {:ok, list_page_result([sample_clip("clip-1", @base_now_us - 60_000_000, @base_now_us - 50_000_000)], params)}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+      assert_receive {:clips_queried, "smart", "all"}
+
+      {:noreply, person_socket} =
+        Recordings.handle_event("filter_event_clips_category", %{"category" => "person"}, socket)
+
+      assert_receive {:clips_queried, "smart", "person"}
+      assert person_socket.assigns.timeline_clips_mode == "smart"
+      assert person_socket.assigns.timeline_clips_category == "person"
+
+      {:noreply, basic_socket} =
+        Recordings.handle_event("filter_event_clips_mode", %{"mode" => "basic"}, person_socket)
+
+      assert_receive {:clips_queried, "basic", "all"}
+      assert basic_socket.assigns.timeline_clips_mode == "basic"
+      assert basic_socket.assigns.timeline_clips_category == "all"
+    end
+  end
+
   defp cancel_timers(socket) do
     for key <- [:recording_refresh_timer_ref, :recording_debounce_timer_ref] do
       case Map.get(socket.assigns, key) do
