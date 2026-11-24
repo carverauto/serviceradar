@@ -182,7 +182,10 @@ export default {
       const frac = Number(tickEl.dataset?.tickFraction)
       if (!Number.isFinite(frac)) continue
       const tickUs = Math.round(win.toUs - frac * win.spanUs)
-      tickEl.textContent = formatRailTime(tickUs, this.timezone, {includeSeconds: false})
+      const nextText = formatRailTime(tickUs, this.timezone, {includeSeconds: false})
+      if (tickEl.textContent !== nextText) {
+        tickEl.textContent = nextText
+      }
     }
   },
 
@@ -196,7 +199,10 @@ export default {
     for (const marker of markers) {
       const topPct = computeMarkerTopPct(marker.dataset?.eventTsUs, win.fromUs, win.toUs)
       if (topPct !== null) {
-        marker.style.top = `${topPct}%`
+        const nextTop = `${topPct}%`
+        if (marker.style.top !== nextTop) {
+          marker.style.top = nextTop
+        }
       }
     }
 
@@ -207,7 +213,10 @@ export default {
         maxPct: 94.0,
       })
       if (topPct !== null) {
-        thumb.style.top = `${topPct}%`
+        const nextTop = `${topPct}%`
+        if (thumb.style.top !== nextTop) {
+          thumb.style.top = nextTop
+        }
       }
     }
   },

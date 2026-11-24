@@ -489,20 +489,22 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert has_selector?(live_doc, "#camera-timeline-tick-labels[phx-update='ignore']")
     assert attr_of(live_doc, "#camera-timeline-coverage-bar", "data-anchored-latest") == ["true"]
 
-    # Two adjacent verified-thumbnail events collapse to 1 inline thumbnail placed tightly beside the bar (left-7),
+    # Two adjacent verified-thumbnail events collapse to 1 inline 40px thumbnail beside the 10px track (left-7),
     # while evt-animal-far with thumbnail_url: nil does NOT guess a broken /frame/:id.jpg URL
     thumbs = LazyHTML.query(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker']")
     assert Enum.count(thumbs) == 1
     assert LazyHTML.attribute(thumbs, "phx-click") == ["select_event_clip"]
     assert has_selector?(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[loading='lazy']")
-    assert has_selector?(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker'].left-7")
+    assert has_selector?(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker'].left-7.size-10")
+    assert has_selector?(live_doc, "#camera-timeline-coverage-section [data-role='vertical-ruler-ticks']")
 
     refute has_selector?(
              live_doc,
              "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[src='/api/cameras/#{@source_id}/timeline/thumbnails/frame/frame-a1.jpg']"
            )
 
-    # Smart mode excludes motion pills from the vertical rail, and dense motion pills in All mode are coalesced
+    # Vertical rail renders object detections ONLY (person/animal/vehicle/package) —
+    # NEVER motion pills or motion thumbnails, even in All mode
     dense_motion =
       for idx <- 1..50 do
         ts = @base_us + idx * 60_000_000
@@ -521,7 +523,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
           label: "Motion",
           confidence: nil,
           visual_frame_id: "frame-m-#{idx}",
-          thumbnail_url: nil
+          thumbnail_url: "https://thumbnails.example.com/motion-#{idx}.jpg"
         }
       end
 
@@ -536,6 +538,11 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
              "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='motion']"
            )
 
+    refute has_selector?(
+             smart_doc,
+             "#camera-timeline-coverage-bar [data-role='event-thumb-marker'][data-clip-category='motion']"
+           )
+
     assert has_selector?(
              smart_doc,
              "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='person']"
@@ -547,8 +554,15 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
       |> base_assigns()
       |> render_recordings_doc()
 
-    all_markers = LazyHTML.query(all_doc, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
-    assert Enum.count(all_markers) <= 24
+    refute has_selector?(
+             all_doc,
+             "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='motion']"
+           )
+
+    refute has_selector?(
+             all_doc,
+             "#camera-timeline-coverage-bar [data-role='event-thumb-marker'][data-clip-category='motion']"
+           )
 
     assert has_selector?(
              all_doc,
