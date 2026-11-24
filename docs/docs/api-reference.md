@@ -239,6 +239,8 @@ Allowlisted routes and required permissions:
 | Method | Path | Upstream path | Permission |
 | --- | --- | --- | --- |
 | `GET` | `/api/horizon/v1/feeds/status` | `/api/v1/feeds/status` | `observability.events.view` |
+| `GET` | `/api/horizon/v1/vendor-status` | `/api/v1/vendor-status` | `observability.events.view` |
+| `GET` | `/api/horizon/v1/statuspages` | `/api/v1/statuspages` | `observability.events.view` |
 | `GET` | `/api/horizon/v1/intel/lookup` | `/api/v1/intel/lookup` | `observability.events.view` |
 | `GET` | `/api/horizon/v1/weathermap/timeline` | `/api/v1/weathermap/timeline` | `observability.events.view` |
 | `GET` | `/api/horizon/v1/paths/dag` | `/api/v1/paths/dag` | `observability.traces.view` |
@@ -269,10 +271,13 @@ Upstream configuration is resolved server-side from an enabled
 `SERVICERADAR_HORIZON_API_KEY`. The upstream base URL must use `https://` with
 no userinfo, query, fragment, or control characters, and must not target
 loopback, unspecified, link-local, cloud metadata, multicast, or reserved
-addresses (directly or via DNS resolution). Upstream redirects and retries are
-disabled, non-`204` responses include `Cache-Control: no-store` and a JSON
-`Content-Type`, and error states map to `503` (`horizon_not_configured`), `502`
-(`horizon_upstream_invalid` or `horizon_upstream_unavailable`), and `504`
+addresses (directly or via DNS resolution). Upstream redirects are disabled;
+`GET` requests retry once after 50 ms on stale pooled-connection errors
+(`:closed`, `:econnreset`, and HTTP/2 `:unprocessed` or `:pool_not_available`)
+without retrying timeouts or upstream HTTP responses, while `POST` and `DELETE`
+requests never retry. Non-`204` responses include `Cache-Control: no-store` and
+a JSON `Content-Type`, and error states map to `503` (`horizon_not_configured`),
+`502` (`horizon_upstream_invalid` or `horizon_upstream_unavailable`), and `504`
 (`horizon_upstream_timeout`).
 
 ## Other endpoints

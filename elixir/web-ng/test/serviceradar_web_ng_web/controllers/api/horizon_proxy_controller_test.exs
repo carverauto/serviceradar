@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Phoenix.ConnTest
   import Plug.Conn
 
@@ -22,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
   setup_all do
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
     {:ok, _apps} = Application.ensure_all_started(:plug)
+    {:ok, _apps} = Application.ensure_all_started(:req)
     {:ok, _apps} = Application.ensure_all_started(:telemetry)
 
     previous_loader = Application.get_env(:serviceradar_web_ng, :auth_settings_loader)
@@ -637,11 +639,14 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       %{admin_scope: scope_for_role(:admin)}
     end
 
-    test "retries GET once on closed, econnreset, and HTTP/2 unprocessed errors", %{admin_scope: admin_scope} do
+    test "retries GET once on closed, econnreset, and HTTP/2 unprocessed or pool_not_available errors", %{
+      admin_scope: admin_scope
+    } do
       for transient_error <- [
             %Req.TransportError{reason: :closed},
             %Req.TransportError{reason: :econnreset},
-            %Req.HTTPError{protocol: :http2, reason: :unprocessed}
+            %Req.HTTPError{protocol: :http2, reason: :unprocessed},
+            %Req.HTTPError{protocol: :http2, reason: :pool_not_available}
           ] do
         attempts = :counters.new(1, [])
 
@@ -660,10 +665,14 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
           end
         end)
 
-        conn = call_proxy(:get, "/api/horizon/v1/intel/lookup?asn=64496", admin_scope)
+        warning_log =
+          capture_log([level: :warning], fn ->
+            conn = call_proxy(:get, "/api/horizon/v1/intel/lookup?asn=64496", admin_scope)
+            assert json_response(conn, 200) == %{"ok" => true}
+          end)
 
-        assert json_response(conn, 200) == %{"ok" => true}
         assert :counters.get(attempts, 1) == 2
+        assert warning_log == ""
       end
     end
 
@@ -681,7 +690,9 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert :counters.get(attempts, 1) == 2
     end
 
-    test "does not retry GET on timeout or upstream 5xx responses", %{admin_scope: admin_scope} do
+    test "does not retry GET on timeout, econnrefused, HTTP/1 errors, or upstream 4xx/5xx responses", %{
+      admin_scope: admin_scope
+    } do
       timeout_attempts = :counters.new(1, [])
 
       stub_req_adapter(fn req ->
@@ -694,50 +705,119 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert json_response(timeout_conn, 504) == %{"error" => "horizon_upstream_timeout"}
       assert :counters.get(timeout_attempts, 1) == 1
 
-      status_attempts = :counters.new(1, [])
+      for non_retryable_error <- [
+            %Req.TransportError{reason: :econnrefused},
+            %Req.HTTPError{protocol: :http1, reason: :unprocessed}
+          ] do
+        error_attempts = :counters.new(1, [])
 
-      stub_req_adapter(fn req ->
-        :counters.add(status_attempts, 1, 1)
+        stub_req_adapter(fn req ->
+          :counters.add(error_attempts, 1, 1)
+          {req, non_retryable_error}
+        end)
 
-        {req,
-         %Req.Response{
-           status: 503,
-           headers: %{"content-type" => ["application/json"]},
-           body: Jason.encode!(%{"error" => "upstream_maintenance"})
-         }}
-      end)
+        error_conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist", admin_scope)
 
-      status_conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist", admin_scope)
+        assert json_response(error_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
+        assert :counters.get(error_attempts, 1) == 1
+      end
 
-      assert json_response(status_conn, 503) == %{"error" => "upstream_maintenance"}
-      assert :counters.get(status_attempts, 1) == 1
+      for status <- [408, 429, 500, 502, 503, 504] do
+        status_attempts = :counters.new(1, [])
+
+        stub_req_adapter(fn req ->
+          :counters.add(status_attempts, 1, 1)
+
+          {req,
+           %Req.Response{
+             status: status,
+             headers: %{"content-type" => ["application/json"]},
+             body: Jason.encode!(%{"error" => "upstream_#{status}"})
+           }}
+        end)
+
+        status_conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist", admin_scope)
+
+        assert json_response(status_conn, status) == %{"error" => "upstream_#{status}"}
+        assert :counters.get(status_attempts, 1) == 1
+      end
     end
 
-    test "never retries POST or DELETE mutations even on closed connections", %{admin_scope: admin_scope} do
-      post_attempts = :counters.new(1, [])
+    test "never retries POST or DELETE mutations even on closed, econnreset, or HTTP/2 unprocessed errors", %{
+      admin_scope: admin_scope
+    } do
+      for stale_error <- [
+            %Req.TransportError{reason: :closed},
+            %Req.TransportError{reason: :econnreset},
+            %Req.HTTPError{protocol: :http2, reason: :unprocessed}
+          ] do
+        post_attempts = :counters.new(1, [])
 
-      stub_req_adapter(fn req ->
-        :counters.add(post_attempts, 1, 1)
-        {req, %Req.TransportError{reason: :closed}}
-      end)
+        stub_req_adapter(fn req ->
+          :counters.add(post_attempts, 1, 1)
+          {req, stale_error}
+        end)
 
-      post_conn =
-        call_proxy(:post, "/api/horizon/v1/bgp/watchlist", admin_scope, %{"prefix" => "198.51.100.0/24"})
+        post_conn =
+          call_proxy(:post, "/api/horizon/v1/bgp/watchlist", admin_scope, %{"prefix" => "198.51.100.0/24"})
 
-      assert json_response(post_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
-      assert :counters.get(post_attempts, 1) == 1
+        assert json_response(post_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
+        assert :counters.get(post_attempts, 1) == 1
 
-      delete_attempts = :counters.new(1, [])
+        delete_attempts = :counters.new(1, [])
 
-      stub_req_adapter(fn req ->
-        :counters.add(delete_attempts, 1, 1)
-        {req, %Req.TransportError{reason: :closed}}
-      end)
+        stub_req_adapter(fn req ->
+          :counters.add(delete_attempts, 1, 1)
+          {req, stale_error}
+        end)
 
-      delete_conn = call_proxy(:delete, "/api/horizon/v1/bgp/watchlist/wl-123", admin_scope)
+        delete_conn = call_proxy(:delete, "/api/horizon/v1/bgp/watchlist/wl-123", admin_scope)
 
-      assert json_response(delete_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
-      assert :counters.get(delete_attempts, 1) == 1
+        assert json_response(delete_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
+        assert :counters.get(delete_attempts, 1) == 1
+      end
+    end
+
+    test "recovers GET and refuses POST retry over a real Finch keep-alive pool when upstream closes or resets the socket" do
+      Application.delete_env(:serviceradar_web_ng, :horizon_proxy_http_client)
+
+      for close_mode <- [:fin, :rst] do
+        {port, server_task} = start_stale_keepalive_upstream(close_mode)
+
+        upstream = %{base_url: "http://127.0.0.1:#{port}", api_key: @secret_api_key}
+
+        {:ok, get_route} =
+          HorizonProxy.resolve_route("GET", "v1", ["vendor-status"], "/api/horizon/v1/vendor-status")
+
+        # Request 1 warms a pooled HTTP/1.1 keep-alive connection in Req.Finch.
+        assert {:ok, %{status: 200, body: warm_body}} =
+                 HorizonProxy.forward(get_route, upstream, query_string: "category=cloud")
+
+        assert Jason.decode!(warm_body) == %{"connection" => 1, "attempt" => "warm"}
+
+        # Request 2 reuses the pooled socket, hits real :closed/:econnreset, and retries once on socket #2.
+        warning_log =
+          capture_log([level: :warning], fn ->
+            assert {:ok, %{status: 200, body: recovered_body}} =
+                     HorizonProxy.forward(get_route, upstream, query_string: "category=cloud")
+
+            assert Jason.decode!(recovered_body) == %{"connection" => 2, "attempt" => "recovered"}
+          end)
+
+        assert warning_log == ""
+
+        # Request 3 is a mutating POST on the pooled socket #2; server closes/resets it and must NOT see socket #3.
+        {:ok, post_route} =
+          HorizonProxy.resolve_route("POST", "v1", ["bgp", "watchlist"], "/api/horizon/v1/bgp/watchlist")
+
+        assert {:error, :upstream_unavailable} =
+                 HorizonProxy.forward(post_route, upstream, body: Jason.encode!(%{"prefix" => "198.51.100.0/24"}))
+
+        summary = Task.await(server_task, 5_000)
+        assert summary.connections == 2
+        assert summary.requests == 4
+        assert Enum.all?(summary.auth_headers, &(&1 == "Bearer #{@secret_api_key}"))
+      end
     end
   end
 
@@ -757,6 +837,18 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       end)
 
       :ok
+    end
+
+    test "rejects unauthenticated requests to vendor-status and statuspages through the router with 401" do
+      for path <- ["/api/horizon/v1/vendor-status", "/api/horizon/v1/statuspages"] do
+        conn =
+          build_conn()
+          |> put_req_header("accept", "application/json")
+          |> get(path)
+
+        assert json_response(conn, 401) == %{"error" => "authentication_required"}
+        refute_received {:upstream_request, _}
+      end
     end
 
     test "proxies GET vendor-status and statuspages through the router with observability.events.view" do
@@ -782,6 +874,10 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
         assert req_opts[:method] == :get
         assert req_opts[:url] == "#{@upstream_base}#{expected_upstream_path}"
         assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
+        assert is_function(req_opts[:retry], 2)
+        assert req_opts[:max_retries] == 1
+        assert req_opts[:retry_delay].(0) == 50
+        assert req_opts[:retry_log_level] == :debug
       end
     end
 
@@ -805,16 +901,32 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
             {:delete, "/api/horizon/v1/vendor-status", nil},
             {:get, "/api/horizon/v2/vendor-status", nil},
             {:get, "/api/horizon/v1/vendor-status/extra", nil},
+            {:get, "/api/horizon/v1/vendor-status/../feeds/status", nil},
             {:get, "/api/horizon/v1/vendor-status/..%2f..%2finternal", nil},
             {:post, "/api/horizon/v1/statuspages", %{}},
             {:delete, "/api/horizon/v1/statuspages", nil},
             {:get, "/api/horizon/v2/statuspages", nil},
             {:get, "/api/horizon/v1/statuspages/extra", nil},
+            {:get, "/api/horizon/v1/statuspages/../feeds/status", nil},
             {:get, "/api/horizon/v1/statuspages/..%2f..%2finternal", nil}
           ] do
         conn = dispatch_router(method, path, admin_scope, body)
         assert conn.status == 404, "expected 404 for #{method} #{path}"
         refute_received {:upstream_request, _}
+      end
+
+      for segment <- ["vendor-status", "statuspages"], method <- ["PUT", "PATCH"] do
+        path = "/api/horizon/v1/#{segment}"
+
+        error =
+          assert_raise NoRouteError, fn ->
+            method
+            |> Plug.Test.conn(path)
+            |> Router.call(Router.init([]))
+          end
+
+        assert Plug.Exception.status(error) == 404
+        assert {:error, :not_found} = HorizonProxy.resolve_route(method, "v1", [segment], path)
       end
 
       assert {:error, :not_found} =
@@ -823,11 +935,143 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert {:error, :not_found} =
                HorizonProxy.resolve_route("POST", "v1", ["statuspages"], "/api/horizon/v1/statuspages")
     end
+
+    test "rejects token smuggling and malformed query strings on vendor-status and statuspages with 400" do
+      events_only_scope = scope_with_permissions(:viewer, MapSet.new(["observability.events.view"]))
+
+      for path <- ["/api/horizon/v1/vendor-status", "/api/horizon/v1/statuspages"],
+          bad_query <- ["token=leaked", "%74oken=leaked", "category=%ZZ"] do
+        conn = dispatch_router(:get, "#{path}?#{bad_query}", events_only_scope)
+        assert json_response(conn, 400) == %{"error" => "invalid_query"}
+        refute_received {:upstream_request, _}
+      end
+    end
   end
 
   def run(req) do
     adapter = Process.get(:horizon_proxy_req_adapter)
     adapter.(req)
+  end
+
+  defp start_stale_keepalive_upstream(close_mode) do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+
+    {:ok, port} = :inet.port(listen_socket)
+
+    task =
+      Task.async(fn ->
+        try do
+          # Connection 1: serve request #1 with keep-alive, then drop socket when request #2 arrives.
+          {:ok, sock1} = :gen_tcp.accept(listen_socket, 5_000)
+          req1 = read_http_request(sock1)
+          send_http_json(sock1, 200, %{"connection" => 1, "attempt" => "warm"})
+
+          req2 = read_http_request(sock1)
+          close_socket(sock1, close_mode)
+
+          # Connection 2: serve retried GET request #2 with keep-alive, then drop socket on POST request #3.
+          {:ok, sock2} = :gen_tcp.accept(listen_socket, 5_000)
+          req3 = read_http_request(sock2)
+          send_http_json(sock2, 200, %{"connection" => 2, "attempt" => "recovered"})
+
+          req4 = read_http_request(sock2)
+          close_socket(sock2, close_mode)
+
+          # Verify no third connection is dialed after the failed POST (wait briefly beyond 50ms retry delay).
+          extra_connections =
+            case :gen_tcp.accept(listen_socket, 150) do
+              {:ok, sock3} ->
+                :gen_tcp.close(sock3)
+                1
+
+              {:error, :timeout} ->
+                0
+            end
+
+          %{
+            connections: 2 + extra_connections,
+            requests: 4,
+            auth_headers: Enum.map([req1, req2, req3, req4], &extract_header(&1, "authorization"))
+          }
+        after
+          :gen_tcp.close(listen_socket)
+        end
+      end)
+
+    {port, task}
+  end
+
+  defp read_http_request(socket), do: read_http_request(socket, "")
+
+  defp read_http_request(socket, acc) do
+    case :binary.match(acc, "\r\n\r\n") do
+      {pos, 4} ->
+        headers_part = binary_part(acc, 0, pos)
+        rest = binary_part(acc, pos + 4, byte_size(acc) - pos - 4)
+        content_length = headers_part |> extract_header("content-length") |> parse_content_length()
+        body = read_exact_bytes(socket, rest, content_length)
+        headers_part <> "\r\n\r\n" <> body
+
+      :nomatch ->
+        {:ok, chunk} = :gen_tcp.recv(socket, 0, 5_000)
+        read_http_request(socket, acc <> chunk)
+    end
+  end
+
+  defp read_exact_bytes(_socket, buf, needed) when byte_size(buf) >= needed, do: binary_part(buf, 0, needed)
+
+  defp read_exact_bytes(socket, buf, needed) do
+    {:ok, chunk} = :gen_tcp.recv(socket, 0, 5_000)
+    read_exact_bytes(socket, buf <> chunk, needed)
+  end
+
+  defp parse_content_length(nil), do: 0
+
+  defp parse_content_length(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, ""} when n > 0 -> n
+      _ -> 0
+    end
+  end
+
+  defp extract_header(raw_request, target_name) do
+    target = String.downcase(target_name)
+
+    raw_request
+    |> String.split("\r\n")
+    |> Enum.drop(1)
+    |> Enum.find_value(fn line ->
+      case String.split(line, ":", parts: 2) do
+        [name, value] ->
+          if String.downcase(String.trim(name)) == target, do: String.trim(value)
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  defp send_http_json(socket, status, payload) do
+    body = Jason.encode!(payload)
+
+    response =
+      "HTTP/1.1 #{status} OK\r\n" <>
+        "Content-Type: application/json\r\n" <>
+        "Content-Length: #{byte_size(body)}\r\n" <>
+        "Connection: keep-alive\r\n\r\n" <>
+        body
+
+    :ok = :gen_tcp.send(socket, response)
+  end
+
+  defp close_socket(socket, :fin) do
+    :gen_tcp.close(socket)
+  end
+
+  defp close_socket(socket, :rst) do
+    _ = :inet.setopts(socket, [{:linger, {true, 0}}])
+    :gen_tcp.close(socket)
   end
 
   defp stub_req_adapter(adapter) do
