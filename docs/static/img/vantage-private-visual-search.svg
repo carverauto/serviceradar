@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" width="820" height="250" role="img" aria-label="Private visual search workflow: Operator natural-language query to private on-premises Vantage AI engine to verified clips and timeline jump">
+  <defs>
+    <style>
+      .sans { font-family: var(--sr-font-sans), ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    </style>
+  </defs>
+
+  <!-- Outer dark slate Swiss frame -->
+  <rect x="1" y="1" width="818" height="248" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+
+  <!-- Top editorial header strip -->
+  <line x1="1" y1="30" x2="819" y2="30" stroke="#1e293b" stroke-width="1"/>
+  <text x="16" y="19" fill="#94a3b8" font-size="9.5" font-weight="600" letter-spacing="0.08em" class="mono">FIG 02 // PRIVATE VISUAL SEARCH WORKFLOW</text>
+  <text x="804" y="19" text-anchor="end" fill="#10b981" font-size="9.5" font-weight="600" letter-spacing="0.06em" class="mono">100% ON-PREMISES  |  ZERO CLOUD VIDEO EGRESS</text>
+
+  <!-- Subtle vertical stage dividers -->
+  <line x1="258" y1="38" x2="258" y2="236" stroke="#1e293b" stroke-width="1" stroke-dasharray="4 4"/>
+  <line x1="546" y1="38" x2="546" y2="236" stroke="#1e293b" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <!-- Stage column headers -->
+  <text x="20" y="49" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">01 / OPERATOR QUERY</text>
+  <text x="280" y="49" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">02 / PRIVATE ON-PREMISES AI ENGINE</text>
+  <text x="568" y="49" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">03 / VERIFIED CLIPS &amp; TIMELINE</text>
+
+  <!-- ==================== COL 1: OPERATOR QUERY ==================== -->
+  <rect x="20" y="64" width="218" height="160" rx="3" fill="#1e293b" stroke="#38bdf8" stroke-width="1.2"/>
+  <rect x="20" y="64" width="218" height="3" rx="1" fill="#38bdf8"/>
+  <text x="129" y="86" text-anchor="middle" fill="#38bdf8" font-size="8.8" font-weight="600" letter-spacing="0.06em" class="mono">PLAIN-ENGLISH SEARCH</text>
+  <rect x="34" y="96" width="190" height="28" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="129" y="114" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">"person walking a dog"</text>
+  <rect x="34" y="130" width="190" height="28" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="129" y="148" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="500" class="sans">"delivery truck at gate"</text>
+  <line x1="34" y1="170" x2="224" y2="170" stroke="#334155" stroke-width="1"/>
+  <text x="129" y="188" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">filter: camera, site, time</text>
+  <text x="129" y="204" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">filter: detection category</text>
+
+  <!-- Arrow: Query -> Private AI Engine -->
+  <line x1="238" y1="144" x2="274" y2="144" stroke="#38bdf8" stroke-width="1.4"/>
+  <polygon points="272,140.5 278,144 272,147.5" fill="#38bdf8"/>
+
+  <!-- ==================== COL 2: PRIVATE ON-PREMISES AI ENGINE ==================== -->
+  <rect x="280" y="64" width="246" height="160" rx="3" fill="#1e293b" stroke="#f59e0b" stroke-width="1.4"/>
+  <rect x="280" y="64" width="3" height="160" rx="1" fill="#f59e0b"/>
+  <text x="403" y="86" text-anchor="middle" fill="#f59e0b" font-size="8.8" font-weight="600" letter-spacing="0.06em" class="mono">SERVICERADAR VANTAGE ADDON</text>
+  <text x="403" y="108" text-anchor="middle" fill="#f8fafc" font-size="13" font-weight="600" class="sans">Private On-Premises AI Engine</text>
+
+  <rect x="296" y="122" width="214" height="24" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="403" y="138" text-anchor="middle" fill="#cbd5e1" font-size="9.2" class="mono">local visual &amp; scene indexing</text>
+
+  <rect x="296" y="152" width="214" height="24" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="403" y="168" text-anchor="middle" fill="#cbd5e1" font-size="9.2" class="mono">in-cluster query evaluation</text>
+
+  <rect x="296" y="182" width="214" height="28" rx="2" fill="#0f172a" stroke="#10b981" stroke-width="1"/>
+  <text x="403" y="200" text-anchor="middle" fill="#10b981" font-size="9.2" font-weight="600" class="mono">no video or prompts leave site</text>
+
+  <!-- Arrow: Private AI Engine -> Verified Clips -->
+  <line x1="526" y1="144" x2="562" y2="144" stroke="#10b981" stroke-width="1.4"/>
+  <polygon points="560,140.5 566,144 560,147.5" fill="#10b981"/>
+
+  <!-- ==================== COL 3: VERIFIED CLIPS & TIMELINE JUMP ==================== -->
+  <!-- Top box: Verified Clips -->
+  <rect x="568" y="64" width="232" height="72" rx="3" fill="#f8fafc"/>
+  <text x="684" y="85" text-anchor="middle" fill="#0f172a" font-size="12" font-weight="700" class="sans">Verified Matching Clips</text>
+  <text x="684" y="103" text-anchor="middle" fill="#334155" font-size="9.2" class="mono">ranked thumbnails &amp; summaries</text>
+  <text x="684" y="119" text-anchor="middle" fill="#047857" font-size="8.8" font-weight="600" class="mono">RBAC-scoped per camera &amp; role</text>
+
+  <!-- Vertical connector -->
+  <line x1="684" y1="136" x2="684" y2="150" stroke="#10b981" stroke-width="1.2"/>
+  <polygon points="680.5,148 687.5,148 684,154" fill="#10b981"/>
+
+  <!-- Bottom box: Direct Timeline Jump -->
+  <rect x="568" y="154" width="232" height="70" rx="3" fill="#1e293b" stroke="#10b981" stroke-width="1.2"/>
+  <text x="684" y="175" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Direct Timeline Jump</text>
+  <text x="684" y="193" text-anchor="middle" fill="#10b981" font-size="9.2" class="mono">seek straight to exact timestamp</text>
+  <text x="684" y="209" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">overlays + playback audit trail</text>
+</svg>

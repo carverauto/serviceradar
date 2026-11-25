@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" width="820" height="300" role="img" aria-label="Vantage ML extensibility three progressive compute ramps converging into canonical JetStream observations and signed Solution Packs">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" width="820" height="300" role="img" aria-label="Vantage extensibility three progressive compute ramps converging into unified observations and signed Solution Packs">
   <defs>
     <style>
-      .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      .sans { font-family: var(--sr-font-sans), ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
     </style>
   </defs>
@@ -11,39 +11,39 @@
 
   <!-- Top editorial header strip -->
   <line x1="1" y1="30" x2="819" y2="30" stroke="#1e293b" stroke-width="1"/>
-  <text x="16" y="19" fill="#94a3b8" font-size="9.5" font-weight="600" letter-spacing="0.08em" class="mono">FIG 03 // THREE PROGRESSIVE COMPUTE RAMPS</text>
+  <text x="16" y="19" fill="#94a3b8" font-size="9.5" font-weight="600" letter-spacing="0.08em" class="mono">FIG 03 // THREE PROGRESSIVE EXTENSION RAMPS</text>
   <text x="804" y="19" text-anchor="end" fill="#f59e0b" font-size="9.5" font-weight="600" letter-spacing="0.06em" class="mono">ONE CANONICAL CONTRACT  |  SIGNED .SRPACK</text>
 
   <!-- Vertical divider between Ramps and Canonical Contract -->
   <line x1="454" y1="38" x2="454" y2="288" stroke="#1e293b" stroke-width="1" stroke-dasharray="4 4"/>
 
   <!-- Column headers -->
-  <text x="18" y="47" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">EXECUTION RAMPS (DROP-IN UPGRADE PATH)</text>
-  <text x="480" y="47" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">CANONICAL PIPELINE &amp; DISTRIBUTION</text>
+  <text x="18" y="47" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">EXTENSION RAMPS (DROP-IN UPGRADE PATH)</text>
+  <text x="480" y="47" fill="#94a3b8" font-size="9" font-weight="600" letter-spacing="0.08em" class="mono">UNIFIED OBSERVATIONS &amp; DISTRIBUTION</text>
 
   <!-- ==================== LEFT: 3 PROGRESSIVE RAMPS ==================== -->
   <!-- Ramp 1 -->
   <rect x="18" y="58" width="412" height="66" rx="3" fill="#1e293b" stroke="#334155" stroke-width="1"/>
   <rect x="18" y="58" width="3" height="66" rx="1" fill="#f59e0b"/>
-  <text x="30" y="74" fill="#f59e0b" font-size="9" font-weight="600" letter-spacing="0.07em" class="mono">RAMP 1  //  ZERO-CODE VLM PROMPT PIPELINE</text>
-  <text x="30" y="93" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Declarative JSON on Full-Res IDR Crops</text>
-  <text x="30" y="111" fill="#94a3b8" font-size="9.2" class="mono">serviceradar-camera-vlm (Qwen3.5-4B) | track consensus</text>
+  <text x="30" y="74" fill="#f59e0b" font-size="9" font-weight="600" letter-spacing="0.07em" class="mono">RAMP 1  //  DECLARATIVE VISUAL PIPELINES</text>
+  <text x="30" y="93" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Zero-Code JSON Pipeline Definitions</text>
+  <text x="30" y="111" fill="#94a3b8" font-size="9.2" class="mono">run on the Private Vantage AI Addon | no custom container</text>
 
   <!-- Ramp 2 -->
   <rect x="18" y="136" width="412" height="66" rx="3" fill="#1e293b" stroke="#334155" stroke-width="1"/>
   <rect x="18" y="136" width="3" height="66" rx="1" fill="#38bdf8"/>
-  <text x="30" y="152" fill="#38bdf8" font-size="9" font-weight="600" letter-spacing="0.07em" class="mono">RAMP 2  //  EXTERNAL WORKER (vantage.worker.v1)</text>
-  <text x="30" y="171" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Rust / Python SDK via Scoped Read Grants</text>
-  <text x="30" y="189" fill="#94a3b8" font-size="9.2" class="mono">serviceradar-sdk-vantage | SHA-256 verify | 0 DB creds</text>
+  <text x="30" y="152" fill="#38bdf8" font-size="9" font-weight="600" letter-spacing="0.07em" class="mono">RAMP 2  //  EXTERNAL SDK WORKER</text>
+  <text x="30" y="171" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Rust / Python Workers via Scoped Read Grants</text>
+  <text x="30" y="189" fill="#94a3b8" font-size="9.2" class="mono">serviceradar-sdk-vantage | verified reads | 0 DB creds</text>
 
   <!-- Ramp 3 -->
   <rect x="18" y="214" width="412" height="66" rx="3" fill="#1e293b" stroke="#334155" stroke-width="1"/>
   <rect x="18" y="214" width="3" height="66" rx="1" fill="#10b981"/>
-  <text x="30" y="230" fill="#10b981" font-size="9" font-weight="600" letter-spacing="0.07em" class="mono">RAMP 3  //  WASM CONTROL &amp; ACTION BRIDGE</text>
-  <text x="30" y="249" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Sandboxed wazero Enrichment &amp; Northbound Actions</text>
+  <text x="30" y="230" fill="#10b981" font-size="9" font-weight="600" letter-spacing="0.07em" class="mono">RAMP 3  //  WASM ACTION BRIDGE</text>
+  <text x="30" y="249" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Sandboxed Enrichment &amp; Northbound Actions</text>
   <text x="30" y="267" fill="#94a3b8" font-size="9.2" class="mono">serviceradar-sdk-go / rust | watchlists | gate/relay</text>
 
-  <!-- Convergence bus: 3 Ramps -> JetStream -->
+  <!-- Convergence bus: 3 Ramps -> Event Ingestion -->
   <line x1="430" y1="91" x2="454" y2="91" stroke="#f59e0b" stroke-width="1.2"/>
   <line x1="430" y1="169" x2="454" y2="169" stroke="#38bdf8" stroke-width="1.2"/>
   <line x1="430" y1="247" x2="454" y2="247" stroke="#10b981" stroke-width="1.2"/>
@@ -52,23 +52,23 @@
   <polygon points="474,84.5 480,88 474,91.5" fill="#38bdf8"/>
 
   <!-- ==================== RIGHT: CANONICAL PIPELINE ==================== -->
-  <!-- Stage A: NATS JetStream Subject -->
+  <!-- Stage A: Event Pipeline -->
   <rect x="480" y="58" width="324" height="60" rx="3" fill="#1e293b" stroke="#38bdf8" stroke-width="1.2"/>
-  <text x="492" y="75" fill="#38bdf8" font-size="8.8" font-weight="600" letter-spacing="0.06em" class="mono">JETSTREAM SUBJECT</text>
-  <text x="492" y="94" fill="#f8fafc" font-size="12" font-weight="600" class="mono">media.results.vantage.v1</text>
-  <text x="492" y="109" fill="#94a3b8" font-size="9" class="mono">consumed by core-elx EventWriter</text>
+  <text x="492" y="75" fill="#38bdf8" font-size="8.8" font-weight="600" letter-spacing="0.06em" class="mono">EVENT INGESTION</text>
+  <text x="492" y="94" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Structured Camera Observations</text>
+  <text x="492" y="109" fill="#94a3b8" font-size="9" class="mono">ingested into ServiceRadar control plane</text>
 
-  <!-- Arrow down: JetStream -> CNPG Observations -->
+  <!-- Arrow down: Event Pipeline -> SRQL & Inventory -->
   <line x1="642" y1="118" x2="642" y2="134" stroke="#10b981" stroke-width="1.4"/>
   <polygon points="638.5,132 645.5,132 642,138" fill="#10b981"/>
 
-  <!-- Stage B: CNPG Observations & SRQL -->
+  <!-- Stage B: SRQL Entity & Retention -->
   <rect x="480" y="138" width="324" height="62" rx="3" fill="#1e293b" stroke="#10b981" stroke-width="1.2"/>
-  <text x="492" y="155" fill="#10b981" font-size="8.8" font-weight="600" letter-spacing="0.06em" class="mono">CNPG TABLE &amp; SRQL ENTITY</text>
-  <text x="492" y="174" fill="#f8fafc" font-size="11.5" font-weight="600" class="mono">platform.camera_vantage_observations</text>
-  <text x="492" y="190" fill="#94a3b8" font-size="9" class="mono">in:camera_observations | retention-coupled</text>
+  <text x="492" y="155" fill="#10b981" font-size="8.8" font-weight="600" letter-spacing="0.06em" class="mono">SRQL QUERY SURFACE &amp; ALERTING</text>
+  <text x="492" y="174" fill="#f8fafc" font-size="11.5" font-weight="600" class="mono">in:camera_observations</text>
+  <text x="492" y="190" fill="#94a3b8" font-size="9" class="mono">timeline markers | OCSF alerts | retention-coupled</text>
 
-  <!-- Arrow down: CNPG -> Signed Solution Pack -->
+  <!-- Arrow down: SRQL -> Signed Solution Pack -->
   <line x1="642" y1="200" x2="642" y2="216" stroke="#f8fafc" stroke-width="1.4"/>
   <polygon points="638.5,214 645.5,214 642,220" fill="#f8fafc"/>
 
