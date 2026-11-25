@@ -14,6 +14,8 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
 
   alias ServiceRadarCoreElx.CameraMediaSessionTracker
 
+  require Logger
+
   @max_chunk_bytes 1_048_576
   @default_close_grace_ms 5_000
   @closed_message "core relay session closed; drain"
@@ -110,11 +112,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
 
   def handle_call({:heartbeat, request}, _from, state) do
     with :ok <- verify_relay_session(state.session, request.relay_session_id, request.media_ingest_id),
-         {:ok, session} <-
-           state.tracker.heartbeat(request.relay_session_id, request.media_ingest_id, %{
-             last_sequence: request.last_sequence,
-             sent_bytes: request.sent_bytes
-           }) do
+         {:ok, session} <- call_tracker_heartbeat(state, request) do
       {:reply,
        {:ok,
         %Camera.RelayHeartbeatAck{
@@ -168,6 +166,15 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
                 draining: acc.draining || draining_session?(session)
               }}}
 
+          {:tracker_unavailable, session} ->
+            {:halt,
+             {:ok,
+              %{
+                session: session,
+                last_sequence: acc.last_sequence,
+                draining: acc.draining || draining_session?(session)
+              }}}
+
           {:error, reason} ->
             {:halt, {:error, reason, state}}
         end
@@ -180,17 +187,64 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressSession do
   defp record_chunk(state, session, chunk) do
     with :ok <- verify_relay_session(session, chunk.relay_session_id, chunk.media_ingest_id),
          :ok <- validate_chunk_size(chunk.payload || <<>>) do
-      state.tracker.record_chunk(chunk.relay_session_id, chunk.media_ingest_id, %{
-        sequence: chunk.sequence,
-        payload: chunk.payload || <<>>,
-        pts: chunk.pts,
-        dts: chunk.dts,
-        keyframe: chunk.keyframe,
-        codec: chunk.codec,
-        payload_format: chunk.payload_format,
-        track_id: chunk.track_id
-      })
+      call_tracker_record_chunk(state, session, chunk)
     end
+  end
+
+  defp call_tracker_heartbeat(state, request) do
+    state.tracker.heartbeat(request.relay_session_id, request.media_ingest_id, %{
+      last_sequence: request.last_sequence,
+      sent_bytes: request.sent_bytes
+    })
+  catch
+    :exit, {:timeout, _} ->
+      Logger.warning(
+        "Camera media ingress tracker heartbeat timed out; keeping session alive " <>
+          "relay_session_id=#{request.relay_session_id} media_ingest_id=#{request.media_ingest_id} " <>
+          "reason=tracker_heartbeat_timeout"
+      )
+
+      {:ok, state.session}
+
+    :exit, reason when reason == :noproc or (is_tuple(reason) and elem(reason, 0) == :noproc) ->
+      Logger.warning(
+        "Camera media ingress tracker unavailable during heartbeat; keeping session alive " <>
+          "relay_session_id=#{request.relay_session_id} media_ingest_id=#{request.media_ingest_id} " <>
+          "reason=tracker_heartbeat_noproc"
+      )
+
+      {:ok, state.session}
+  end
+
+  defp call_tracker_record_chunk(state, session, chunk) do
+    state.tracker.record_chunk(chunk.relay_session_id, chunk.media_ingest_id, %{
+      sequence: chunk.sequence,
+      payload: chunk.payload || <<>>,
+      pts: chunk.pts,
+      dts: chunk.dts,
+      keyframe: chunk.keyframe,
+      codec: chunk.codec,
+      payload_format: chunk.payload_format,
+      track_id: chunk.track_id
+    })
+  catch
+    :exit, {:timeout, _} ->
+      Logger.warning(
+        "Camera media ingress tracker record_chunk timed out; keeping session alive " <>
+          "relay_session_id=#{chunk.relay_session_id} media_ingest_id=#{chunk.media_ingest_id} " <>
+          "reason=tracker_record_chunk_timeout"
+      )
+
+      {:tracker_unavailable, session}
+
+    :exit, reason when reason == :noproc or (is_tuple(reason) and elem(reason, 0) == :noproc) ->
+      Logger.warning(
+        "Camera media ingress tracker unavailable during record_chunk; keeping session alive " <>
+          "relay_session_id=#{chunk.relay_session_id} media_ingest_id=#{chunk.media_ingest_id} " <>
+          "reason=tracker_record_chunk_noproc"
+      )
+
+      {:tracker_unavailable, session}
   end
 
   defp validate_chunk_size(payload) when byte_size(payload) <= @max_chunk_bytes, do: :ok

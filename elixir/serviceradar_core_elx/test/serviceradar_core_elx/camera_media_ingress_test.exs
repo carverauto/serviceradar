@@ -316,6 +316,130 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
     end
   end
 
+  defmodule ExitingTrackerStub do
+    @moduledoc false
+
+    def heartbeat(_relay_session_id, _media_ingest_id, %{last_sequence: 101}) do
+      exit({:timeout, {GenServer, :call, [CameraMediaSessionTracker, :heartbeat, 5_000]}})
+    end
+
+    def heartbeat(_relay_session_id, _media_ingest_id, %{last_sequence: 102}) do
+      exit(:noproc)
+    end
+
+    def heartbeat(relay_session_id, media_ingest_id, _attrs) do
+      {:ok,
+       %{
+         relay_session_id: relay_session_id,
+         media_ingest_id: media_ingest_id,
+         status: "active",
+         lease_expires_at_unix: 2_000_000_030
+       }}
+    end
+
+    def record_chunk(_relay_session_id, _media_ingest_id, %{sequence: 201}) do
+      exit({:timeout, {GenServer, :call, [CameraMediaSessionTracker, :record_chunk, 5_000]}})
+    end
+
+    def record_chunk(relay_session_id, media_ingest_id, _attrs) do
+      {:ok,
+       %{
+         relay_session_id: relay_session_id,
+         media_ingest_id: media_ingest_id,
+         status: "active",
+         lease_expires_at_unix: 2_000_000_030
+       }}
+    end
+  end
+
+  test "survives transient tracker timeout and noproc exits on heartbeat" do
+    relay_session_id = unique_id("relay-tracker-timeout")
+    media_ingest_id = "core-media-timeout-test"
+
+    session = %{
+      relay_session_id: relay_session_id,
+      media_ingest_id: media_ingest_id,
+      status: "active",
+      lease_expires_at_unix: 2_000_000_000
+    }
+
+    {:ok, ingress_pid} =
+      CameraMediaIngressSupervisor.start_session(session, tracker: ExitingTrackerStub, close_grace_ms: 50)
+
+    {timeout_result, timeout_log} =
+      ExUnit.CaptureLog.with_log([level: :warning], fn ->
+        CameraMediaIngressSession.heartbeat(ingress_pid, %Camera.RelayHeartbeat{
+          relay_session_id: relay_session_id,
+          media_ingest_id: media_ingest_id,
+          last_sequence: 101,
+          sent_bytes: 1024
+        })
+      end)
+
+    assert {:ok, %Camera.RelayHeartbeatAck{accepted: true, lease_expires_at_unix: 2_000_000_000}} = timeout_result
+    assert Process.alive?(ingress_pid)
+    assert timeout_log =~ "tracker_heartbeat_timeout"
+
+    {noproc_result, noproc_log} =
+      ExUnit.CaptureLog.with_log([level: :warning], fn ->
+        CameraMediaIngressSession.heartbeat(ingress_pid, %Camera.RelayHeartbeat{
+          relay_session_id: relay_session_id,
+          media_ingest_id: media_ingest_id,
+          last_sequence: 102,
+          sent_bytes: 2048
+        })
+      end)
+
+    assert {:ok, %Camera.RelayHeartbeatAck{accepted: true, lease_expires_at_unix: 2_000_000_000}} = noproc_result
+    assert noproc_log =~ "tracker_heartbeat_noproc"
+
+    # Session remains healthy for subsequent heartbeats once tracker recovers.
+    assert {:ok, %Camera.RelayHeartbeatAck{accepted: true, lease_expires_at_unix: 2_000_000_030}} =
+             CameraMediaIngressSession.heartbeat(ingress_pid, %Camera.RelayHeartbeat{
+               relay_session_id: relay_session_id,
+               media_ingest_id: media_ingest_id,
+               last_sequence: 103,
+               sent_bytes: 4096
+             })
+  end
+
+  test "survives transient tracker timeout exit on record_chunk without crashing session" do
+    relay_session_id = unique_id("relay-chunk-timeout")
+    media_ingest_id = "core-media-chunk-timeout-test"
+
+    session = %{
+      relay_session_id: relay_session_id,
+      media_ingest_id: media_ingest_id,
+      status: "active",
+      lease_expires_at_unix: 2_000_000_000
+    }
+
+    {:ok, ingress_pid} =
+      CameraMediaIngressSupervisor.start_session(session, tracker: ExitingTrackerStub, close_grace_ms: 50)
+
+    {chunk_result, chunk_log} =
+      ExUnit.CaptureLog.with_log([level: :warning], fn ->
+        CameraMediaIngressSession.upload_media(ingress_pid, [
+          %Camera.MediaChunk{
+            relay_session_id: relay_session_id,
+            media_ingest_id: media_ingest_id,
+            sequence: 200,
+            payload: <<1, 2, 3>>
+          },
+          %Camera.MediaChunk{
+            relay_session_id: relay_session_id,
+            media_ingest_id: media_ingest_id,
+            sequence: 201,
+            payload: <<4, 5, 6>>
+          }
+        ])
+      end)
+
+    assert {:ok, %Camera.UploadMediaResponse{received: true, last_sequence: 200}} = chunk_result
+    assert Process.alive?(ingress_pid)
+    assert chunk_log =~ "tracker_record_chunk_timeout"
+  end
+
   defp clear_ingress_sessions do
     if Process.whereis(CameraMediaIngressSupervisor) do
       CameraMediaIngressSupervisor
