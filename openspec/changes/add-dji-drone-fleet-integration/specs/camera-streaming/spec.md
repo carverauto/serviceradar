@@ -16,7 +16,7 @@ For a push-ingest camera source, Core SHALL reserve the relay session, mint a se
 - **AND** the session SHALL become active when the device's push presents the session token
 
 #### Scenario: Token reuse is refused
-- **WHEN** a publisher presents a token for a session that has ended or is already active
+- **WHEN** a publisher presents a token for a session that has ended, that has an active publisher, or that Core has since re-minted
 - **THEN** the ingest SHALL refuse the connection
 
 #### Scenario: Publisher reconnects within grace

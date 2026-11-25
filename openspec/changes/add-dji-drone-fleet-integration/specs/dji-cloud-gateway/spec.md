@@ -43,21 +43,23 @@ The gateway SHALL map DJI workspaces and organizations to the single ServiceRada
 - **THEN** the gateway SHALL refuse the binding and record the attempt as an event without creating devices
 
 ### Requirement: Device-facing MQTT with per-gateway authorization
-The platform SHALL accept DJI gateway MQTT connections on a dedicated TLS listener. Each gateway SHALL authenticate with an enrollment or Pilot session credential. Each connection SHALL be restricted, in an isolated account that cannot address platform subjects, to its own gateway's uplink and downlink topics plus sub-device `osd` and `state` topics. The gateway service SHALL accept sub-device telemetry only for serials in that gateway's most recently acknowledged topology.
+The platform SHALL accept DJI gateway MQTT connections on a dedicated TLS listener. Each gateway SHALL authenticate with an enrollment or Pilot session credential. Each connection SHALL be restricted, in an isolated account that cannot address platform subjects, to topics that name exact serials: its own gateway's uplink and downlink topics, plus `osd` and `state` topics for the sub-devices bound to that gateway. Wildcard serial grants SHALL NOT be issued. A binding change SHALL re-issue the grant.
 
 #### Scenario: Enrolled dock connects
 - **WHEN** a dock connects with a valid enrollment username and password
 - **THEN** the session SHALL be admitted into the isolated DJI account
-- **AND** SHALL be permitted to publish its own `thing/product/<gw>/...` uplink topics, `sys/product/<gw>/status`, and `osd`/`state` topics for sub-devices
+- **AND** SHALL be permitted to publish its own `thing/product/<gw>/...` uplink topics, `sys/product/<gw>/status`, and `osd`/`state` topics for its bound sub-devices only
 - **AND** SHALL be permitted to subscribe only to its own downlink topics
 
 #### Scenario: Aircraft paired after the dock connected
-- **WHEN** a dock that is already connected reports a new aircraft in its topology and the aircraft then publishes OSD on its own topic
-- **THEN** the gateway service SHALL accept that telemetry without the dock reconnecting
+- **WHEN** a connected dock binds a newly paired aircraft
+- **THEN** the session SHALL be re-admitted with a grant that includes the aircraft's serial
+- **AND** the aircraft's telemetry SHALL then be accepted
 
-#### Scenario: Sub-device not in the gateway's topology
-- **WHEN** a sub-device `osd` or `state` message names a serial absent from the acknowledged topology of the envelope's gateway
-- **THEN** the gateway service SHALL drop the message and record the rejection
+#### Scenario: Forged telemetry for another gateway
+- **WHEN** an enrolled gateway publishes `osd` or `state` on a topic naming another gateway or another gateway's sub-device
+- **THEN** the publish SHALL be refused by the session's grant
+- **AND** no inventory or camera profile SHALL change
 
 #### Scenario: Enrollment binds to the first gateway serial
 - **WHEN** a non-multi-gateway enrollment has authenticated one gateway serial and a different serial presents the same credential
