@@ -27,6 +27,10 @@ mod client;
 mod downstream;
 mod dql_rows;
 mod errors;
+mod external_reads;
+mod external_rows;
+mod external_spof;
+mod external_writes;
 mod reads;
 mod schema;
 mod types;
@@ -38,12 +42,20 @@ pub use crate::client::TopologyClient;
 pub use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical};
 pub use crate::dql_rows::wrap_dql_value;
 pub use crate::errors::{TopologyError, TopologyErrorEnum};
+pub use crate::external_writes::{
+    DEFAULT_EXTERNAL_TTL_SECS, build_prune_orphan_external_nodes_query,
+    build_prune_stale_external_edges_query, derive_external_prune_window,
+};
 pub use crate::reads::{MAX_MTR_PATHS, MtrPath};
 pub use crate::schema::{
-    PRED_CHANGE_ID, PRED_DEVICE_ID, PRED_LINK_KEY, PRED_PREFIX_CIDR, PREDICATES, SCHEMA, TYPES,
-    schema_spec,
+    HORIZON_INGESTOR, PRED_CHANGE_ID, PRED_DEVICE_ID, PRED_EXT_ID, PRED_LINK_KEY,
+    PRED_PREFIX_CIDR, PREDICATES, SCHEMA, TYPES, schema_spec,
 };
 pub use crate::types::{
-    CanonicalDevice, CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite,
-    HopWrite, InterfaceWrite, MtrMetrics, NeighbourhoodEdge, PrefixWrite, TopologyView, link_key,
+    BlastRadiusResult, CanonicalDevice, CanonicalEdge, CanonicalGraph, ChangeWrite,
+    CustomerConeResult, DeviceWrite, EdgeKind, EdgeWrite, ExternalEdgeKind, ExternalEdgeRef,
+    ExternalEdgeWrite, ExternalNodeKind, ExternalNodeRef, ExternalNodeWrite, ExternalSnapshotWrite,
+    ExternalStatusPatch, ExternalUpsertStats, HopWrite, InterfaceWrite, MtrMetrics,
+    MultiHopTraceResult, NeighbourhoodEdge, PrefixWrite, SharedFateSpof, TopologyView,
+    clamp_max_hops, clamp_query_limit, link_key,
 };

@@ -213,6 +213,49 @@ defmodule ServiceRadarWebNG.Mcp.Tools do
 
       run(&Runner.horizon_intel_lookup/2)
     end
+
+    action :topology_blast_radius, :map do
+      description("""
+      Single-query bounded multi-hop inside-to-outside topology graph reasoning
+      across ServiceRadar internal devices/interfaces/prefixes and stitched Horizon
+      external Internet entities (Vantage, TransitRouter, IXP, Facility, ASN,
+      Prefix, AnycastPop, SaasTarget). Supports modes: blast_radius,
+      shared_fate_spofs, customer_cone, and multi_hop_trace. Read-only; requires
+      observability.events.view. Arguments are bound scalars, not SRQL.
+      """)
+
+      argument :mode, :string do
+        allow_nil?(false)
+        description("Reasoning mode: blast_radius | shared_fate_spofs | customer_cone | multi_hop_trace")
+      end
+
+      argument :seed, :string do
+        allow_nil?(true)
+        description("Seed entity id (sr:<uid>, ASN/asn:<num>, prefix CIDR, IP, IXP, facility, or target id)")
+      end
+
+      argument :target, :string do
+        allow_nil?(true)
+        description("Optional destination entity id for multi_hop_trace shortest-path lookup")
+      end
+
+      argument :max_hops, :integer do
+        allow_nil?(true)
+        description("Maximum traversal hops (clamped 1..8, default 4)")
+      end
+
+      argument :limit, :integer do
+        allow_nil?(true)
+        description("Maximum returned nodes/edges/SPOFs (clamped 1..200, default 50)")
+      end
+
+      argument :min_targets, :integer do
+        allow_nil?(true)
+        description("Minimum shared downstream targets for shared_fate_spofs (clamped 1..200, default 2)")
+      end
+
+      run(&Runner.topology_blast_radius/2)
+    end
   end
 
   policies do

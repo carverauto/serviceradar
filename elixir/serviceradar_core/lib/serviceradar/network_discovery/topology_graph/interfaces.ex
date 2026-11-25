@@ -1,7 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
   @moduledoc false
 
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStore
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   require Logger
@@ -12,7 +12,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
   def upsert_interfaces(interfaces) when is_list(interfaces) do
     interfaces
     |> Enum.flat_map(&interface_payload/1)
-    |> DgraphPersist.upsert_interfaces()
+    |> GraphStore.adapter().upsert_interfaces()
   end
 
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
@@ -24,7 +24,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
     if is_nil(device_uid) or is_nil(management_device_uid) do
       :ok
     else
-      DgraphPersist.upsert_managed_by(device_uid, management_device_uid)
+      GraphStore.adapter().upsert_managed_by(device_uid, management_device_uid)
     end
   end
 

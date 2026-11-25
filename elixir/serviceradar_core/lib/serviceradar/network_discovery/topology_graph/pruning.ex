@@ -1,7 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
   @moduledoc false
 
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStore
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   # The mapper evidence edge kinds the stale prune ages out. MTR_PATH is
@@ -18,7 +18,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
   ]
 
   def prune_stale_mapper_evidence_links do
-    DgraphPersist.prune_stale(Utils.stale_cutoff_iso8601(), @mapper_edge_kinds)
+    GraphStore.adapter().prune_stale(Utils.stale_cutoff_iso8601(), @mapper_edge_kinds)
   end
 
   def maybe_prune_stale_mapper_evidence_links do

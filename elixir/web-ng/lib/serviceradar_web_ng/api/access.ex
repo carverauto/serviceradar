@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Api.Access do
 
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadarWebNG.Devices.MergedAvailability
   alias ServiceRadarWebNG.HorizonProxy
   alias ServiceRadarWebNG.SRQL.EntityAccess
@@ -26,6 +27,7 @@ defmodule ServiceRadarWebNG.Api.Access do
   @max_offset 100_000
 
   @uid_pattern ~r/^[A-Za-z0-9][A-Za-z0-9:._-]*$/
+  @graph_seed_pattern ~r/^[A-Za-z0-9][A-Za-z0-9:._\/-]*$/
 
   @spec default_limit() :: pos_integer()
   def default_limit, do: @default_limit
@@ -140,6 +142,106 @@ defmodule ServiceRadarWebNG.Api.Access do
       {:error, _reason} -> {:error, "horizon intel lookup failed"}
     end
   end
+
+  @doc """
+  Single-query bounded multi-hop graph reasoning over `TopologyGraph.GraphStore`.
+  Requires `observability.events.view`.
+  """
+  @spec topology_blast_radius(term(), map()) :: {:ok, map()} | {:error, term()}
+  def topology_blast_radius(scope, params) when is_map(params) do
+    with :ok <- require_permission(scope, "observability.events.view"),
+         {:ok, mode} <- parse_graph_mode(params[:mode] || params["mode"]) do
+      opts = [
+        max_hops: clamp_graph_bound(params[:max_hops] || params["max_hops"], 4, 8),
+        limit: clamp_graph_bound(params[:limit] || params["limit"], 50, 200),
+        min_targets: clamp_graph_bound(params[:min_targets] || params["min_targets"], 2, 200)
+      ]
+
+      dispatch_graph_mode(mode, params, opts)
+    end
+  end
+
+  defp dispatch_graph_mode("shared_fate_spofs", _params, opts) do
+    with {:ok, spofs} <- TopologyGraph.shared_fate_spofs(opts) do
+      {:ok, %{"mode" => "shared_fate_spofs", "spofs" => spofs, "count" => length(spofs)}}
+    end
+  end
+
+  defp dispatch_graph_mode("blast_radius", params, opts) do
+    with {:ok, seed} <- parse_graph_seed(params[:seed] || params["seed"], "seed"),
+         {:ok, result} <- TopologyGraph.blast_radius(seed, opts) do
+      {:ok, Map.put(result, "mode", "blast_radius")}
+    end
+  end
+
+  defp dispatch_graph_mode("customer_cone", params, opts) do
+    with {:ok, seed} <- parse_graph_seed(params[:seed] || params["seed"], "seed"),
+         {:ok, result} <- TopologyGraph.customer_cone_impact(seed, opts) do
+      {:ok, Map.put(result, "mode", "customer_cone")}
+    end
+  end
+
+  defp dispatch_graph_mode("multi_hop_trace", params, opts) do
+    with {:ok, seed} <- parse_graph_seed(params[:seed] || params["seed"], "seed"),
+         {:ok, target} <- parse_optional_graph_seed(params[:target] || params["target"]),
+         {:ok, result} <- TopologyGraph.multi_hop_trace(%{from: seed, to: target}, opts) do
+      {:ok, Map.put(result, "mode", "multi_hop_trace")}
+    end
+  end
+
+  defp parse_graph_mode(mode) when is_binary(mode) do
+    case String.trim(mode) do
+      valid when valid in ["blast_radius", "shared_fate_spofs", "customer_cone", "multi_hop_trace"] ->
+        {:ok, valid}
+
+      _ ->
+        {:error, "mode must be one of blast_radius, shared_fate_spofs, customer_cone, multi_hop_trace"}
+    end
+  end
+
+  defp parse_graph_mode(_),
+    do: {:error, "mode must be one of blast_radius, shared_fate_spofs, customer_cone, multi_hop_trace"}
+
+  defp parse_optional_graph_seed(nil), do: {:ok, nil}
+  defp parse_optional_graph_seed(""), do: {:ok, nil}
+  defp parse_optional_graph_seed(val), do: parse_graph_seed(val, "target")
+
+  defp parse_graph_seed(value, field_name) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" -> {:error, "#{field_name} is required"}
+      String.length(trimmed) > 255 -> {:error, "#{field_name} is too long"}
+      valid_graph_seed?(trimmed) -> {:ok, trimmed}
+      true -> {:error, "invalid #{field_name}"}
+    end
+  end
+
+  defp parse_graph_seed(value, _field_name) when is_integer(value) and value > 0, do: {:ok, Integer.to_string(value)}
+
+  defp parse_graph_seed(_, field_name), do: {:error, "#{field_name} is required"}
+
+  defp valid_graph_seed?(trimmed) do
+    Regex.match?(@graph_seed_pattern, trimmed) or valid_ip_or_cidr?(trimmed)
+  end
+
+  defp valid_ip_or_cidr?(value) do
+    case String.split(value, "/", parts: 2) do
+      [ip_part] ->
+        match?({:ok, _}, :inet.parse_strict_address(String.to_charlist(ip_part)))
+
+      [ip_part, mask_part] ->
+        with {:ok, addr} <- :inet.parse_strict_address(String.to_charlist(ip_part)),
+             {mask, ""} <- Integer.parse(mask_part) do
+          valid_cidr_mask?(addr, mask)
+        else
+          _ -> false
+        end
+    end
+  end
+
+  defp clamp_graph_bound(val, _default, max) when is_integer(val) and val > 0, do: min(val, max)
+  defp clamp_graph_bound(_, default, _max), do: default
 
   # ServiceRadarWebNG cannot reference ServiceRadarWebNG.RBAC or Scope due to
   # Boundary rules, so mirror EntityAccess's CoreRBAC permission check here.

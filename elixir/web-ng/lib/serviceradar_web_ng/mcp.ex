@@ -25,7 +25,8 @@ defmodule ServiceRadarWebNG.Mcp do
     :get_srql_catalog,
     :list_devices,
     :get_device,
-    :horizon_intel_lookup
+    :horizon_intel_lookup,
+    :topology_blast_radius
   ]
   @v1_resources [:srql_grammar, :srql_entities, :srql_cookbook]
 
@@ -51,7 +52,7 @@ defmodule ServiceRadarWebNG.Mcp do
     Full manuals (optional): serviceradar://srql/grammar, serviceradar://srql/entities,
     serviceradar://srql/cookbook. get_srql_catalog with entity=<id> returns one field map.
 
-    list_devices, get_device, and horizon_intel_lookup bind identifiers; they are not SRQL. Do not invent SQL, JSON filters, or /api/mcp.
+    list_devices, get_device, horizon_intel_lookup, and topology_blast_radius bind identifiers; they are not SRQL. Do not invent SQL, JSON filters, or /api/mcp.
     """)
   end
 
@@ -79,6 +80,7 @@ defmodule ServiceRadarWebNG.Mcp do
     tool(:list_devices, Tools, :list_devices)
     tool(:get_device, Tools, :get_device)
     tool(:horizon_intel_lookup, Tools, :horizon_intel_lookup)
+    tool(:topology_blast_radius, Tools, :topology_blast_radius)
   end
 
   mcp_resources do

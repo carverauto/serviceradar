@@ -468,3 +468,15 @@ for native reports, and `in:plugin_fleet` for WASM assignments and runtime evide
 See the [fleet recipes](https://docs.serviceradar.cloud/srql-cookbook#native-add-on-and-wasm-fleet-health)
 and [fleet reference](https://docs.serviceradar.cloud/srql-language-reference#agent-extension-fleet-queries)
 for queries, permissions, safe fields, freshness, and drift semantics.
+
+## Unified Inside-to-Outside Graph Reasoning
+
+Use the `topology_blast_radius` MCP tool (requires `observability.events.view`)
+for single-query bounded multi-hop traversal across internal devices, interfaces,
+and prefixes stitched with Horizon external Internet entities (`Vantage`,
+`TransitRouter`, `IXP`, `Facility`, `ASN`, `Prefix`, `AnycastPop`, `SaasTarget`):
+
+- `mode: "blast_radius"`, `seed: "asn:64512"` (or `"198.51.100.0/24"`, `"sr:edge-01"`)
+- `mode: "shared_fate_spofs"`, `min_targets: 2`, `limit: 20`
+- `mode: "customer_cone"`, `seed: "64512"`, `max_hops: 4`
+- `mode: "multi_hop_trace"`, `seed: "sr:edge-01"`, `target: "saas:api.example"`, `max_hops: 6`

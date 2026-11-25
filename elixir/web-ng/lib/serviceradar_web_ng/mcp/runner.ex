@@ -113,6 +113,18 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
     end)
   end
 
+  @spec topology_blast_radius(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
+  def topology_blast_radius(input, context) do
+    args = input.arguments
+
+    run_tool(context, :topology_blast_radius, args, [], fn ->
+      case Access.topology_blast_radius(scope!(context), args) do
+        {:ok, payload} -> {:ok, payload, graph_result_count(payload)}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
   @spec trace_device_identity(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
   def trace_device_identity(input, context) do
     args = input.arguments
@@ -235,6 +247,11 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
   defp row_count(%{"results" => results}) when is_list(results), do: length(results)
   defp row_count(%{results: results}) when is_list(results), do: length(results)
   defp row_count(_), do: nil
+
+  defp graph_result_count(%{"spofs" => spofs}) when is_list(spofs), do: length(spofs)
+  defp graph_result_count(%{"edges" => edges}) when is_list(edges), do: length(edges)
+  defp graph_result_count(%{edges: edges}) when is_list(edges), do: length(edges)
+  defp graph_result_count(_), do: 1
 
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason) when is_atom(reason), do: Atom.to_string(reason)

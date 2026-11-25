@@ -148,6 +148,6 @@ row-query entities. They support `time:`, equality/list/numeric/boolean filters,
 - Passing SRQL in `get_device` `uid` — uid is a bound identifier, not SRQL.
 - `/api/mcp` — that path is gone. Tools are `execute_srql` on this server.
 
-`list_devices`, `get_device`, and `horizon_intel_lookup` are bound-identifier
-shortcuts. Logs, events, flows, metrics, Horizon telemetry, and everything else
-go through `execute_srql`.
+`list_devices`, `get_device`, `horizon_intel_lookup`, and `topology_blast_radius`
+are bound-identifier shortcuts. Logs, events, flows, metrics, Horizon telemetry,
+and everything else go through `execute_srql`.

@@ -140,4 +140,40 @@ defmodule ServiceRadar.Dgraph.Native do
 
   @spec query_dql(url(), String.t(), deadline_ms()) :: submission()
   def query_dql(_url, _dql, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec upsert_external_topology(url(), map(), deadline_ms()) :: submission()
+  def upsert_external_topology(_url, _snapshot, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec upsert_external_status(url(), map(), deadline_ms()) :: submission()
+  def upsert_external_status(_url, _patch, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec prune_stale_external(url(), String.t(), deadline_ms()) :: submission()
+  def prune_stale_external(_url, _cutoff, _deadline_ms), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec query_blast_radius(url(), String.t(), non_neg_integer(), pos_integer(), deadline_ms()) ::
+          submission()
+  def query_blast_radius(_url, _seed_id, _max_hops, _limit, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec query_shared_fate_spofs(url(), pos_integer(), pos_integer(), deadline_ms()) ::
+          submission()
+  def query_shared_fate_spofs(_url, _min_targets, _limit, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec query_customer_cone(url(), String.t(), non_neg_integer(), pos_integer(), deadline_ms()) ::
+          submission()
+  def query_customer_cone(_url, _asn_id, _max_hops, _limit, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec query_multi_hop_trace(
+          url(),
+          String.t(),
+          String.t() | nil,
+          non_neg_integer(),
+          pos_integer(),
+          deadline_ms()
+        ) :: submission()
+  def query_multi_hop_trace(_url, _src_id, _dst_id, _max_hops, _limit, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
 end
