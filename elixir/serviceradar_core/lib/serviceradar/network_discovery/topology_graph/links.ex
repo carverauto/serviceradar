@@ -2,7 +2,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   @moduledoc false
 
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStore
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
@@ -22,8 +22,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
         &reduce_topology_link/2
       )
 
-    # Dgraph receives every projected link in one batch, in observation order.
-    with :ok <- DgraphPersist.upsert_links(Enum.reverse(dgraph_links)) do
+    # GraphStore receives every projected link in one batch, in observation order.
+    with :ok <- GraphStore.adapter().upsert_links(Enum.reverse(dgraph_links)) do
       Logger.info("Topology projection diagnostics: #{inspect(diagnostics)}")
 
       :ok

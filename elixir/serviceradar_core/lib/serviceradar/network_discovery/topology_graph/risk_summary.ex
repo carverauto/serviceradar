@@ -1,7 +1,7 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.RiskSummary do
   @moduledoc false
 
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStore
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   @spec project_endpoint_inventory_risk_summary(String.t(), map()) :: :ok
@@ -12,7 +12,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.RiskSummary do
         :ok
 
       uid ->
-        DgraphPersist.upsert_risk_summary(
+        GraphStore.adapter().upsert_risk_summary(
           uid,
           Utils.normalize_endpoint_inventory_risk_summary(summary)
         )

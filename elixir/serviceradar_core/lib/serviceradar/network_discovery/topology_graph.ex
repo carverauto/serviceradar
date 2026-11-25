@@ -5,6 +5,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   """
 
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStore
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Links
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
@@ -12,6 +13,56 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
 
   @type projection_payload :: Projection.projection_payload()
+
+  @doc "Projects a deduplicated Horizon external topology snapshot through the configured `GraphStore`."
+  @spec upsert_external_topology(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def upsert_external_topology(snapshot, opts \\ []) when is_map(snapshot) and is_list(opts) do
+    GraphStore.adapter().upsert_external_topology(snapshot, opts)
+  end
+
+  @doc "Applies an incremental Horizon outage or BGP/RPKI/RTBH status patch through the configured `GraphStore`."
+  @spec upsert_external_status(map(), keyword()) :: :ok | {:error, term()}
+  def upsert_external_status(patch, opts \\ []) when is_map(patch) and is_list(opts) do
+    GraphStore.adapter().upsert_external_status(patch, opts)
+  end
+
+  @doc "Prunes expired external Horizon topology edges and orphan vertices as of `now_rfc3339`."
+  @spec prune_stale_external(String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def prune_stale_external(now_rfc3339, opts \\ [])
+      when is_binary(now_rfc3339) and is_list(opts) do
+    GraphStore.adapter().prune_stale_external(now_rfc3339, opts)
+  end
+
+  @doc "Projects network config interface and prefix facts through the configured `GraphStore`."
+  @spec project_config_facts(map()) :: :ok
+  def project_config_facts(payloads) when is_map(payloads) do
+    GraphStore.adapter().project_config_facts(payloads)
+  end
+
+  @doc "Computes a bounded inside-to-outside blast radius from an internal or external seed."
+  @spec blast_radius(map() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def blast_radius(seed, opts \\ []) when is_list(opts) do
+    GraphStore.adapter().blast_radius(seed, opts)
+  end
+
+  @doc "Finds external transit/IXP/facility/ASN bottlenecks shared across monitored targets."
+  @spec shared_fate_spofs(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def shared_fate_spofs(opts \\ []) when is_list(opts) do
+    GraphStore.adapter().shared_fate_spofs(opts)
+  end
+
+  @doc "Computes bounded BGP customer-cone impact and affected internal/SaaS assets for an ASN."
+  @spec customer_cone_impact(pos_integer() | String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def customer_cone_impact(asn, opts \\ []) when is_list(opts) do
+    GraphStore.adapter().customer_cone_impact(asn, opts)
+  end
+
+  @doc "Traces bounded multi-hop inside-to-outside paths through the configured `GraphStore`."
+  @spec multi_hop_trace(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def multi_hop_trace(query, opts \\ []) when is_map(query) and is_list(opts) do
+    GraphStore.adapter().multi_hop_trace(query, opts)
+  end
 
   @doc """
   Projects one mapper topology report: every link into Dgraph in one batch.

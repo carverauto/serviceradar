@@ -17,29 +17,32 @@ compile_error!("dgraph_nif requires panic=unwind to contain native panics");
 
 mod abi;
 mod call;
+mod external;
+mod external_abi;
+mod read_nifs;
 mod runtime;
+#[cfg(test)]
+mod tests;
 
 use std::future::Future;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use dgraph_topology::{wrap_dql_value, DownstreamFact, TopologyClient, TopologyError};
+use dgraph_topology::{TopologyClient, TopologyError};
 use rustler::{Encoder, Env, Term};
 
 use crate::abi::{
-    refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
-    JsonResult, KeysResult, MtrPathsResult, NeighbourhoodResult, NifCanonicalEdge,
-    NifCanonicalGraph, NifChangeWrite, NifDeviceWrite, NifDownstreamFact, NifEdgeWrite,
-    NifHopWrite, NifInterfaceWrite, NifMtrPath, NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
+    CountResult, KeysResult, NifChangeWrite, NifDeviceWrite, NifEdgeWrite, NifHopWrite,
+    NifInterfaceWrite, NifPrefixWrite, WriteResult,
 };
 use crate::runtime::{client_for, require_url, Failure, Pool, CONNECT_DEADLINE};
 
-mod atoms {
+pub(crate) mod atoms {
     rustler::atoms! { error }
 }
 
 /// Validate, then submit one Dgraph operation. Rejections that need no Dgraph
 /// round trip come back synchronously as `{:error, reason}`.
-fn dgraph_call<'a, T, R, Op, Fut>(
+pub(crate) fn dgraph_call<'a, T, R, Op, Fut>(
     env: Env<'a>,
     url: String,
     pool: Pool,
@@ -77,7 +80,12 @@ where
     })
 }
 
-fn write_call<'a, Op, Fut>(env: Env<'a>, url: String, deadline_ms: u64, op: Op) -> Term<'a>
+pub(crate) fn write_call<'a, Op, Fut>(
+    env: Env<'a>,
+    url: String,
+    deadline_ms: u64,
+    op: Op,
+) -> Term<'a>
 where
     Op: FnOnce(TopologyClient) -> Fut + Send + 'static,
     Fut: Future<Output = Result<(), TopologyError>> + Send + 'static,
@@ -85,7 +93,7 @@ where
     write_call_in(env, url, Pool::Item, deadline_ms, op)
 }
 
-fn write_call_in<'a, Op, Fut>(
+pub(crate) fn write_call_in<'a, Op, Fut>(
     env: Env<'a>,
     url: String,
     pool: Pool,
@@ -102,7 +110,12 @@ where
     })
 }
 
-fn keys_call<'a, Op, Fut>(env: Env<'a>, url: String, deadline_ms: u64, op: Op) -> Term<'a>
+pub(crate) fn keys_call<'a, Op, Fut>(
+    env: Env<'a>,
+    url: String,
+    deadline_ms: u64,
+    op: Op,
+) -> Term<'a>
 where
     Op: FnOnce(TopologyClient) -> Fut + Send + 'static,
     Fut: Future<Output = Result<Vec<String>, TopologyError>> + Send + 'static,
@@ -120,7 +133,7 @@ where
     )
 }
 
-fn rejected(env: Env<'_>, reason: String) -> Term<'_> {
+pub(crate) fn rejected(env: Env<'_>, reason: String) -> Term<'_> {
     (atoms::error(), reason).encode(env)
 }
 
@@ -413,293 +426,4 @@ fn delete_canonical_edges(
     })
 }
 
-#[rustler::nif]
-fn downstream_of(
-    env: Env<'_>,
-    url: String,
-    from_ids: Vec<String>,
-    to_ids: Vec<String>,
-    deadline_ms: u64,
-) -> Term<'_> {
-    dgraph_call(
-        env,
-        url,
-        Pool::Item,
-        deadline_ms,
-        move |client| async move { client.downstream_of(&from_ids, &to_ids).await },
-        |result| match result {
-            Ok(DownstreamFact::Reachable) => DownstreamResult::Ok(NifDownstreamFact::Reachable),
-            Ok(DownstreamFact::Disjoint) => DownstreamResult::Ok(NifDownstreamFact::Disjoint),
-            Err(reason) => DownstreamResult::Error(reason),
-        },
-    )
-}
-
-#[rustler::nif]
-fn query_canonical_edges(env: Env<'_>, url: String, deadline_ms: u64) -> Term<'_> {
-    dgraph_call(
-        env,
-        url,
-        Pool::Bulk,
-        deadline_ms,
-        |client| async move { client.query_canonical_edges().await },
-        |result| match result {
-            Ok(edges) => {
-                CanonicalEdgesResult::Ok(edges.iter().map(NifCanonicalEdge::from).collect())
-            }
-            Err(reason) => CanonicalEdgesResult::Error(reason),
-        },
-    )
-}
-
-#[rustler::nif]
-fn query_canonical_graph(env: Env<'_>, url: String, deadline_ms: u64) -> Term<'_> {
-    dgraph_call(
-        env,
-        url,
-        Pool::Bulk,
-        deadline_ms,
-        |client| async move { client.query_canonical_graph().await },
-        |result| match result {
-            Ok(graph) => CanonicalGraphResult::Ok(NifCanonicalGraph::from(&graph)),
-            Err(reason) => CanonicalGraphResult::Error(reason),
-        },
-    )
-}
-
-/// The canonical rebuild's inputs as a JSON array of stored rows, read in
-/// bounded pages from one snapshot.
-#[rustler::nif]
-fn query_rebuild_inputs(env: Env<'_>, url: String, deadline_ms: u64) -> Term<'_> {
-    dgraph_call(
-        env,
-        url,
-        Pool::Bulk,
-        deadline_ms,
-        |client| async move { client.query_rebuild_inputs().await },
-        |result| match result
-            .and_then(|rows| serde_json::to_string(&rows).map_err(|err| err.to_string()))
-        {
-            Ok(json) => JsonResult::Ok(json),
-            Err(reason) => JsonResult::Error(reason),
-        },
-    )
-}
-
-/// The Interface vertices carrying `keys` as a JSON array, read in bounded
-/// chunks from one snapshot.
-#[rustler::nif]
-fn query_interfaces_by_key(
-    env: Env<'_>,
-    url: String,
-    keys: Vec<String>,
-    deadline_ms: u64,
-) -> Term<'_> {
-    dgraph_call(
-        env,
-        url,
-        Pool::Bulk,
-        deadline_ms,
-        move |client| async move { client.query_interfaces_by_key(&keys).await },
-        |result| match result
-            .and_then(|rows| serde_json::to_string(&rows).map_err(|err| err.to_string()))
-        {
-            Ok(json) => JsonResult::Ok(json),
-            Err(reason) => JsonResult::Error(reason),
-        },
-    )
-}
-
-#[rustler::nif]
-fn query_neighbourhood(env: Env<'_>, url: String, device_id: String, deadline_ms: u64) -> Term<'_> {
-    dgraph_call(
-        env,
-        url,
-        Pool::Item,
-        deadline_ms,
-        move |client| async move { client.query_neighbourhood(&device_id).await },
-        |result| match result {
-            Ok(edges) => {
-                NeighbourhoodResult::Ok(edges.iter().map(NifNeighbourhoodEdge::from).collect())
-            }
-            Err(reason) => NeighbourhoodResult::Error(reason),
-        },
-    )
-}
-
-#[rustler::nif]
-fn query_mtr_paths(env: Env<'_>, url: String, limit: u64, deadline_ms: u64) -> Term<'_> {
-    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    dgraph_call(
-        env,
-        url,
-        Pool::Item,
-        deadline_ms,
-        move |client| async move { client.query_mtr_paths(limit).await },
-        |result| match result {
-            Ok(paths) => MtrPathsResult::Ok(paths.iter().map(NifMtrPath::from).collect()),
-            Err(reason) => MtrPathsResult::Error(reason),
-        },
-    )
-}
-
-/// The `in:device_graph` neighbourhood as JSON, `null` when no Device has the id.
-#[rustler::nif]
-fn query_device_neighborhood(
-    env: Env<'_>,
-    url: String,
-    device_id: String,
-    include_topology: bool,
-    deadline_ms: u64,
-) -> Term<'_> {
-    dgraph_call(
-        env,
-        url,
-        Pool::Item,
-        deadline_ms,
-        move |client| async move {
-            client
-                .query_device_neighborhood(&device_id, include_topology)
-                .await
-        },
-        |result| match result
-            .and_then(|value| serde_json::to_string(&value).map_err(|err| err.to_string()))
-        {
-            Ok(json) => JsonResult::Ok(json),
-            Err(reason) => JsonResult::Error(reason),
-        },
-    )
-}
-
-/// Read-only DQL as the `in:graph` topology rows (a JSON array). Mutations are
-/// refused here and again in the Elixir facade.
-#[rustler::nif]
-fn query_graph_dql(env: Env<'_>, url: String, dql: String, deadline_ms: u64) -> Term<'_> {
-    if refuses_mutation(&dql) {
-        return rejected(env, "dql escape hatch refuses mutations".to_string());
-    }
-    dgraph_call(
-        env,
-        url,
-        Pool::Item,
-        deadline_ms,
-        move |client| async move { client.query_dql(&dql).await.map(wrap_dql_value) },
-        |result| match result
-            .and_then(|rows| serde_json::to_string(&rows).map_err(|err| err.to_string()))
-        {
-            Ok(json) => JsonResult::Ok(json),
-            Err(reason) => JsonResult::Error(reason),
-        },
-    )
-}
-
-/// Read-only DQL. Mutations are refused here and again in the Elixir facade.
-#[rustler::nif]
-fn query_dql(env: Env<'_>, url: String, dql: String, deadline_ms: u64) -> Term<'_> {
-    if refuses_mutation(&dql) {
-        return rejected(env, "dql escape hatch refuses mutations".to_string());
-    }
-    dgraph_call(
-        env,
-        url,
-        Pool::Item,
-        deadline_ms,
-        move |client| async move { client.query_dql(&dql).await },
-        |result| match result
-            .and_then(|value| serde_json::to_string(&value).map_err(|err| err.to_string()))
-        {
-            Ok(json) => JsonResult::Ok(json),
-            Err(reason) => JsonResult::Error(reason),
-        },
-    )
-}
-
 rustler::init!("Elixir.ServiceRadar.Dgraph.Native");
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
-
-    use tokio::sync::Semaphore;
-
-    use crate::abi::refuses_mutation;
-    use crate::call::{execute, Kind};
-    use crate::runtime::{client_for, Failure};
-
-    /// A listener that completes the TCP handshake from its backlog but never
-    /// accepts or answers: the shape of a black-holed or wedged Dgraph.
-    fn black_hole() -> (std::net::TcpListener, String) {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-        let port = listener.local_addr().expect("local addr").port();
-        (listener, format!("dgraph://127.0.0.1:{port}"))
-    }
-
-    fn block_on<F: std::future::Future>(future: F) -> F::Output {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .expect("test runtime")
-            .block_on(future)
-    }
-
-    #[test]
-    fn connecting_to_a_black_hole_times_out_within_the_connect_bound() {
-        let (_listener, url) = black_hole();
-        let started = Instant::now();
-        let result = block_on(client_for(&url, Duration::from_millis(300)));
-        assert!(
-            matches!(&result, Err(Failure::Timeout(reason)) if reason.contains("connect timed out")),
-            "expected a connect timeout, got {:?}",
-            result.map(|_| ())
-        );
-        assert!(started.elapsed() < Duration::from_secs(5));
-    }
-
-    #[test]
-    fn a_black_holed_call_reports_a_timeout() {
-        let (_listener, url) = black_hole();
-        let report = block_on(execute(
-            Arc::new(Semaphore::new(1)),
-            Duration::from_millis(300),
-            move |remaining| async move {
-                let client = client_for(&url, remaining).await?;
-                client
-                    .query_dql("{ q(func: uid(0x1)) { uid } }")
-                    .await
-                    .map_err(Failure::from)
-            },
-        ));
-        assert_eq!(report.kind, Kind::Timeout);
-        assert!(report.elapsed < Duration::from_secs(5));
-    }
-
-    #[test]
-    fn an_unreachable_cluster_is_transient() {
-        // Bind then close: nothing listens on the port, so connect is refused.
-        let port = {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-            listener.local_addr().expect("local addr").port()
-        };
-        let result = block_on(client_for(
-            &format!("dgraph://127.0.0.1:{port}"),
-            Duration::from_secs(5),
-        ));
-        assert!(
-            matches!(result, Err(Failure::Transient(_))),
-            "a refused connection must be retryable, got {:?}",
-            result.map(|_| ())
-        );
-    }
-
-    #[test]
-    fn read_query_is_not_a_mutation() {
-        assert!(!refuses_mutation(
-            "{ edges(func: type(TopologyEdge)) { topo.link_key } }"
-        ));
-        assert!(refuses_mutation(
-            "mutation { set { _:x <dgraph.type> \"Device\" } }"
-        ));
-    }
-}

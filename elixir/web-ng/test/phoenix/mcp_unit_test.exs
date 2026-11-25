@@ -27,7 +27,8 @@ defmodule ServiceRadarWebNG.McpUnitTest do
              :get_srql_catalog,
              :horizon_intel_lookup,
              :list_devices,
-             :lookup_srql_docs
+             :lookup_srql_docs,
+             :topology_blast_radius
            ]
   end
 
@@ -73,6 +74,7 @@ defmodule ServiceRadarWebNG.McpUnitTest do
     assert text =~ "in:horizon_paths"
     assert text =~ "in:horizon_isp_accountability"
     assert text =~ "horizon_intel_lookup"
+    assert text =~ "topology_blast_radius"
     refute text =~ "sidebar_position"
   end
 
@@ -117,6 +119,10 @@ defmodule ServiceRadarWebNG.McpUnitTest do
     assert {:ok, intel_hits} = Docs.lookup("horizon_intel_lookup", :unused)
     assert intel_hits["hit_count"] > 0
     assert intel_hits["text"] =~ "horizon_intel_lookup"
+
+    assert {:ok, graph_hits} = Docs.lookup("topology_blast_radius", :unused)
+    assert graph_hits["hit_count"] > 0
+    assert graph_hits["text"] =~ "topology_blast_radius"
   end
 
   test "Horizon SRQL catalog entries translate against the Rust StarRocks dialect and cover projector defaults" do

@@ -8,6 +8,7 @@ const ALLOWED_PREFIXES: &[&str] = &[
     "topo.",
     "prefix.",
     "change.",
+    "ext.",
 ];
 
 #[test]
@@ -47,6 +48,7 @@ fn upsert_keys_are_marked() {
     assert!(SCHEMA.contains("topo.link_key: string @index(exact) @upsert"));
     assert!(SCHEMA.contains("prefix.cidr: string @index(exact) @upsert"));
     assert!(SCHEMA.contains("change.id: string @index(exact) @upsert"));
+    assert!(SCHEMA.contains("ext.id: string @index(exact) @upsert"));
 }
 
 #[test]
@@ -60,6 +62,13 @@ fn required_types_are_present() {
         "TopologyEdge",
         "Prefix",
         "Change",
+        "Vantage",
+        "TransitRouter",
+        "IXP",
+        "Facility",
+        "ASN",
+        "AnycastPop",
+        "SaasTarget",
     ] {
         assert!(TYPES.contains(&ty), "missing type {ty}");
     }

@@ -81,7 +81,8 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         bumblebee_catalog_scheduler_child(),
         cli_auth_scheduler_child(),
         rum_policy_sync_child(),
-        event_writer_child()
+        event_writer_child(),
+        horizon_topology_consumer_child()
       ],
       &is_nil/1
     )
@@ -498,6 +499,13 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp event_writer_child do
     if ServiceRadar.EventWriter.Supervisor.enabled?() do
       Supervisor.child_spec(ServiceRadar.EventWriter.CoordinatorSupervisor, restart: :permanent)
+    end
+  end
+
+  defp horizon_topology_consumer_child do
+    if ServiceRadar.EventWriter.Supervisor.enabled?() and
+         enabled?("HORIZON_TOPOLOGY_CONSUMER_ENABLED", :horizon_topology_consumer_enabled, true) do
+      ServiceRadar.EventWriter.HorizonTopologyConsumer
     end
   end
 

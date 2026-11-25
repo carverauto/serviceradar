@@ -33,6 +33,12 @@ pub const PRED_PREFIX_CIDR: &str = "prefix.cidr";
 /// Change identity: the external change id.
 pub const PRED_CHANGE_ID: &str = "change.id";
 
+/// External entity identity: canonical ID from Horizon topology snapshots.
+pub const PRED_EXT_ID: &str = "ext.id";
+
+/// Ingestor tag stamped on external topology projections.
+pub const HORIZON_INGESTOR: &str = "horizon_topology_v1";
+
 /// DQL schema applied by the migrator.
 pub const SCHEMA: &str = r#"
 device.id: string @index(exact) @upsert .
@@ -89,9 +95,20 @@ topo.jitter_us: int .
 topo.from_hop: int .
 topo.to_hop: int .
 topo.mutation_id: string @index(exact) .
+topo.border_asn: int @index(int) .
+topo.as_boundary_confidence: float .
+topo.expires_at: datetime @index(hour) .
+topo.ttl_secs: int .
 
 prefix.cidr: string @index(exact) @upsert .
 prefix.family: string @index(exact) .
+prefix.asn: int @index(int) .
+prefix.rpki_state: string @index(exact) .
+prefix.rtbh_active: bool @index(bool) .
+prefix.max_length: int .
+prefix.irr_status: string @index(exact) .
+prefix.last_seen: datetime @index(hour) .
+prefix.expires_at: datetime @index(hour) .
 
 change.id: string @index(exact) @upsert .
 change.kind: string @index(exact) .
@@ -100,6 +117,23 @@ change.window_end: datetime @index(hour) .
 change.status: string @index(exact) .
 change.source: string @index(exact) .
 change.affects: [uid] @reverse .
+
+ext.id: string @index(exact) @upsert .
+ext.kind: string @index(exact) .
+ext.asn: int @index(int) .
+ext.label: string @index(exact) .
+ext.region: string @index(exact) .
+ext.ip: string @index(exact) .
+ext.rpki_state: string @index(exact) .
+ext.rtbh_active: bool @index(bool) .
+ext.metro: string @index(exact) .
+ext.iata: string @index(exact) .
+ext.country_code: string @index(exact) .
+ext.outage_state: string @index(exact) .
+ext.ingestor: string @index(exact) .
+ext.last_seen: datetime @index(hour) .
+ext.expires_at: datetime @index(hour) .
+ext.stale: bool @index(bool) .
 
 type Device {
   device.id
@@ -169,11 +203,22 @@ type TopologyEdge {
   topo.from_hop
   topo.to_hop
   topo.mutation_id
+  topo.border_asn
+  topo.as_boundary_confidence
+  topo.expires_at
+  topo.ttl_secs
 }
 
 type Prefix {
   prefix.cidr
   prefix.family
+  prefix.asn
+  prefix.rpki_state
+  prefix.rtbh_active
+  prefix.max_length
+  prefix.irr_status
+  prefix.last_seen
+  prefix.expires_at
 }
 
 type Change {
@@ -184,6 +229,107 @@ type Change {
   change.status
   change.source
   change.affects
+}
+
+type Vantage {
+  ext.id
+  ext.kind
+  ext.asn
+  ext.label
+  ext.region
+  ext.ip
+  ext.iata
+  ext.country_code
+  ext.ingestor
+  ext.last_seen
+  ext.expires_at
+  ext.stale
+}
+
+type TransitRouter {
+  ext.id
+  ext.kind
+  ext.asn
+  ext.label
+  ext.region
+  ext.ip
+  ext.rpki_state
+  ext.rtbh_active
+  ext.ingestor
+  ext.last_seen
+  ext.expires_at
+  ext.stale
+}
+
+type IXP {
+  ext.id
+  ext.kind
+  ext.label
+  ext.region
+  ext.metro
+  ext.iata
+  ext.country_code
+  ext.ingestor
+  ext.last_seen
+  ext.expires_at
+  ext.stale
+}
+
+type Facility {
+  ext.id
+  ext.kind
+  ext.label
+  ext.region
+  ext.metro
+  ext.country_code
+  ext.ingestor
+  ext.last_seen
+  ext.expires_at
+  ext.stale
+}
+
+type ASN {
+  ext.id
+  ext.kind
+  ext.asn
+  ext.label
+  ext.region
+  ext.rpki_state
+  ext.rtbh_active
+  ext.ingestor
+  ext.last_seen
+  ext.expires_at
+  ext.stale
+}
+
+type AnycastPop {
+  ext.id
+  ext.kind
+  ext.asn
+  ext.label
+  ext.region
+  ext.metro
+  ext.iata
+  ext.country_code
+  ext.outage_state
+  ext.ingestor
+  ext.last_seen
+  ext.expires_at
+  ext.stale
+}
+
+type SaasTarget {
+  ext.id
+  ext.kind
+  ext.asn
+  ext.label
+  ext.region
+  ext.ip
+  ext.outage_state
+  ext.ingestor
+  ext.last_seen
+  ext.expires_at
+  ext.stale
 }
 "#;
 
@@ -239,8 +385,19 @@ pub const PREDICATES: &[&str] = &[
     "topo.from_hop",
     "topo.to_hop",
     "topo.mutation_id",
+    "topo.border_asn",
+    "topo.as_boundary_confidence",
+    "topo.expires_at",
+    "topo.ttl_secs",
     "prefix.cidr",
     "prefix.family",
+    "prefix.asn",
+    "prefix.rpki_state",
+    "prefix.rtbh_active",
+    "prefix.max_length",
+    "prefix.irr_status",
+    "prefix.last_seen",
+    "prefix.expires_at",
     "change.id",
     "change.kind",
     "change.window_start",
@@ -248,6 +405,22 @@ pub const PREDICATES: &[&str] = &[
     "change.status",
     "change.source",
     "change.affects",
+    "ext.id",
+    "ext.kind",
+    "ext.asn",
+    "ext.label",
+    "ext.region",
+    "ext.ip",
+    "ext.rpki_state",
+    "ext.rtbh_active",
+    "ext.metro",
+    "ext.iata",
+    "ext.country_code",
+    "ext.outage_state",
+    "ext.ingestor",
+    "ext.last_seen",
+    "ext.expires_at",
+    "ext.stale",
 ];
 
 /// Types this schema owns.
@@ -260,6 +433,13 @@ pub const TYPES: &[&str] = &[
     "TopologyEdge",
     "Prefix",
     "Change",
+    "Vantage",
+    "TransitRouter",
+    "IXP",
+    "Facility",
+    "ASN",
+    "AnycastPop",
+    "SaasTarget",
 ];
 
 /// Spec consumed by `dgraph-migrate`.

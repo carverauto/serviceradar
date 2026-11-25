@@ -16,10 +16,17 @@
 
 mod canonical_edge;
 mod canonical_graph;
+mod external;
 mod writes;
 
 pub use canonical_edge::{CanonicalEdge, NeighbourhoodEdge, link_key};
 pub use canonical_graph::{CanonicalDevice, CanonicalGraph, TopologyView};
+pub use external::{
+    BlastRadiusResult, CustomerConeResult, ExternalEdgeKind, ExternalEdgeRef, ExternalEdgeWrite,
+    ExternalNodeKind, ExternalNodeRef, ExternalNodeWrite, ExternalSnapshotWrite,
+    ExternalStatusPatch, ExternalUpsertStats, MultiHopTraceResult, SharedFateSpof,
+    clamp_max_hops, clamp_query_limit,
+};
 pub use writes::{
     ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite, HopWrite, InterfaceWrite, MtrMetrics,
     PrefixWrite,

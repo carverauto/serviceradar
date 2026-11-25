@@ -8,7 +8,7 @@ defmodule ServiceRadar.NetworkConfig.Projector do
   `direct-physical` backbone edges.
   """
 
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
 
   @ingestor "network_config_v1"
@@ -27,7 +27,7 @@ defmodule ServiceRadar.NetworkConfig.Projector do
   @spec project(String.t(), map() | String.t(), [map()], keyword()) :: :ok | {:error, term()}
   def project(device_uid, revision, facts, opts \\ [])
       when is_binary(device_uid) and is_list(facts) do
-    persist_dgraph = Keyword.get(opts, :persist_dgraph, &DgraphPersist.project_config_facts/1)
+    persist_dgraph = Keyword.get(opts, :persist_dgraph, &TopologyGraph.project_config_facts/1)
 
     device_uid
     |> payloads(revision, facts)

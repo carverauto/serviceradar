@@ -13,7 +13,7 @@ defmodule ServiceRadar.Observability.MtrGraph do
   Stale MTR_PATH edges are pruned after a configurable interval (default 24 hours).
   """
 
-  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStore
   alias ServiceRadar.Repo
 
   require Logger
@@ -69,7 +69,7 @@ defmodule ServiceRadar.Observability.MtrGraph do
       |> DateTime.shift(hour: -stale_hours)
       |> DateTime.to_iso8601()
 
-    DgraphPersist.prune_stale(cutoff, ["MTR_PATH"])
+    GraphStore.adapter().prune_stale(cutoff, ["MTR_PATH"])
     Logger.debug("Pruned stale MTR_PATH edges older than #{stale_hours}h")
     :ok
   end
@@ -95,7 +95,7 @@ defmodule ServiceRadar.Observability.MtrGraph do
     {from_kind, from_id} = node_identity(from_hop, ip_to_device)
     {to_kind, to_id} = node_identity(to_hop, ip_to_device)
 
-    DgraphPersist.upsert_mtr_path(%{
+    GraphStore.adapter().upsert_mtr_path(%{
       from_id: from_id,
       to_id: to_id,
       from_kind: from_kind,
