@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Camera.Thumbnail
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraRelayComponents
@@ -154,208 +155,274 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
           :if={@can_semantic_search?}
           id="camera-fleet-semantic-search"
           aria-label="Semantic Clip Search"
-          class="card card-border bg-base-100"
+          class="space-y-3 rounded-xl border border-sr-line bg-sr-surface p-4"
         >
-          <div class="card-body gap-3 p-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 class="card-title text-sm font-semibold">Semantic Clip Search</h3>
-                <p class="text-xs opacity-75">
-                  Search recorded camera clips across authorized cameras by visual description.
-                </p>
-              </div>
-              <span :if={@semantic_search_executed?} class="badge badge-outline badge-sm">
-                {@semantic_search_count} {if(@semantic_search_count == 1, do: "clip", else: "clips")}
-              </span>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-semibold text-sr-ink">Semantic Clip Search</h3>
+              <p class="mt-0.5 text-xs text-sr-muted">
+                Search recorded camera clips across authorized cameras by visual description.
+              </p>
+            </div>
+            <.ui_badge
+              :if={@semantic_search_executed?}
+              id="camera-fleet-semantic-count"
+              variant="outline"
+              size="xs"
+            >
+              {@semantic_search_count} {if(@semantic_search_count == 1, do: "clip", else: "clips")}
+            </.ui_badge>
+          </div>
+
+          <.form
+            for={@semantic_search_form}
+            id="camera-fleet-semantic-search-form"
+            phx-submit="semantic_search"
+            class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9.5rem_7.5rem_auto] sm:items-center"
+          >
+            <div>
+              <label for="camera-fleet-semantic-query" class="sr-only">
+                Visual clip search query
+              </label>
+              <input
+                id="camera-fleet-semantic-query"
+                type="text"
+                name="search[q]"
+                value={@semantic_search_form[:q].value}
+                maxlength="256"
+                placeholder="e.g. person in red dress, white van near gate"
+                class="h-9 w-full rounded-lg border border-sr-line bg-sr-control px-3 text-xs text-sr-ink placeholder:text-sr-muted focus:border-sr-brand focus:outline-none"
+              />
             </div>
 
-            <.form
-              for={@semantic_search_form}
-              id="camera-fleet-semantic-search-form"
-              phx-submit="semantic_search"
-              class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_8rem_auto]"
-            >
-              <div>
-                <label for="camera-fleet-semantic-query" class="sr-only">
-                  Visual clip search query
-                </label>
-                <input
-                  id="camera-fleet-semantic-query"
-                  type="text"
-                  name="search[q]"
-                  value={@semantic_search_form[:q].value}
-                  maxlength="256"
-                  placeholder="e.g. person in red dress, white van near gate"
-                  class="input input-sm w-full"
-                />
-              </div>
-
-              <div>
-                <label for="camera-fleet-semantic-object-class" class="sr-only">Object class</label>
-                <select
-                  id="camera-fleet-semantic-object-class"
-                  name="search[object_class]"
-                  class="select select-sm w-full"
-                >
-                  <option
-                    value=""
-                    selected={@semantic_search_form[:object_class].value in [nil, ""]}
-                  >
-                    All classes
-                  </option>
-                  <option
-                    :for={cls <- CameraSemanticSearch.allowed_object_classes()}
-                    value={cls}
-                    selected={@semantic_search_form[:object_class].value == cls}
-                  >
-                    {String.capitalize(cls)}
-                  </option>
-                </select>
-              </div>
-
-              <div>
-                <label for="camera-fleet-semantic-range" class="sr-only">Time range</label>
-                <select
-                  id="camera-fleet-semantic-range"
-                  name="search[range]"
-                  class="select select-sm w-full"
-                >
-                  <option
-                    :for={
-                      {val, label} <- [
-                        {"1h", "Last 1h"},
-                        {"6h", "Last 6h"},
-                        {"24h", "Last 24h"},
-                        {"7d", "Last 7d"},
-                        {"30d", "Last 30d"}
-                      ]
-                    }
-                    value={val}
-                    selected={(@semantic_search_form[:range].value || "24h") == val}
-                  >
-                    {label}
-                  </option>
-                </select>
-              </div>
-
-              <div class="flex items-center gap-1.5">
-                <button
-                  id="camera-fleet-semantic-submit"
-                  type="submit"
-                  class="btn btn-primary btn-sm"
-                >
-                  <.icon name="hero-magnifying-glass" class="size-4" /> Search
-                </button>
-                <button
-                  :if={
-                    @semantic_search_executed? or
-                      (@semantic_search_form[:q].value || "") != ""
-                  }
-                  id="camera-fleet-semantic-clear"
-                  type="button"
-                  phx-click="clear_semantic_search"
-                  class="btn btn-ghost btn-sm"
-                >
-                  Clear
-                </button>
-              </div>
-            </.form>
-
-            <div
-              :if={@semantic_embedder_unavailable?}
-              id="camera-fleet-semantic-unavailable"
-              role="alert"
-              class="alert alert-warning sm:alert-horizontal"
-            >
-              <.icon name="hero-exclamation-triangle" class="size-5 shrink-0" />
-              <div class="text-xs">
-                <p class="font-semibold">Visual search workers unavailable</p>
-                <p>
-                  No compatible media worker responded within the interactive deadline. Live camera views and continuous recording remain unaffected.
-                </p>
-              </div>
-            </div>
-
-            <div
-              :if={@semantic_search_error}
-              id="camera-fleet-semantic-error"
-              role="alert"
-              class="alert alert-error sm:alert-horizontal text-xs"
-            >
-              <span>{@semantic_search_error}</span>
-            </div>
-
-            <p
-              :if={
-                @semantic_search_executed? and @semantic_search_count == 0 and
-                  not @semantic_embedder_unavailable? and is_nil(@semantic_search_error)
-              }
-              id="camera-fleet-semantic-empty"
-              class="text-xs opacity-75"
-            >
-              No matching recorded clips found across authorized cameras in the selected window.
-            </p>
-
-            <div
-              id="camera-fleet-semantic-results"
-              phx-update="stream"
-              class={[
-                "grid gap-3 md:grid-cols-2 xl:grid-cols-3",
-                @semantic_search_count == 0 && "hidden"
-              ]}
-            >
-              <article
-                :for={{dom_id, hit} <- @streams.semantic_search_results}
-                id={dom_id}
-                data-role="semantic-search-result-card"
-                class="card card-border card-sm bg-base-200"
+            <div>
+              <label for="camera-fleet-semantic-object-class" class="sr-only">Object class</label>
+              <select
+                id="camera-fleet-semantic-object-class"
+                name="search[object_class]"
+                class="h-9 w-full rounded-lg border border-sr-line bg-sr-control px-2.5 text-xs text-sr-ink focus:border-sr-brand focus:outline-none"
               >
-                <div class="card-body gap-2 p-3">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="min-w-0">
-                      <h4 class="truncate text-sm font-semibold">{hit.camera_display_name}</h4>
-                      <p class="text-xs opacity-75">
-                        <span class="font-mono">{hit.time_basis}</span>
-                        <.user_time
-                          id={"#{dom_id}-time"}
-                          value={DateTime.from_unix!(hit.best_timeline_ts_us, :microsecond)}
-                          timezone={@timezone}
-                        />
-                      </p>
-                    </div>
-                    <span class="badge badge-primary badge-sm shrink-0">
-                      {format_score_pct(hit.score)}
-                    </span>
-                  </div>
-
-                  <div class="flex flex-wrap items-center gap-1.5">
-                    <span :if={hit.object_class} class="badge badge-outline badge-xs">
-                      {hit.object_class}
-                    </span>
-                    <span
-                      :for={color <- hit.dominant_colors}
-                      class="badge badge-ghost badge-xs"
-                    >
-                      {color}
-                    </span>
-                    <span class="badge badge-ghost badge-xs font-mono">
-                      {hit.region_kind}
-                    </span>
-                  </div>
-
-                  <div class="card-actions justify-end pt-1">
-                    <.link
-                      id={"#{dom_id}-open-timeline"}
-                      data-role="open-in-timeline-link"
-                      navigate={hit.timeline_path}
-                      class="btn btn-outline btn-xs"
-                    >
-                      Open in Timeline
-                    </.link>
-                  </div>
-                </div>
-              </article>
+                <option
+                  value=""
+                  selected={@semantic_search_form[:object_class].value in [nil, ""]}
+                >
+                  All classes
+                </option>
+                <option
+                  :for={cls <- CameraSemanticSearch.allowed_object_classes()}
+                  value={cls}
+                  selected={@semantic_search_form[:object_class].value == cls}
+                >
+                  {String.capitalize(cls)}
+                </option>
+              </select>
             </div>
+
+            <div>
+              <label for="camera-fleet-semantic-range" class="sr-only">Time range</label>
+              <select
+                id="camera-fleet-semantic-range"
+                name="search[range]"
+                class="h-9 w-full rounded-lg border border-sr-line bg-sr-control px-2.5 text-xs text-sr-ink focus:border-sr-brand focus:outline-none"
+              >
+                <option
+                  :for={
+                    {val, label} <- [
+                      {"1h", "Last 1h"},
+                      {"6h", "Last 6h"},
+                      {"24h", "Last 24h"},
+                      {"7d", "Last 7d"},
+                      {"30d", "Last 30d"}
+                    ]
+                  }
+                  value={val}
+                  selected={(@semantic_search_form[:range].value || "24h") == val}
+                >
+                  {label}
+                </option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <.ui_button
+                id="camera-fleet-semantic-submit"
+                type="submit"
+                variant="primary"
+                size="sm"
+              >
+                <.icon name="hero-magnifying-glass" class="size-4" /> Search
+              </.ui_button>
+              <.ui_button
+                :if={
+                  @semantic_search_executed? or
+                    (@semantic_search_form[:q].value || "") != ""
+                }
+                id="camera-fleet-semantic-clear"
+                type="button"
+                phx-click="clear_semantic_search"
+                variant="outline"
+                size="sm"
+              >
+                Clear
+              </.ui_button>
+            </div>
+          </.form>
+
+          <div
+            :if={@semantic_embedder_unavailable?}
+            id="camera-fleet-semantic-unavailable"
+            role="alert"
+            class="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-sr-ink"
+          >
+            <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0 text-amber-400" />
+            <div>
+              <p class="font-semibold">Visual search workers unavailable</p>
+              <p class="mt-0.5 text-sr-muted">
+                No compatible media worker responded within the interactive deadline. Live camera views and continuous recording remain unaffected.
+              </p>
+            </div>
+          </div>
+
+          <div
+            :if={@semantic_search_error}
+            id="camera-fleet-semantic-error"
+            role="alert"
+            class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2.5 text-xs text-sr-ink"
+          >
+            <span>{@semantic_search_error}</span>
+          </div>
+
+          <p
+            :if={
+              @semantic_search_executed? and @semantic_search_count == 0 and
+                not @semantic_embedder_unavailable? and is_nil(@semantic_search_error)
+            }
+            id="camera-fleet-semantic-empty"
+            class="rounded-lg border border-dashed border-sr-line bg-sr-canvas px-4 py-4 text-center text-xs text-sr-muted"
+          >
+            No matching recorded clips found across authorized cameras in the selected window.
+          </p>
+
+          <div
+            id="camera-fleet-semantic-results"
+            phx-update="stream"
+            class={[
+              "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3",
+              @semantic_search_count == 0 && "hidden"
+            ]}
+          >
+            <article
+              :for={{dom_id, hit} <- @streams.semantic_search_results}
+              id={dom_id}
+              data-role="semantic-search-result-card"
+              class="group flex flex-col overflow-hidden rounded-xl border border-sr-line bg-sr-canvas transition-colors hover:border-sr-brand/60 hover:bg-sr-surface"
+            >
+              <% thumb_url = hit_thumbnail_url(hit) %>
+              <% fallback_thumb_url = hit_fallback_thumbnail_url(hit, thumb_url) %>
+              <% object_label = format_hit_object_class(hit.object_class) %>
+              <div class="relative aspect-video w-full overflow-hidden bg-zinc-950">
+                <div
+                  data-role="semantic-hit-thumbnail-fallback"
+                  class="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-900 text-zinc-500"
+                >
+                  <.icon
+                    name={hit_category_icon(hit.object_class)}
+                    class="size-8 text-zinc-600 transition-transform duration-200 group-hover:scale-110 group-hover:text-zinc-400"
+                  />
+                </div>
+                <img
+                  :if={thumb_url}
+                  src={thumb_url}
+                  alt={"#{hit.camera_display_name} — #{object_label || "Clip"} match"}
+                  loading="lazy"
+                  data-role="semantic-hit-thumbnail"
+                  data-fallback-src={fallback_thumb_url}
+                  onerror={thumbnail_onerror_js(fallback_thumb_url)}
+                  class="absolute inset-0 h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                />
+                <div class="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-black/70 via-black/30 to-transparent">
+                </div>
+                <span
+                  data-role="semantic-hit-score-pill"
+                  class="absolute top-2 left-2 inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-black/75 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-xs"
+                >
+                  <.icon
+                    name={hit_category_icon(hit.object_class)}
+                    class="size-3 shrink-0 text-emerald-400"
+                  />
+                  <span :if={object_label}>{object_label}</span>
+                  <span :if={object_label} class="text-white/40">&middot;</span>
+                  <span class="font-mono font-semibold text-emerald-300">
+                    {format_score_pct(hit.score)}
+                  </span>
+                </span>
+                <span
+                  data-role="semantic-hit-camera-badge"
+                  title={hit.camera_display_name}
+                  class="absolute top-2 right-2 max-w-[55%] truncate rounded-md border border-white/10 bg-black/75 px-2 py-0.5 text-[11px] font-medium text-zinc-100 backdrop-blur-xs"
+                >
+                  {hit.camera_display_name}
+                </span>
+              </div>
+
+              <div class="flex flex-1 flex-col gap-2.5 p-3">
+                <div class="flex items-center justify-between gap-2 text-[11px] text-sr-muted">
+                  <span class="truncate font-medium text-sr-ink">
+                    <.user_time
+                      id={"#{dom_id}-time"}
+                      value={DateTime.from_unix!(hit.best_timeline_ts_us, :microsecond)}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                  </span>
+                  <span class="shrink-0 rounded bg-sr-surface px-1.5 py-0.5 font-mono text-[10px] text-sr-muted">
+                    {hit.time_basis}
+                  </span>
+                </div>
+
+                <p
+                  :if={present_caption?(hit)}
+                  data-role="semantic-hit-caption"
+                  class="line-clamp-2 text-xs leading-relaxed text-sr-ink"
+                >
+                  {hit.caption_text}
+                </p>
+
+                <div
+                  :if={hit.dominant_colors != [] or Map.get(hit, :action_tags, []) != []}
+                  data-role="semantic-hit-metadata"
+                  class="flex flex-wrap items-center gap-1"
+                >
+                  <span
+                    :for={tag <- Enum.take(Map.get(hit, :action_tags, []), 3)}
+                    class="rounded-md border border-sr-line bg-sr-surface px-1.5 py-0.5 text-[10px] font-medium text-sr-ink"
+                  >
+                    {String.capitalize(tag)}
+                  </span>
+                  <span
+                    :for={color <- Enum.take(hit.dominant_colors, 3)}
+                    class="rounded-md border border-sr-line/70 bg-sr-surface/60 px-1.5 py-0.5 text-[10px] text-sr-muted"
+                  >
+                    {String.capitalize(color)}
+                  </span>
+                </div>
+
+                <div class="mt-auto flex items-center justify-end border-t border-sr-line/60 pt-2">
+                  <.link
+                    id={"#{dom_id}-open-timeline"}
+                    data-role="open-in-timeline-link"
+                    navigate={hit.timeline_path}
+                    class="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 transition-colors hover:text-emerald-300"
+                  >
+                    <span>Open in Timeline</span>
+                    <.icon
+                      name="hero-arrow-right"
+                      class="size-3.5 transition-transform group-hover:translate-x-0.5"
+                    />
+                  </.link>
+                </div>
+              </div>
+            </article>
           </div>
         </section>
 
@@ -615,6 +682,70 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
 
   defp format_score_pct(score) when is_number(score), do: "#{round(score * 100)}%"
   defp format_score_pct(_), do: "0%"
+
+  defp hit_thumbnail_url(%{thumbnail_url: url}) when is_binary(url) and url != "", do: url
+  defp hit_thumbnail_url(%{thumbnail_url: nil}), do: nil
+
+  defp hit_thumbnail_url(hit) when is_map(hit) do
+    CameraSemanticSearch.build_thumbnail_url(
+      Map.get(hit, :camera_source_id),
+      Map.get(hit, :visual_frame_id),
+      Map.get(hit, :catalog_entry_id),
+      Map.get(hit, :has_frame_thumbnail),
+      Map.get(hit, :has_block_thumbnail)
+    )
+  end
+
+  defp hit_thumbnail_url(_), do: nil
+
+  defp hit_fallback_thumbnail_url(hit, primary_url) when is_map(hit) and is_binary(primary_url) do
+    source_id = Map.get(hit, :camera_source_id)
+    entry_id = Map.get(hit, :catalog_entry_id)
+
+    if String.contains?(primary_url, "/thumbnails/frame/") and
+         is_binary(source_id) and source_id != "" and
+         is_binary(entry_id) and entry_id != "" and
+         Map.get(hit, :has_block_thumbnail) != false do
+      Thumbnail.block_url(source_id, entry_id)
+    end
+  end
+
+  defp hit_fallback_thumbnail_url(_, _), do: nil
+
+  defp thumbnail_onerror_js(nil), do: "this.style.display='none'"
+
+  defp thumbnail_onerror_js(_fallback_url) do
+    "if(!this.dataset.fallbackTried&&this.dataset.fallbackSrc){this.dataset.fallbackTried='1';this.src=this.dataset.fallbackSrc;}else{this.style.display='none';}"
+  end
+
+  defp present_caption?(hit) when is_map(hit) do
+    case Map.get(hit, :caption_text) do
+      text when is_binary(text) -> String.trim(text) != ""
+      _ -> false
+    end
+  end
+
+  defp present_caption?(_), do: false
+
+  defp format_hit_object_class(cls) when is_binary(cls) do
+    trimmed = String.trim(cls)
+    if trimmed == "", do: nil, else: String.capitalize(trimmed)
+  end
+
+  defp format_hit_object_class(_), do: nil
+
+  defp hit_category_icon(cls) when is_binary(cls) do
+    case String.downcase(String.trim(cls)) do
+      "person" -> "hero-user"
+      "vehicle" -> "hero-truck"
+      "animal" -> "hero-sparkles"
+      "package" -> "hero-cube"
+      "bicycle" -> "hero-bolt"
+      _ -> "hero-video-camera"
+    end
+  end
+
+  defp hit_category_icon(_), do: "hero-video-camera"
 
   defp user_timezone(%{user: %{timezone: tz}}) when is_binary(tz) and tz != "", do: tz
   defp user_timezone(_scope), do: "Etc/UTC"
