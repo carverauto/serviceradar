@@ -11,7 +11,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RecordingPubSub
   alias ServiceRadar.Camera.RecordingTimeline
-  alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Repo
@@ -2973,7 +2972,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   defp default_get_frame_overlay(source_id, highlight_frame_id, scope)
        when is_binary(source_id) and is_binary(highlight_frame_id) do
-    case SemanticSearch.get_frame_overlay(source_id, highlight_frame_id, scope: scope) do
+    case CameraSemanticSearch.get_frame_overlay(scope, source_id, highlight_frame_id) do
       {:ok, detections} when is_list(detections) -> detections
       _ -> []
     end
