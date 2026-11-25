@@ -109,6 +109,7 @@ defmodule ServiceRadarWebNGWeb.Components.CameraPanelTest do
       assert html =~ "1 unchecked"
       # No relay resolution failed, so nothing is contradicted.
       refute html =~ "tone-warning"
+      assert html =~ ~s(href="/cameras/cam-side/recordings?mode=live")
     end
   end
 
@@ -143,10 +144,10 @@ defmodule ServiceRadarWebNGWeb.Components.CameraPanelTest do
       refute html =~ "unchecked"
       refute html =~ "sr-ops-camera-tile-degraded"
 
-      # The streaming tile keeps its plain stream detail and links to the recordings workspace.
+      # The streaming tile keeps its plain stream detail and links to live mode in the recordings workspace.
       assert html =~ "Low"
       assert html =~ "Source: live relay (stream open)"
-      assert html =~ ~s(href="/cameras/cam-front/recordings")
+      assert html =~ ~s(href="/cameras/cam-front/recordings?mode=live")
     end
   end
 
