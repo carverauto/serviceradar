@@ -5,6 +5,7 @@ Captures answer questions only. No captured value is committed (design D12).
 - [ ] 0.1 Register a DJI developer Cloud API app and an Open API key for the lab.
 - [ ] 0.2 S1: capture MQTT CONNECT and SUBSCRIBE from a Dock 2 or Dock 3, an O4 Ground Station (if available) and Pilot 2 on RC Plus 2. Record:
   - protocol level
+  - CONNECT client ID, and whether it equals the gateway serial
   - QoS, retain and Will flags
   - whether Pilot needs `tcp://` or `ws(s)://`
   - whether Pilot accepts an API base URL with a path prefix

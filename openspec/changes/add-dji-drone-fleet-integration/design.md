@@ -191,27 +191,44 @@ implements MQTT 3.1.1 with QoS 0/1/2 and needs JetStream.
   address platform subjects.
 - The `DJI` account exports only the DJI topic space, which NATS maps to
   `thing.product.*.>` and `sys.product.*.>`. The gateway's account imports it.
-- Per-gateway authorization comes through the auth callout. A new
-  password-grant path issues a user JWT bound to the enrollment's gateway
-  serial `<gw>`:
-  - publish on its own gateway topics:
-    `thing.product.<gw>.{osd,state,events,requests,services_reply,property.set_reply,drc.up}`
-    and `sys.product.<gw>.status`
-  - publish `osd` and `state` for sub-devices: `thing.product.*.osd` and
-    `thing.product.*.state`. DJI publishes each aircraft's and payload's
-    telemetry on that sub-device's own topic, and sub-devices change while a
-    gateway stays connected (pairing, an aircraft landing at another dock).
-  - subscribe on its own downlink topics: `thing.product.<gw>.{services,property.set,drc.down,requests_reply,events_reply}`
-    and `sys.product.<gw>.status_reply`
-- **The gateway service enforces sub-device membership.** It accepts a
-  sub-device `osd` or `state` message only when that serial is in the topology
-  most recently acknowledged for the envelope's `gateway`. Anything else is
-  dropped and recorded. Permissions are not re-issued on topology change.
-  - **Residual risk.** An authenticated, enrolled gateway could forge `osd` or
-    `state` for a sub-device currently under another gateway. That spoofs
-    telemetry only, never control, because every downlink is gateway-scoped.
-  - The gateway-hosted broker fallback (below) knows the publishing connection
-    and can bind sub-device topics to it exactly.
+- **Per-gateway authorization** comes through the auth callout. A new
+  password-grant path issues a user JWT whose permissions name **exact
+  serials, never wildcards**:
+  - **Gateway serial.** The callout takes the gateway serial `<gw>` from the
+    MQTT CONNECT client ID, if spike S1 confirms that docks, the O4 and Pilot
+    send their serial there. Otherwise it uses the identifier S1 finds.
+    - A fresh trust-on-first-use enrollment binds `<gw>` on that first
+      CONNECT.
+    - A multi-gateway enrollment admits any serial it has already bound, plus
+      new ones until its limit.
+    - A Pilot session credential is minted for the RC serial reported by
+      `platformGetRemoteControllerSN()` on the H5 page.
+  - **Serial set.** The grant covers `<gw>` plus the sub-devices bound to it.
+    For docks, that is the `bind_devices` list from `airport_organization_bind`.
+    For Pilot, it is the aircraft reported for that RC.
+  - **Publish:** `thing.product.<s>.{osd,state}` for each serial `<s>` in the
+    set; `thing.product.<gw>.{events,requests,services_reply,property.set_reply,drc.up}`;
+    and `sys.product.<gw>.status`.
+  - **Subscribe:** `thing.product.<gw>.{services,property.set,drc.down,requests_reply,events_reply}`
+    and `sys.product.<gw>.status_reply`.
+- **Binding changes re-issue grants.** Examples: an aircraft paired to a dock,
+  or a new aircraft on a Pilot RC. If a topology report names a sub-device
+  outside the current grant, the gateway service treats it as a binding event:
+  - **A dock** needs an organization bind for that sub-device.
+  - **A Pilot RC** binds it to the signed-in session.
+
+  Once the bind is in place, the callout disconnects the session through its
+  existing KICK path. The device reconnects with a grant that covers the new
+  serial. Binding changes are rare, so the reconnect cost is acceptable.
+
+  NATS never attributes a message to its publishing connection. Exact
+  per-serial grants are therefore what keep one gateway from publishing
+  another gateway's or another gateway's aircraft's `osd` or `state`. The
+  inventory and camera profiles derived from `state` (`live_capacity`,
+  firmware, mode) depend on that.
+- **Shared aircraft.** An aircraft legitimately bound to two gateways (a dock
+  and a Pilot RC) appears in both grants. Either may report it, and the
+  current-gateway rule (D4) decides which report governs offline state.
 - MQTT session and retained-message streams count against the JetStream
   storage budget (`jetstream-storage-budget`).
 
@@ -269,10 +286,13 @@ that is verified in S1.
 3. **Stream ingest keys.**
    - **Push-orchestrated sessions (D7).** Core mints a session-scoped token,
      embeds it in the URL sent with `live_start_push`, and stores only its
-     hash on the `RelaySession`. The token can attach only to its own session,
-     never while that session has an active publisher, and it expires when
-     the session ends. Reconnect behaviour is in D7. Nothing long-lived exists
-     to store.
+     hash on the `RelaySession`.
+     - The token can attach only to its own session, and never while that
+       session has an active publisher.
+     - It is invalidated when Core re-mints it after a publisher-loss grace
+       window, and when the session ends.
+     - Reconnect behaviour is in D7.
+     - Nothing long-lived exists to store.
    - **Source-initiated keys** (operator-pasted into Pilot manual mode, DJI
      Fly, or an encoder). These are also inbound secrets. They are shown once,
      stored hashed on the `Camera.Source`'s ingest binding, and rotatable.
@@ -410,11 +430,14 @@ that is verified in S1.
      enabled ingests, and sends `live_start_push`.
   3. The device connects. The ingest validates the token against the reserved
      session and activates it.
-  4. **Publisher loss (common on cellular).** The session stays reserved for a
-     publisher-loss grace window, and the same token may re-attach, which is
-     what the device's RTMP client retry does.
+  4. **Publisher loss (common on cellular).** Losing the publisher returns the
+     session from active to reserved for a publisher-loss grace window. The
+     same token may re-attach in that window, which is what the device's RTMP
+     client retry does.
      - After the grace window, if any viewer, recorder or analysis lease
-       remains, Core mints a new token and re-issues `StartLivePush`.
+       remains, Core mints a new token and re-issues `StartLivePush`. The
+       previous token is invalidated at that moment, so a captured
+       plain-RTMP token cannot attach later.
      - Otherwise it tears the session down.
      - Recordings show a bounded gap rather than ending.
   5. Viewer-idle teardown calls `StopLivePush`.
