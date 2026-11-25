@@ -309,6 +309,8 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             for subject in (LIVE_JOBS, BACKFILL_JOBS):
                 with self.subTest(rendering=rendering, core=subject):
                     self.assertTrue(may_publish(core, subject))
+            with self.subTest(rendering=rendering, core=TEXT_EMBED_REQUEST):
+                self.assertEqual(may_publish(core, TEXT_EMBED_REQUEST), expected)
             with self.subTest(rendering=rendering, web=TEXT_EMBED_REQUEST):
                 self.assertEqual(may_publish(web, TEXT_EMBED_REQUEST), expected)
         self.assertFalse(may_publish(self.enabled[WEB_NG], LIVE_JOBS))
