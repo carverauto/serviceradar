@@ -723,9 +723,10 @@ setting.
 
 Core may publish `media.jobs.visual_index.v1` and
 `media.jobs.visual_index.backfill.v1` regardless of `mediaWorker.enabled`. With
-the worker on, web-ng may publish `media.rpc.visual_text_embed.v1.>`. With it
-off, the worker identity is refused everything and web-ng does not get the
-text-embed RPC grant. The first upgrade to a chart
+the worker on, web-ng and core (for `VisualCaptionWorker`) may publish
+`media.rpc.visual_text_embed.v1.>`. With it
+off, the worker identity is refused everything and neither web-ng nor core gets
+the text-embed RPC grant. The first upgrade to a chart
 that includes this static user rolls the chart-managed NATS pods even with the
 worker disabled, because their configuration now includes the deny-all entry.
 

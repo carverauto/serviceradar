@@ -1036,6 +1036,145 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
 
       assert_received {:min_score, 0.12}
     end
+
+    test "clean_search_query/1 strips conversational preambles and preserves visual subjects" do
+      assert SemanticSearch.clean_search_query("show me videos with a boy and a black dog") ==
+               "boy and a black dog"
+
+      assert SemanticSearch.clean_search_query("find clips of a delivery truck") ==
+               "delivery truck"
+
+      assert SemanticSearch.clean_search_query("person carrying") == "person carrying"
+
+      assert SemanticSearch.clean_search_query(
+               "Can you please show me all the footage that shows a white van?"
+             ) ==
+               "white van"
+
+      assert SemanticSearch.clean_search_query("search for a red car") == "red car"
+
+      assert SemanticSearch.clean_search_query("look for a cat on the porch") ==
+               "cat on the porch"
+
+      assert SemanticSearch.clean_search_query("any videos of a black dog") == "black dog"
+      assert SemanticSearch.clean_search_query("videos of a delivery driver") == "delivery driver"
+
+      # Falls back to original trimmed query when stripping would empty it
+      assert SemanticSearch.clean_search_query("  show me  ") == "show me"
+      assert SemanticSearch.clean_search_query("   ") == ""
+    end
+
+    test "format_siglip_prompt/1 wraps bare subjects once and preserves existing photo framing" do
+      assert SemanticSearch.format_siglip_prompt("boy and a black dog") ==
+               "a photo of boy and a black dog."
+
+      assert SemanticSearch.format_siglip_prompt("a photo of a black dog.") ==
+               "a photo of a black dog."
+
+      assert SemanticSearch.format_siglip_prompt("An image of a delivery van") ==
+               "An image of a delivery van"
+
+      assert SemanticSearch.format_siglip_prompt("") == ""
+    end
+
+    test "build_or_tsquery_input/1 produces safe sanitized disjunctions with visual synonyms" do
+      or_query =
+        SemanticSearch.build_or_tsquery_input("show me videos with a boy and a black dog")
+
+      terms = String.split(or_query, " | ")
+
+      assert "boy" in terms
+      assert "person" in terms
+      assert "black" in terms
+      assert "dog" in terms
+      assert "animal" in terms
+
+      refute "show" in terms
+      refute "me" in terms
+      refute "videos" in terms
+      refute "with" in terms
+      refute "and" in terms
+      refute "a" in terms
+
+      assert Enum.all?(terms, &Regex.match?(~r/\A[a-z0-9]+\z/, &1))
+
+      delivery_terms =
+        "find clips of a delivery truck"
+        |> SemanticSearch.build_or_tsquery_input()
+        |> String.split(" | ")
+
+      assert "delivery" in delivery_terms
+      assert "package" in delivery_terms
+      assert "carrying" in delivery_terms
+      assert "truck" in delivery_terms
+      assert "vehicle" in delivery_terms
+      refute "find" in delivery_terms
+      refute "clips" in delivery_terms
+
+      # Empty, punctuation-only, and adversarial SQL/tsquery inputs stay safe
+      assert SemanticSearch.build_or_tsquery_input("") == ""
+      assert SemanticSearch.build_or_tsquery_input("   ") == ""
+      assert SemanticSearch.build_or_tsquery_input("!!! --- ;;; & | ! ( )") == ""
+
+      adversarial = SemanticSearch.build_or_tsquery_input("'; DROP TABLE --")
+      assert adversarial == "drop | table"
+      assert Regex.match?(~r/\A[a-z0-9]+( \| [a-z0-9]+)*\z/, adversarial)
+    end
+
+    test "search/2 cleans conversational queries for SigLIP and caption FTS while preserving response query" do
+      SemanticSearch.clear_query_cache()
+      test_pid = self()
+      embedder_calls = :counters.new(1, [])
+
+      caller = %{
+        user: %{id: "investigator-conv"},
+        permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"])
+      }
+
+      opts = [
+        scope: caller,
+        now: ~U[2026-11-24 00:01:00Z],
+        text_embedder: fn prompt, _ctx ->
+          :counters.add(embedder_calls, 1, 1)
+          send(test_pid, {:embedder_prompt, prompt})
+          {:ok, unit_vec(768)}
+        end,
+        loaders: %{
+          sources: [%{id: @cam_a, display_name: "Front Porch", device_uid: "dev-porch"}],
+          embeddings_loader: fn _vec, _spec -> {:ok, []} end,
+          captions_loader: fn _vec, spec ->
+            send(test_pid, {:caption_spec, spec.query, spec.cleaned_query})
+            {:ok, []}
+          end,
+          audit_writer: fn audit -> {:ok, audit} end
+        }
+      ]
+
+      assert {:ok, resp} =
+               SemanticSearch.search(
+                 %{
+                   query: "show me videos with a boy and a black dog",
+                   from_us: 0,
+                   to_us: 60_000_000
+                 },
+                 opts
+               )
+
+      assert resp.query == "show me videos with a boy and a black dog"
+      assert_received {:embedder_prompt, "a photo of boy and a black dog."}
+
+      assert_received {:caption_spec, "show me videos with a boy and a black dog",
+                       "boy and a black dog"}
+
+      # Direct cleaned query reuses the same cached embedding
+      assert {:ok, _resp2} =
+               SemanticSearch.search(
+                 %{query: "boy and a black dog", from_us: 0, to_us: 60_000_000},
+                 opts
+               )
+
+      assert :counters.get(embedder_calls, 1) == 1
+    end
   end
 
   test "every worker payload field rejects an invalid value before disposition" do
