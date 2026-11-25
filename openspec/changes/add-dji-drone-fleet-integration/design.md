@@ -335,11 +335,16 @@ that is verified in S1.
   `management_device_id` (spec `device-inventory` "Management Device
   Relationship"). This continues until plugin- or component-emitted topology
   links exist.
+- **Current gateway.** A sub-device's current gateway is its binding owner
+  (D2). Only a bind moves ownership.
 - **Topology snapshots.** Each `update_topo` message is a complete snapshot
-  for that gateway. A sub-device absent from a gateway's report goes offline
-  only if that gateway is its current gateway. A late or stale report from a
-  gateway the aircraft has already left cannot mark it offline. Sub-devices
-  are never deleted.
+  for that gateway.
+  - A topology naming a serial the reporting gateway does not own changes no
+    relationship and no online state. It is handled as a binding event (D2).
+  - A sub-device absent from a report goes offline only if the reporting
+    gateway owns it. A stale or forged report from another gateway can
+    therefore neither claim it nor mark it offline.
+  - Sub-devices are never deleted.
 - **Cameras.** Each payload and dock camera becomes a `Camera.Source`:
   - `vendor: "dji"`
   - `vendor_camera_id: "<sn>/<type-subtype-gimbalindex>"`
@@ -387,8 +392,9 @@ that is verified in S1.
 ### D6. HMS and events
 
 - **Each HMS report is the device's complete alarm set.** The gateway diffs it
-  against the previous set per `(gateway_sn, device_sn, code,
-  component_index, sensor_index)`, and emits OCSF raise and clear events with a
+  against the previous set per `(device_sn, code, component_index,
+  sensor_index)`, keyed per device and not per gateway, so an alarm survives
+  a binding move. It emits OCSF raise and clear events with a
   declared signal schema and condition key. These follow the Starlink alert
   precedent, so the existing debounce and alert rules apply.
 - **Alarm text** comes from DJI's `hms.json` catalog.
@@ -578,8 +584,11 @@ is correlated with frames by time through spatial observations and
 
   These render when the installation's chart values provide them, the same
   way leafnode and collector listeners do today. Self-hosted installations set
-  those values once. The workloads idle harmlessly while the product setting
-  is off.
+  those values once.
+- **Turning the setting off takes effect at once.** Live MQTT sessions are
+  disconnected through the callout KICK path, active DJI ingest sessions end,
+  and admission refuses new connections. The workloads then idle while the
+  setting stays off.
 - **Public endpoints.** The hosted runtime contract and the self-hosted
   equivalent publish the MQTT and RTMP host and port facts. The settings page
   shows exactly what an operator types into a dock.
@@ -727,3 +736,21 @@ devices then fail to connect and keep their own config.
 5. **Air-gapped dock license verification.** Is air-gapped operation a
    requirement? It depends on whether license verification works offline,
    which S1 tests.
+6. **Where binding and enrollment state lives.** The callout, the gateway and
+   Core all need consistent, synchronous access to:
+   - sub-device ownership
+   - pending operator-approved moves
+   - multi-gateway enrollment limits and their bound-serial sets
+   - binding-code checks
+   The gateway holds no database credentials, and the D1 gRPC API runs only
+   from Core to the gateway. Choose between:
+   - a CNPG `platform.dji_bindings` resource owned by Core, with a
+     gateway-to-Core lookup RPC;
+   - Core answering binding requests on the gateway's behalf.
+   Decide before task 1.4.
+7. **Pilot RC serial trust.** The Pilot MQTT grant is minted for the RC
+   serial reported by the H5 page, which the client asserts. Should minting
+   refuse a serial owned by an enrollment or by another active session
+   (single-owner binding for gateway serials)? Should a pilot-only user be
+   able to move a dock's aircraft binding, or require operator approval?
+   Decide before phase 2.

@@ -4,9 +4,9 @@
 The platform SHALL represent every DJI gateway, aircraft, payload, relay and dock sub-device as a `Device` identified by a scoped integration identifier derived from its DJI serial number. IP addresses and SIM identifiers SHALL be recorded only as attributes.
 
 #### Scenario: Aircraft moves between gateways
-- **WHEN** an aircraft first reported by one dock is later reported by a different dock or controller
+- **WHEN** an aircraft bound to one dock is later bound to a different dock or controller
 - **THEN** it SHALL resolve to the same device
-- **AND** its current gateway relationship SHALL be updated
+- **AND** its current gateway relationship SHALL follow the binding owner
 
 #### Scenario: Gateway without a stable IP
 - **WHEN** a dock connects over a cellular network with a changing source address
@@ -20,7 +20,7 @@ The platform SHALL keep the current state of each DJI device in a resource keyed
 - **THEN** the platform SHALL record its `domain-type-subtype` model key and the model name from DJI's published product table
 
 ### Requirement: Topology reports are complete per gateway
-The platform SHALL treat each gateway topology report as the complete set of that gateway's sub-devices. A sub-device absent from a gateway's latest report SHALL be marked offline only when that gateway is its current gateway, and SHALL NOT be deleted.
+The platform SHALL treat each gateway topology report as the complete set of that gateway's sub-devices, where a sub-device's current gateway is its binding owner. A report SHALL change a sub-device's relationship or online state only when the reporting gateway owns it. A sub-device absent from its owner's latest report SHALL be marked offline and SHALL NOT be deleted.
 
 #### Scenario: Aircraft leaves the topology
 - **WHEN** a dock that is an aircraft's current gateway reports a topology with an empty sub-device list
@@ -30,6 +30,11 @@ The platform SHALL treat each gateway topology report as the complete set of tha
 #### Scenario: Stale report from a previous gateway
 - **WHEN** an aircraft's current gateway is dock B and dock A then reports a topology without that aircraft
 - **THEN** the aircraft SHALL remain online under dock B
+
+#### Scenario: Report names a serial the gateway does not own
+- **WHEN** dock A reports a topology listing an aircraft owned by dock B
+- **THEN** the aircraft's relationship and online state SHALL not change
+- **AND** the report SHALL be handled as a binding request
 
 ### Requirement: Drone telemetry flows through JetStream
 The platform SHALL convert DJI OSD and state properties into metric records and spatial observations published to JetStream and persisted by EventWriter. Per-device forwarding MUST be capped at the configured rate and MUST NOT exceed 1 Hz.
@@ -44,7 +49,7 @@ The platform SHALL convert DJI OSD and state properties into metric records and 
 - **AND** SHALL update its current position for map display
 
 ### Requirement: HMS alarm sets become OCSF raise and clear events
-The platform SHALL diff each DJI HMS report against the previous alarm set for the same device. It SHALL emit an OCSF raise event for each new alarm and a clear event for each alarm that is no longer present, with human-readable text from DJI's HMS catalog.
+The platform SHALL diff each DJI HMS report against the previous alarm set for the same device, keyed by device and not by gateway. It SHALL emit an OCSF raise event for each new alarm and a clear event for each alarm that is no longer present, with human-readable text from DJI's HMS catalog.
 
 #### Scenario: Alarm clears
 - **WHEN** an HMS code present in the previous report is absent from the next report for the same device and component
