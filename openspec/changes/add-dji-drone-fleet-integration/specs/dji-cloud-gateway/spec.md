@@ -43,12 +43,21 @@ The gateway SHALL map DJI workspaces and organizations to the single ServiceRada
 - **THEN** the gateway SHALL refuse the binding and record the attempt as an event without creating devices
 
 ### Requirement: Device-facing MQTT with per-gateway authorization
-The platform SHALL accept DJI gateway MQTT connections on a dedicated TLS listener. Each gateway SHALL authenticate with an enrollment or Pilot session credential. Each connection SHALL be restricted to its own gateway's DJI topic space in an isolated account that cannot address platform subjects.
+The platform SHALL accept DJI gateway MQTT connections on a dedicated TLS listener. Each gateway SHALL authenticate with an enrollment or Pilot session credential. Each connection SHALL be restricted, in an isolated account that cannot address platform subjects, to its own gateway's uplink and downlink topics plus sub-device `osd` and `state` topics. The gateway service SHALL accept sub-device telemetry only for serials in that gateway's most recently acknowledged topology.
 
 #### Scenario: Enrolled dock connects
 - **WHEN** a dock connects with a valid enrollment username and password
 - **THEN** the session SHALL be admitted into the isolated DJI account
-- **AND** SHALL be permitted to publish only its own `thing/product/<sn>/...` and `sys/product/<sn>/...` uplink topics and subscribe only to its own downlink topics
+- **AND** SHALL be permitted to publish its own `thing/product/<gw>/...` uplink topics, `sys/product/<gw>/status`, and `osd`/`state` topics for sub-devices
+- **AND** SHALL be permitted to subscribe only to its own downlink topics
+
+#### Scenario: Aircraft paired after the dock connected
+- **WHEN** a dock that is already connected reports a new aircraft in its topology and the aircraft then publishes OSD on its own topic
+- **THEN** the gateway service SHALL accept that telemetry without the dock reconnecting
+
+#### Scenario: Sub-device not in the gateway's topology
+- **WHEN** a sub-device `osd` or `state` message names a serial absent from the acknowledged topology of the envelope's gateway
+- **THEN** the gateway service SHALL drop the message and record the rejection
 
 #### Scenario: Enrollment binds to the first gateway serial
 - **WHEN** a non-multi-gateway enrollment has authenticated one gateway serial and a different serial presents the same credential

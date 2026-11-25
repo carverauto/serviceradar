@@ -192,10 +192,26 @@ implements MQTT 3.1.1 with QoS 0/1/2 and needs JetStream.
 - The `DJI` account exports only the DJI topic space, which NATS maps to
   `thing.product.*.>` and `sys.product.*.>`. The gateway's account imports it.
 - Per-gateway authorization comes through the auth callout. A new
-  password-grant path issues a user JWT whose publish and subscribe
-  permissions are limited to that gateway's serials:
-  - publish: `thing.product.<sn>.{osd,state,events,requests,services_reply,property.set_reply,drc.up}`
-  - subscribe: the matching `*_reply`, `services`, `property.set` and `drc.down`
+  password-grant path issues a user JWT bound to the enrollment's gateway
+  serial `<gw>`:
+  - publish on its own gateway topics:
+    `thing.product.<gw>.{osd,state,events,requests,services_reply,property.set_reply,drc.up}`
+    and `sys.product.<gw>.status`
+  - publish `osd` and `state` for sub-devices: `thing.product.*.osd` and
+    `thing.product.*.state`. DJI publishes each aircraft's and payload's
+    telemetry on that sub-device's own topic, and sub-devices change while a
+    gateway stays connected (pairing, an aircraft landing at another dock).
+  - subscribe on its own downlink topics: `thing.product.<gw>.{services,property.set,drc.down,requests_reply,events_reply}`
+    and `sys.product.<gw>.status_reply`
+- **The gateway service enforces sub-device membership.** It accepts a
+  sub-device `osd` or `state` message only when that serial is in the topology
+  most recently acknowledged for the envelope's `gateway`. Anything else is
+  dropped and recorded. Permissions are not re-issued on topology change.
+  - **Residual risk.** An authenticated, enrolled gateway could forge `osd` or
+    `state` for a sub-device currently under another gateway. That spoofs
+    telemetry only, never control, because every downlink is gateway-scoped.
+  - The gateway-hosted broker fallback (below) knows the publishing connection
+    and can bind sub-device topics to it exactly.
 - MQTT session and retained-message streams count against the JetStream
   storage budget (`jetstream-storage-budget`).
 
@@ -251,10 +267,12 @@ that is verified in S1.
    - Revoking an enrollment kicks the session through the callout's existing
      KICK path.
 3. **Stream ingest keys.**
-   - **Push-orchestrated sessions (D7).** Core mints a single-use,
-     session-scoped token, embeds it in the URL sent with `live_start_push`,
-     and stores only its hash on the `RelaySession`. The token expires when
-     the session ends. Nothing long-lived exists to store.
+   - **Push-orchestrated sessions (D7).** Core mints a session-scoped token,
+     embeds it in the URL sent with `live_start_push`, and stores only its
+     hash on the `RelaySession`. The token can attach only to its own session,
+     never while that session has an active publisher, and it expires when
+     the session ends. Reconnect behaviour is in D7. Nothing long-lived exists
+     to store.
    - **Source-initiated keys** (operator-pasted into Pilot manual mode, DJI
      Fly, or an encoder). These are also inbound secrets. They are shown once,
      stored hashed on the `Camera.Source`'s ingest binding, and rotatable.
@@ -290,7 +308,10 @@ that is verified in S1.
   Relationship"). This continues until plugin- or component-emitted topology
   links exist.
 - **Topology snapshots.** Each `update_topo` message is a complete snapshot
-  for that gateway. Absent sub-devices go offline. They are not deleted.
+  for that gateway. A sub-device absent from a gateway's report goes offline
+  only if that gateway is its current gateway. A late or stale report from a
+  gateway the aircraft has already left cannot mark it offline. Sub-devices
+  are never deleted.
 - **Cameras.** Each payload and dock camera becomes a `Camera.Source`:
   - `vendor: "dji"`
   - `vendor_camera_id: "<sn>/<type-subtype-gimbalindex>"`
@@ -364,7 +385,8 @@ that is verified in S1.
     timestamps to the 90 kHz clock, and emits the exact `{:media_chunk, ...}`
     shape that `ChunkSource` already consumes.
   - DJI documents no RTMPS. Plain RTMP carries the token in the clear, so
-    push-orchestrated tokens are single-use and session-scoped to limit replay.
+    push-orchestrated tokens are session-scoped and cannot attach while a
+    publisher is active, to limit replay.
   - Source-initiated keys over plain RTMP are an accepted, documented risk,
     and RTMPS is supported for encoders that offer it.
 - **WHIP listener (phase 4).** The `membrane_webrtc_plugin` WHIP server.
@@ -388,8 +410,15 @@ that is verified in S1.
      enabled ingests, and sends `live_start_push`.
   3. The device connects. The ingest validates the token against the reserved
      session and activates it.
-  4. Viewer-idle teardown calls `StopLivePush`.
-  5. Recording policies can hold the push open with the existing recorder
+  4. **Publisher loss (common on cellular).** The session stays reserved for a
+     publisher-loss grace window, and the same token may re-attach, which is
+     what the device's RTMP client retry does.
+     - After the grace window, if any viewer, recorder or analysis lease
+       remains, Core mints a new token and re-issues `StartLivePush`.
+     - Otherwise it tears the session down.
+     - Recordings show a bounded gap rather than ending.
+  5. Viewer-idle teardown calls `StopLivePush`.
+  6. Recording policies can hold the push open with the existing recorder
      lease.
 - **`source_initiated`.**
   - A device or encoder connects with a long-lived key. The ingest resolves
@@ -623,7 +652,8 @@ is correlated with frames by time through spatial observations and
   decision, and the fallback is fully specified.
 - **The device trust store may exclude Let's Encrypt.** S2 tests this before
   the hosted rollout. Procurement is the fallback.
-- **Plain-RTMP token exposure.** Single-use, session-scoped tokens and the
+- **Plain-RTMP token exposure.** Session-scoped tokens that cannot attach
+  while a publisher is active, and the
   WHIP preference mitigate it, and the residual risk is documented for
   source-initiated keys.
 - **H.265 transcode cost** is bounded per session, counted, and removed by
