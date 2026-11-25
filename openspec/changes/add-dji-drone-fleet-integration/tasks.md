@@ -31,7 +31,7 @@ Captures answer questions only. No captured value is committed (design D12).
   - If NATS: add the chart `mqtt {}` block with its own TLS, the `DJI` account with JetStream, and exports and imports. Add the callout password-grant path.
   - Otherwise: add a gateway-hosted MQTT 5 broker with the same admission rules.
   - Either way, admission must:
-    - refuse every connection while `DjiFleetSettings` is disabled;
+    - refuse every connection while `DjiFleetSettings` is disabled, and KICK live sessions when it turns off;
     - take the gateway serial from the CONNECT client ID, or the identifier S1 finds;
     - issue exact-serial grants built from binding records, with no wildcards;
     - enforce single-owner binding moves, audited and optionally operator-approved;
@@ -45,10 +45,10 @@ Captures answer questions only. No captured value is committed (design D12).
   - an aircraft resolves to one device across gateways
   - no address-based merge happens
 - [ ] 2.2 Add the `platform.dji_devices` sibling resource and migration, the model-key table (public DJI product table) and the `management_device_id` gateway relation.
-- [ ] 2.3 Turn topology into complete-snapshot `device_discovery` records. A sub-device absent from a report is marked offline only when the reporting gateway is its current gateway.
+- [ ] 2.3 Turn topology into complete-snapshot `device_discovery` records. The current gateway is the binding owner. A report changes a sub-device's relationship or online state only when the reporting gateway owns it. Unowned serials become binding requests.
 - [ ] 2.4 Add the OSD/state metric catalog, emitting `serviceradar.metric.v1` through JetStream with the rate cap. Run the EventWriter path on both telemetry backends.
 - [ ] 2.5 Emit positions as spatial observations once #4911 is available. Until then, emit interim gauges plus the current position on `dji_devices`.
-- [ ] 2.6 Add the HMS full-set diff, emitting OCSF raise and clear events with a signal schema and condition keys. Vendor an `hms.json` snapshot and refresh it through `EgressClient`. Add default alert rules, created disabled.
+- [ ] 2.6 Add the HMS full-set diff keyed per device, emitting OCSF raise and clear events with a signal schema and condition keys. Vendor an `hms.json` snapshot and refresh it through `EgressClient`. Add default alert rules, created disabled.
 - [ ] 2.7 Create `Camera.Source` (`ingest_mode: push`) and `StreamProfile` rows from `live_capacity`, with no stream addresses.
 
 ## 3. Push video ingest (phase 1)
