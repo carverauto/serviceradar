@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 340" width="820" height="340" role="img" aria-label="ServiceRadar Vantage four-strata architecture: Edge, Storage, GPU Inference, and Control Plane">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 340" width="820" height="340" role="img" aria-label="ServiceRadar Vantage four-strata architecture: Edge Cameras, Recording and Archiving, Private Vantage AI Addon, and Control Plane">
   <defs>
     <style>
-      .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      .sans { font-family: var(--sr-font-sans), ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
     </style>
   </defs>
@@ -11,7 +11,7 @@
 
   <!-- Top editorial header strip -->
   <line x1="1" y1="30" x2="819" y2="30" stroke="#1e293b" stroke-width="1"/>
-  <text x="16" y="19" fill="#94a3b8" font-size="9.5" font-weight="600" letter-spacing="0.08em" class="mono">FIG 01 // VANTAGE ARCHITECTURE STRATA</text>
+  <text x="16" y="19" fill="#94a3b8" font-size="9.5" font-weight="600" letter-spacing="0.08em" class="mono">FIG 01 // VANTAGE ARCHITECTURE OVERVIEW</text>
   <text x="804" y="19" text-anchor="end" fill="#10b981" font-size="9.5" font-weight="600" letter-spacing="0.06em" class="mono">ISOLATED PLANES  |  ZERO CLOUD EGRESS</text>
 
   <!-- Horizontal dashed strata dividers -->
@@ -20,21 +20,23 @@
   <line x1="16" y1="256" x2="804" y2="256" stroke="#334155" stroke-width="1" stroke-dasharray="4 4"/>
 
   <!-- Strata labels (left rail) -->
-  <text x="16" y="70" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">EDGE</text>
+  <text x="16" y="64" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">EDGE</text>
+  <text x="16" y="77" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">CAMERAS</text>
 
-  <text x="16" y="142" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">STORAGE</text>
+  <text x="16" y="136" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">RECORDING</text>
+  <text x="16" y="149" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">&amp; ARCHIVE</text>
 
-  <text x="16" y="213" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">GPU</text>
-  <text x="16" y="226" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">INFERENCE</text>
+  <text x="16" y="213" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">VANTAGE</text>
+  <text x="16" y="226" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">AI ADDON</text>
 
   <text x="16" y="294" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">CONTROL</text>
   <text x="16" y="307" fill="#94a3b8" font-size="10" font-weight="600" letter-spacing="0.08em" class="mono">PLANE</text>
 
-  <!-- ==================== STRATUM 1: EDGE ==================== -->
+  <!-- ==================== STRATUM 1: EDGE CAMERAS ==================== -->
   <!-- Col A: IP Cameras -->
   <rect x="130" y="42" width="205" height="46" rx="3" fill="#1e293b" stroke="#475569" stroke-width="1"/>
   <text x="232.5" y="61" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">IP Cameras</text>
-  <text x="232.5" y="77" text-anchor="middle" fill="#94a3b8" font-size="9.5" class="mono">UniFi / Axis / RTSP</text>
+  <text x="232.5" y="77" text-anchor="middle" fill="#94a3b8" font-size="9.5" class="mono">RTSP / ONVIF / UniFi / Axis</text>
 
   <!-- Arrow: Cameras -> Edge Agent -->
   <line x1="335" y1="65" x2="361" y2="65" stroke="#94a3b8" stroke-width="1.2"/>
@@ -43,23 +45,23 @@
   <!-- Col B: Edge Agent -->
   <rect x="365" y="42" width="210" height="46" rx="3" fill="#1e293b" stroke="#10b981" stroke-width="1.2"/>
   <text x="470" y="61" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Edge Agent &amp; Relay</text>
-  <text x="470" y="77" text-anchor="middle" fill="#10b981" font-size="9.5" class="mono">serviceradar-agent | mTLS</text>
+  <text x="470" y="77" text-anchor="middle" fill="#10b981" font-size="9.5" class="mono">encrypted mTLS transport</text>
 
-  <!-- Dashed arrow: Credential Rules -> Edge Agent -->
+  <!-- Dashed arrow: Credential Broker -> Edge Agent -->
   <line x1="605" y1="65" x2="579" y2="65" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 2"/>
   <polygon points="581,61.5 575,65 581,68.5" fill="#64748b"/>
 
   <!-- Col C: Credential Broker -->
   <rect x="605" y="42" width="199" height="46" rx="3" fill="#0f172a" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
   <text x="704.5" y="61" text-anchor="middle" fill="#cbd5e1" font-size="11.5" font-weight="600" class="sans">Credential Broker</text>
-  <text x="704.5" y="77" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">CNPG rules | 0 static keys</text>
+  <text x="704.5" y="77" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">unified rules | 0 static keys</text>
 
-  <!-- Vertical connector: Edge Agent -> NVR -->
+  <!-- Vertical connector: Edge Agent -> Recording -->
   <line x1="470" y1="88" x2="470" y2="109" stroke="#10b981" stroke-width="1.4"/>
   <polygon points="466.5,107 473.5,107 470,113" fill="#10b981"/>
   <text x="478" y="106" fill="#94a3b8" font-size="8.5" class="mono">H.264 / H.265</text>
 
-  <!-- ==================== STRATUM 2: STORAGE ==================== -->
+  <!-- ==================== STRATUM 2: RECORDING & ARCHIVE ==================== -->
   <!-- Col A: S3 Archive -->
   <rect x="130" y="113" width="205" height="52" rx="3" fill="#1e293b" stroke="#10b981" stroke-width="1"/>
   <text x="232.5" y="133" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">S3 Object Archive</text>
@@ -70,80 +72,80 @@
   <line x1="365" y1="139" x2="339" y2="139" stroke="#10b981" stroke-width="1.2"/>
   <polygon points="341,135.5 335,139 341,142.5" fill="#10b981"/>
 
-  <!-- Col B: serviceradar-nvr -->
+  <!-- Col B: Edge Recording & NVR -->
   <rect x="365" y="113" width="210" height="52" rx="3" fill="#1e293b" stroke="#10b981" stroke-width="1.4"/>
   <rect x="365" y="113" width="3" height="52" rx="1" fill="#10b981"/>
-  <text x="470" y="133" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">serviceradar-nvr</text>
-  <text x="470" y="148" text-anchor="middle" fill="#cbd5e1" font-size="9.2" class="mono">Local fMP4 spool (m4s)</text>
-  <text x="470" y="159" text-anchor="middle" fill="#10b981" font-size="8.8" class="mono">StatefulSet | descriptor.json</text>
+  <text x="470" y="133" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Edge Recording &amp; NVR</text>
+  <text x="470" y="148" text-anchor="middle" fill="#cbd5e1" font-size="9.2" class="mono">continuous local spool</text>
+  <text x="470" y="159" text-anchor="middle" fill="#10b981" font-size="8.8" class="mono">outage buffering | policies</text>
 
-  <!-- Arrow: NVR -> Analysis Read :8445 (right) -->
+  <!-- Arrow: NVR -> Scoped Media Access (right) -->
   <line x1="575" y1="139" x2="601" y2="139" stroke="#38bdf8" stroke-width="1.2"/>
   <polygon points="599,135.5 605,139 599,142.5" fill="#38bdf8"/>
 
-  <!-- Col C: Isolated :8445 analysis read -->
+  <!-- Col C: Scoped Media Access -->
   <rect x="605" y="113" width="199" height="52" rx="3" fill="#1e293b" stroke="#38bdf8" stroke-width="1.2"/>
-  <text x="704.5" y="133" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">Analysis Read (:8445)</text>
-  <text x="704.5" y="148" text-anchor="middle" fill="#38bdf8" font-size="9.2" class="mono">scoped Fragment Grants</text>
+  <text x="704.5" y="133" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">Scoped Media Access</text>
+  <text x="704.5" y="148" text-anchor="middle" fill="#38bdf8" font-size="9.2" class="mono">short-lived read grants</text>
   <text x="704.5" y="159" text-anchor="middle" fill="#94a3b8" font-size="8.8" class="mono">isolated from live ingest</text>
 
-  <!-- Routing bus: Analysis Read :8445 -> GPU workers -->
+  <!-- Routing bus: Scoped Media Access -> Vantage AI Addon -->
   <path d="M 704.5 165 L 704.5 182 L 232.5 182 L 232.5 190" fill="none" stroke="#38bdf8" stroke-width="1.2"/>
   <line x1="470" y1="182" x2="470" y2="190" stroke="#38bdf8" stroke-width="1.2"/>
   <polygon points="229,188 236,188 232.5,194" fill="#38bdf8"/>
   <polygon points="466.5,188 473.5,188 470,194" fill="#38bdf8"/>
 
-  <!-- ==================== STRATUM 3: GPU INFERENCE ==================== -->
-  <!-- Col A: serviceradar-media-worker -->
+  <!-- ==================== STRATUM 3: PRIVATE VANTAGE AI ADDON ==================== -->
+  <!-- Col A: Private Visual Intelligence -->
   <rect x="130" y="194" width="205" height="52" rx="3" fill="#1e293b" stroke="#38bdf8" stroke-width="1.2"/>
   <rect x="130" y="194" width="3" height="52" rx="1" fill="#38bdf8"/>
-  <text x="232.5" y="213" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">serviceradar-media-worker</text>
-  <text x="232.5" y="228" text-anchor="middle" fill="#38bdf8" font-size="9.2" class="mono">Rust Candle CUDA</text>
-  <text x="232.5" y="239" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">YOLOX-x + SigLIP vectors</text>
+  <text x="232.5" y="213" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">Private Vantage AI Addon</text>
+  <text x="232.5" y="228" text-anchor="middle" fill="#38bdf8" font-size="9.2" class="mono">commercial on-prem engine</text>
+  <text x="232.5" y="239" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">smart alerts + plain-English</text>
 
-  <!-- Col B: serviceradar-camera-vlm -->
+  <!-- Col B: Custom SDK Extensions -->
   <rect x="365" y="194" width="210" height="52" rx="3" fill="#1e293b" stroke="#f59e0b" stroke-width="1.2"/>
   <rect x="365" y="194" width="3" height="52" rx="1" fill="#f59e0b"/>
-  <text x="470" y="213" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">serviceradar-camera-vlm</text>
-  <text x="470" y="228" text-anchor="middle" fill="#f59e0b" font-size="9.2" class="mono">crane-serve | Qwen3.5-4B</text>
-  <text x="470" y="239" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">captions + JSON prompts</text>
+  <text x="470" y="213" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600" class="sans">Solution Packs &amp; SDK</text>
+  <text x="470" y="228" text-anchor="middle" fill="#f59e0b" font-size="9.2" class="mono">custom analytics &amp; actions</text>
+  <text x="470" y="239" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">ALPR, PPE, site workflows</text>
 
   <!-- Col C: Isolation invariant card -->
   <rect x="605" y="194" width="199" height="52" rx="3" fill="#0f172a" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
-  <text x="704.5" y="213" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="600" class="sans">Worker Isolation</text>
-  <text x="704.5" y="228" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">0 DB credentials</text>
-  <text x="704.5" y="239" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">restart-safe from NVR</text>
+  <text x="704.5" y="213" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="600" class="sans">Privacy &amp; Isolation</text>
+  <text x="704.5" y="228" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">100% on-premises compute</text>
+  <text x="704.5" y="239" text-anchor="middle" fill="#94a3b8" font-size="9" class="mono">restart-safe from recording</text>
 
-  <!-- Routing bus: GPU workers -> NATS JetStream -->
+  <!-- Routing bus: AI Addon -> Event Bus -->
   <line x1="232.5" y1="246" x2="232.5" y2="270" stroke="#38bdf8" stroke-width="1.2"/>
   <polygon points="229,268 236,268 232.5,274" fill="#38bdf8"/>
   <path d="M 470 246 L 470 262 L 252 262 L 252 270" fill="none" stroke="#f59e0b" stroke-width="1.2"/>
   <polygon points="248.5,268 255.5,268 252,274" fill="#f59e0b"/>
 
   <!-- ==================== STRATUM 4: CONTROL PLANE ==================== -->
-  <!-- Col A: NATS JetStream -->
+  <!-- Col A: Durable Event Stream -->
   <rect x="130" y="274" width="205" height="52" rx="3" fill="#1e293b" stroke="#38bdf8" stroke-width="1.2"/>
-  <text x="232.5" y="294" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">NATS JetStream</text>
-  <text x="232.5" y="309" text-anchor="middle" fill="#38bdf8" font-size="9.5" class="mono">media.results.&gt;</text>
-  <text x="232.5" y="320" text-anchor="middle" fill="#94a3b8" font-size="8.8" class="mono">durable event stream</text>
+  <text x="232.5" y="294" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Event Pipeline</text>
+  <text x="232.5" y="309" text-anchor="middle" fill="#38bdf8" font-size="9.5" class="mono">durable event delivery</text>
+  <text x="232.5" y="320" text-anchor="middle" fill="#94a3b8" font-size="8.8" class="mono">real-time alert fan-out</text>
 
-  <!-- Arrow: NATS -> EventWriter -->
+  <!-- Arrow: Event Pipeline -> Control Plane -->
   <line x1="335" y1="300" x2="361" y2="300" stroke="#10b981" stroke-width="1.2"/>
   <polygon points="359,296.5 365,300 359,303.5" fill="#10b981"/>
 
-  <!-- Col B: Core EventWriter -->
+  <!-- Col B: ServiceRadar Control Plane -->
   <rect x="365" y="274" width="210" height="52" rx="3" fill="#1e293b" stroke="#10b981" stroke-width="1.2"/>
-  <text x="470" y="294" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">Core EventWriter</text>
-  <text x="470" y="309" text-anchor="middle" fill="#10b981" font-size="9.2" class="mono">core-elx -&gt; CNPG</text>
-  <text x="470" y="320" text-anchor="middle" fill="#94a3b8" font-size="8.8" class="mono">frames, vectors, audits</text>
+  <text x="470" y="294" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600" class="sans">ServiceRadar Control Plane</text>
+  <text x="470" y="309" text-anchor="middle" fill="#10b981" font-size="9.2" class="mono">inventory + OCSF alerting</text>
+  <text x="470" y="320" text-anchor="middle" fill="#94a3b8" font-size="8.8" class="mono">retention, holds &amp; audit</text>
 
-  <!-- Arrow: EventWriter -> Vantage Console -->
+  <!-- Arrow: Control Plane -> Web UI & API -->
   <line x1="575" y1="300" x2="601" y2="300" stroke="#f8fafc" stroke-width="1.2"/>
   <polygon points="599,296.5 605,300 599,303.5" fill="#f8fafc"/>
 
-  <!-- Col C: Vantage Console & SRQL (high-contrast Swiss terminal block) -->
+  <!-- Col C: Web UI & API (high-contrast Swiss terminal block) -->
   <rect x="605" y="274" width="199" height="52" rx="3" fill="#f8fafc"/>
-  <text x="704.5" y="294" text-anchor="middle" fill="#0f172a" font-size="12" font-weight="700" class="sans">Vantage Console &amp; SRQL</text>
-  <text x="704.5" y="309" text-anchor="middle" fill="#334155" font-size="9.2" class="mono">WebRTC | Timeline | Search</text>
-  <text x="704.5" y="320" text-anchor="middle" fill="#047857" font-size="8.8" font-weight="600" class="mono">RBAC + RecordingAccessAudit</text>
+  <text x="704.5" y="294" text-anchor="middle" fill="#0f172a" font-size="12" font-weight="700" class="sans">Web UI &amp; API</text>
+  <text x="704.5" y="309" text-anchor="middle" fill="#334155" font-size="9.2" class="mono">Live | Timeline | Search</text>
+  <text x="704.5" y="320" text-anchor="middle" fill="#047857" font-size="8.8" font-weight="600" class="mono">RBAC + Access Audit Trail</text>
 </svg>
