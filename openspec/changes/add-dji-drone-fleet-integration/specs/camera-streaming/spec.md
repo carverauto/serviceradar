@@ -8,7 +8,7 @@ Each relay session SHALL record its origin as `agent_pull`, `push_orchestrated` 
 - **THEN** Core SHALL dispatch `camera.open_relay` to the assigned agent exactly as before
 
 ### Requirement: Push-orchestrated relay sessions
-For a push-ingest camera source, Core SHALL reserve the relay session, mint a single-use session-scoped ingest token stored only as a hash, and request the device's push through the source's controlling gateway instead of dispatching to an agent. The ingest SHALL activate the reserved session only for a publisher presenting that token.
+For a push-ingest camera source, Core SHALL reserve the relay session, mint a session-scoped ingest token stored only as a hash, and request the device's push through the source's controlling gateway instead of dispatching to an agent. The ingest SHALL attach a publisher only when it presents that token while the session is reserved and has no active publisher. After a publisher-loss grace window, Core SHALL re-mint the token and re-request the push if any lease remains.
 
 #### Scenario: Viewer starts a drone live view
 - **WHEN** an authorized viewer opens a DJI camera stream profile
@@ -18,6 +18,15 @@ For a push-ingest camera source, Core SHALL reserve the relay session, mint a si
 #### Scenario: Token reuse is refused
 - **WHEN** a publisher presents a token for a session that has ended or is already active
 - **THEN** the ingest SHALL refuse the connection
+
+#### Scenario: Publisher reconnects within grace
+- **WHEN** a pushing device's connection drops and the device reconnects with the same token within the publisher-loss grace window
+- **THEN** the ingest SHALL re-attach it to the same session
+- **AND** viewers and the recorder SHALL resume without Core re-requesting the push
+
+#### Scenario: Publisher does not return
+- **WHEN** the publisher-loss grace window expires and a viewer or recorder lease remains
+- **THEN** Core SHALL mint a new token and ask the gateway to restart the push
 
 #### Scenario: Idle teardown stops the push
 - **WHEN** the last viewer leaves and no recorder or analysis lease holds the session

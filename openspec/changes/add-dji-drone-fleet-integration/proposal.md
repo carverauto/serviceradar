@@ -101,7 +101,7 @@ serviceradar.cloud tenants, not only self-hosted installations.
     into docks.
   - A companion change in `carverauto/serviceradar-control` adds the hosted
     entitlement, chart gate, endpoint contract, DNS/SAN, and a public firewall
-    opt-in for these listeners (design D11).
+    opt-in for these listeners (design D10).
 - **First-party `drone-fleet` dashboard package** containing:
   - fleet map with icons, tracks and dock range
   - fleet table

@@ -20,12 +20,16 @@ The platform SHALL keep the current state of each DJI device in a resource keyed
 - **THEN** the platform SHALL record its `domain-type-subtype` model key and the model name from DJI's published product table
 
 ### Requirement: Topology reports are complete per gateway
-The platform SHALL treat each gateway topology report as the complete set of that gateway's sub-devices. A sub-device absent from the latest report SHALL be marked offline for that gateway and SHALL NOT be deleted.
+The platform SHALL treat each gateway topology report as the complete set of that gateway's sub-devices. A sub-device absent from a gateway's latest report SHALL be marked offline only when that gateway is its current gateway, and SHALL NOT be deleted.
 
 #### Scenario: Aircraft leaves the topology
-- **WHEN** a dock reports a topology with an empty sub-device list
-- **THEN** its aircraft SHALL be marked offline
+- **WHEN** a dock that is an aircraft's current gateway reports a topology with an empty sub-device list
+- **THEN** the aircraft SHALL be marked offline
 - **AND** the aircraft device and its history SHALL remain
+
+#### Scenario: Stale report from a previous gateway
+- **WHEN** an aircraft's current gateway is dock B and dock A then reports a topology without that aircraft
+- **THEN** the aircraft SHALL remain online under dock B
 
 ### Requirement: Drone telemetry flows through JetStream
 The platform SHALL convert DJI OSD and state properties into metric records and spatial observations published to JetStream and persisted by EventWriter. Per-device forwarding MUST be capped at the configured rate and MUST NOT exceed 1 Hz.
