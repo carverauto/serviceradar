@@ -5,10 +5,13 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
   """
 
   alias Ash.Error.Forbidden
+  alias ServiceRadar.Camera.RecordingAccessAudit
   alias ServiceRadar.Camera.SemanticSearch
+  alias ServiceRadar.Camera.Source
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Vantage.Client, as: VantageClient
 
   @search_permissions ["devices.view", "devices.cameras.recordings.view"]
   @allowed_object_classes ~w(person vehicle bicycle animal package)
@@ -16,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
   @max_query_chars 256
   @default_limit 20
   @max_limit 50
+  @default_window_us 86_400_000_000
   @max_window_us 31 * 86_400 * 1_000_000
 
   @spec search_permissions() :: [String.t()]
@@ -99,10 +103,15 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       call_opts = Keyword.put(core_opts, :scope, refreshed_scope)
 
       raw_result =
-        if is_function(search_fn, 2) do
-          search_fn.(search_params, call_opts)
-        else
-          SemanticSearch.search(search_params, call_opts)
+        cond do
+          is_function(search_fn, 2) ->
+            search_fn.(search_params, call_opts)
+
+          vantage_rpc_enabled?(opts) ->
+            execute_via_vantage(refreshed_scope, search_params, opts)
+
+          true ->
+            SemanticSearch.search(search_params, call_opts)
         end
 
       case raw_result do
@@ -115,6 +124,230 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
         {:error, reason} ->
           {:error, normalize_error_reason(reason)}
       end
+    end
+  end
+
+  @doc """
+  Loads normalized bounding-box overlay detections for a specific visual frame.
+
+  When `ServiceRadarWebNG.Vantage.Client.enabled?()` is `true`, enforces RBAC and
+  camera source authorization in `web-ng` before calling `vantage.rpc.frame_overlay.v1`.
+  Otherwise delegates directly to `ServiceRadar.Camera.SemanticSearch.get_frame_overlay/3`.
+  """
+  @spec get_frame_overlay(Scope.t() | nil, String.t(), String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def get_frame_overlay(scope, camera_source_id, visual_frame_id, opts \\ [])
+      when is_binary(camera_source_id) and is_binary(visual_frame_id) and is_list(opts) do
+    if vantage_rpc_enabled?(opts) do
+      authorize_fn = Keyword.get(opts, :authorize_fn, &authorize/1)
+
+      with {:ok, refreshed_scope} <- authorize_fn.(scope),
+           {:ok, cam_uuid} <- cast_uuid(camera_source_id, :invalid_camera_source_id),
+           {:ok, frame_uuid} <- cast_uuid(visual_frame_id, :invalid_visual_frame_id),
+           {:ok, authorized_by_id} <- load_authorized_sources_map(refreshed_scope, opts),
+           :ok <- ensure_camera_authorized(cam_uuid, authorized_by_id) do
+        vantage_opts = Keyword.get(opts, :vantage_opts, [])
+
+        VantageClient.frame_overlay(
+          %{camera_source_id: cam_uuid, visual_frame_id: frame_uuid},
+          vantage_opts
+        )
+      end
+    else
+      SemanticSearch.get_frame_overlay(camera_source_id, visual_frame_id, scope: scope)
+    end
+  end
+
+  defp vantage_rpc_enabled?(opts) do
+    Keyword.get_lazy(opts, :vantage_rpc_enabled, &VantageClient.enabled?/0) == true
+  end
+
+  defp execute_via_vantage(scope, search_params, opts) do
+    with {:ok, authorized_by_id} <- load_authorized_sources_map(scope, opts),
+         {:ok, target_sources} <- select_target_sources(authorized_by_id, search_params) do
+      authorized_ids = target_sources |> Map.keys() |> Enum.sort()
+
+      if authorized_ids == [] do
+        with :ok <-
+               record_vantage_search_audit(
+                 scope,
+                 search_params,
+                 %{},
+                 map_size(authorized_by_id),
+                 0,
+                 0,
+                 opts
+               ) do
+          {:ok, %{results: []}}
+        end
+      else
+        vantage_opts = Keyword.get(opts, :vantage_opts, [])
+
+        rpc_params =
+          search_params
+          |> Map.put(:authorized_camera_source_ids, authorized_ids)
+          |> Map.put(:camera_sources, target_sources)
+
+        with {:ok, payload} <- VantageClient.semantic_search(rpc_params, vantage_opts),
+             results = List.wrap(Map.get(payload, :results, [])),
+             audit_meta = Map.get(payload, :audit_meta, %{}),
+             :ok <-
+               record_vantage_search_audit(
+                 scope,
+                 search_params,
+                 audit_meta,
+                 map_size(authorized_by_id),
+                 length(authorized_ids),
+                 length(results),
+                 opts
+               ) do
+          {:ok, payload}
+        end
+      end
+    end
+  end
+
+  defp load_authorized_sources_map(scope, opts) do
+    source_reader = Keyword.get(opts, :source_reader)
+
+    raw_result =
+      cond do
+        is_function(source_reader, 1) -> source_reader.(scope)
+        is_function(source_reader, 0) -> source_reader.()
+        true -> Ash.read(Source, scope: scope)
+      end
+
+    with {:ok, rows} <- raw_result do
+      list = if is_struct(rows, Ash.Page.Keyset), do: rows.results, else: List.wrap(rows)
+
+      by_id =
+        Enum.reduce(list, %{}, fn row, acc ->
+          case cast_uuid(fetch_val(row, :id), :invalid_camera_source_id) do
+            {:ok, uuid} ->
+              Map.put(acc, uuid, %{
+                display_name: fetch_val(row, :display_name),
+                device_uid: fetch_val(row, :device_uid)
+              })
+
+            _ ->
+              acc
+          end
+        end)
+
+      {:ok, by_id}
+    end
+  end
+
+  defp select_target_sources(authorized_by_id, %{camera_source_id: cam_id}) when is_binary(cam_id) do
+    if Map.has_key?(authorized_by_id, cam_id) do
+      {:ok, Map.take(authorized_by_id, [cam_id])}
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp select_target_sources(authorized_by_id, _search_params), do: {:ok, authorized_by_id}
+
+  defp ensure_camera_authorized(cam_uuid, authorized_by_id) do
+    if Map.has_key?(authorized_by_id, cam_uuid) do
+      :ok
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp cast_uuid(val, error_reason) when is_binary(val) do
+    case Ecto.UUID.cast(String.trim(val)) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, error_reason}
+    end
+  end
+
+  defp cast_uuid(_, error_reason), do: {:error, error_reason}
+
+  defp record_vantage_search_audit(scope, search_params, audit_meta, authorized_count, filtered_count, result_count, opts) do
+    meta = if is_map(audit_meta), do: audit_meta, else: %{}
+    now_us = System.system_time(:microsecond)
+
+    window_end_us =
+      fetch_int(meta, :window_end_us) ||
+        Map.get(search_params, :to_us) ||
+        now_us
+
+    window_start_us =
+      case fetch_int(meta, :window_start_us) || Map.get(search_params, :from_us) do
+        start_us when is_integer(start_us) and start_us < window_end_us -> start_us
+        _ -> max(window_end_us - @default_window_us, 0)
+      end
+
+    window_end_us =
+      if window_end_us > window_start_us, do: window_end_us, else: window_start_us + 1
+
+    query_text = Map.get(search_params, :query) || Map.get(search_params, :q) || ""
+
+    query_sha256 =
+      fetch_val(meta, :query_sha256) ||
+        :sha256
+        |> :crypto.hash(String.downcase(String.trim(query_text)))
+        |> Base.encode16(case: :lower)
+
+    details = %{
+      "query_text" => fetch_val(meta, :query_text) || query_text,
+      "query_sha256" => query_sha256,
+      "model_id" => fetch_val(meta, :model_id),
+      "model_version" => fetch_val(meta, :model_version),
+      "authorized_camera_count" => fetch_int(meta, :authorized_camera_count) || authorized_count,
+      "filtered_camera_count" => fetch_int(meta, :filtered_camera_count) || filtered_count,
+      "object_class_filter" => Map.get(search_params, :object_class),
+      "dominant_color_filter" => Map.get(search_params, :dominant_color) || Map.get(search_params, :color),
+      "result_count" => fetch_int(meta, :result_count) || result_count,
+      "provider" => "vantage_rpc"
+    }
+
+    audit_attrs = %{
+      event_kind: :semantic_search,
+      actor_id: resolve_actor_id(scope),
+      camera_source_id: Map.get(search_params, :camera_source_id),
+      stream_profile_id: fetch_val(meta, :stream_profile_id),
+      window_start_us: window_start_us,
+      window_end_us: window_end_us,
+      details: details
+    }
+
+    audit_writer = Keyword.get(opts, :audit_writer)
+
+    cond do
+      is_function(audit_writer, 1) ->
+        case audit_writer.(audit_attrs) do
+          {:ok, _} -> :ok
+          :ok -> :ok
+          {:error, _} = err -> err
+        end
+
+      Keyword.get(opts, :skip_db_audit, false) == true ->
+        :ok
+
+      true ->
+        case RecordingAccessAudit.record(audit_attrs) do
+          {:ok, _audit} -> :ok
+          {:error, _} = err -> err
+        end
+    end
+  end
+
+  defp resolve_actor_id(%Scope{user: user}) when is_map(user) do
+    case fetch_val(user, :id) || fetch_val(user, :email) do
+      nil -> "unknown"
+      val -> to_string(val)
+    end
+  end
+
+  defp resolve_actor_id(_), do: "unknown"
+
+  defp fetch_int(map, key) when is_map(map) do
+    case fetch_val(map, key) do
+      val when is_integer(val) -> val
+      _ -> nil
     end
   end
 
@@ -325,9 +558,14 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
 
       is_nil(has_frame_thumbnail) and is_nil(has_block_thumbnail) ->
         cond do
-          is_binary(frame_id) -> "/api/cameras/#{source_id}/timeline/thumbnails/frame/#{frame_id}.jpg"
-          is_binary(entry_id) -> "/api/cameras/#{source_id}/timeline/thumbnails/block/#{entry_id}.jpg"
-          true -> nil
+          is_binary(frame_id) ->
+            "/api/cameras/#{source_id}/timeline/thumbnails/frame/#{frame_id}.jpg"
+
+          is_binary(entry_id) ->
+            "/api/cameras/#{source_id}/timeline/thumbnails/block/#{entry_id}.jpg"
+
+          true ->
+            nil
         end
 
       true ->

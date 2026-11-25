@@ -166,6 +166,14 @@ config :serviceradar_web_ng, :control_plane_runtime,
     generation: System.get_env("SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_GENERATION")
   ]
 
+config :serviceradar_web_ng,
+       :vantage_rpc_enabled,
+       "SERVICERADAR_VANTAGE_RPC_ENABLED"
+       |> System.get_env("false")
+       |> String.trim()
+       |> String.downcase()
+       |> Kernel.in(["1", "true", "yes", "on"])
+
 case System.get_env("SERVICERADAR_HOSTED_RUNTIME_CONTRACT_VERSION") do
   nil ->
     :ok

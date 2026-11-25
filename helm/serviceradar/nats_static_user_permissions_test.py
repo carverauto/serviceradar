@@ -28,6 +28,7 @@ RENDERINGS = {
         "k8sInventory.enabled": True,
     },
     "media worker enabled": {"mediaWorker.enabled": True},
+    "vantage enabled": {"vantage.enabled": True},
 }
 
 
@@ -105,6 +106,7 @@ DISABLED_BY_DEFAULT = (
     chart_subject("serviceradar-netflow-collector"),
     chart_subject("serviceradar-k8s-inventory"),
     chart_subject("serviceradar-media-worker"),
+    chart_subject("serviceradar-vantage"),
 )
 
 
@@ -314,6 +316,65 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             with self.subTest(rendering=rendering, web=TEXT_EMBED_REQUEST):
                 self.assertEqual(may_publish(web, TEXT_EMBED_REQUEST), expected)
         self.assertFalse(may_publish(self.enabled[WEB_NG], LIVE_JOBS))
+
+
+VANTAGE = chart_subject("serviceradar-vantage")
+
+
+class VantagePermissionsTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.disabled = index_users_by_subject(render_static_users())
+        cls.vantage_enabled = index_users_by_subject(render_static_users({"vantage.enabled": True}))
+        cls.media_worker_enabled = index_users_by_subject(render_static_users({"mediaWorker.enabled": True}))
+
+    def test_web_ng_may_call_vantage_rpc_and_receive_inbox_replies(self):
+        web = self.disabled[WEB_NG]
+        for subject in (
+            "vantage.rpc.capabilities.v1",
+            "vantage.rpc.semantic_search.v1",
+            "vantage.rpc.frame_overlay.v1",
+        ):
+            with self.subTest(subject=subject):
+                self.assertTrue(may_publish(web, subject))
+        self.assertTrue(may(web, "subscribe", OTHER_INBOX))
+
+    def test_vantage_user_is_enabled_by_vantage_or_media_worker_flag(self):
+        publish = (
+            OTHER_INBOX,
+            TEXT_EMBED_REQUEST,
+            LIVE_JOBS,
+            BACKFILL_JOBS,
+            "$JS.API.STREAM.INFO.CAMERA_MEDIA_RESULTS",
+            "$JS.ACK.CAMERA_MEDIA_RESULTS.vantage_projector.1.1.1.1700000000000000000.0",
+        )
+        subscribe = (
+            "vantage.rpc.capabilities.v1",
+            "vantage.rpc.semantic_search.v1",
+            "vantage.rpc.frame_overlay.v1",
+            "media.results.visual_index.v1",
+            "$JS.API.INFO",
+            "$JS.ACK.CAMERA_MEDIA_RESULTS.vantage_projector.1.1.1.1700000000000000000.0",
+            OTHER_INBOX,
+        )
+        for rendering, users, expected in (
+            ("disabled", self.disabled, False),
+            ("vantage.enabled", self.vantage_enabled, True),
+            ("mediaWorker.enabled", self.media_worker_enabled, True),
+        ):
+            vantage = users[VANTAGE]
+            for subject in publish:
+                with self.subTest(rendering=rendering, publish=subject):
+                    self.assertEqual(may_publish(vantage, subject), expected)
+            for subject in subscribe:
+                with self.subTest(rendering=rendering, subscribe=subject):
+                    self.assertEqual(may(vantage, "subscribe", subject), expected)
+
+        # Even when enabled, vantage cannot reach $SYS.> or logs.normalized.>
+        vantage_on = self.vantage_enabled[VANTAGE]
+        self.assertFalse(may_publish(vantage_on, "$SYS.REQ.SERVER.PING"))
+        self.assertFalse(may_publish(vantage_on, NORMALIZED_SUBJECT))
+        self.assertFalse(may(vantage_on, "subscribe", "$SYS.REQ.SERVER.PING"))
 
 
 if __name__ == "__main__":
