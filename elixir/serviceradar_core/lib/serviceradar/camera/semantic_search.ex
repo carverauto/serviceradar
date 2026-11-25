@@ -61,6 +61,62 @@ defmodule ServiceRadar.Camera.SemanticSearch do
   @default_embedder_timeout_ms 250
   @text_embed_schema "media.rpc.visual_text_embed.v1"
 
+  @conversational_prefix_regex ~r/\A(?:(?:can\s+you\s+(?:please\s+)?|could\s+you\s+(?:please\s+)?|please\s+)?(?:show(?:\s+me)?|find(?:\s+me)?|search(?:\s+for)?|look\s+for|get(?:\s+me)?|give(?:\s+me)?)(?:\s+|\z)(?:(?:all|any|some)(?:\s+|\z))?(?:(?:of)(?:\s+|\z))?(?:(?:the)(?:\s+|\z))?(?:(?:videos?|clips?|footage|recordings?|events?)(?:\s+|\z))?(?:(?:that\s+(?:have|has|show|shows|feature|features|contain|contains)|of|with|where(?:\s+there\s+(?:is|are))?|showing|featuring|containing|involving|about)(?:\s+|\z))?|(?:(?:any|all|some|the)\s+)?(?:videos?|clips?|footage|recordings?|events?)\s+(?:that\s+(?:have|has|show|shows|feature|features|contain|contains)|of|with|where(?:\s+there\s+(?:is|are))?|showing|featuring|containing|involving|about)(?:\s+|\z))(?:(?:a|an|the)\s+)?/iu
+
+  @fts_stopwords MapSet.new(~w(
+    a an and are as at be been being by can could did do does doing
+    for from get give had has have having he her hers him his how
+    i if in into is it its just look me my no nor not of on or our
+    please see she show showing some that the their them there these
+    they this those to too up us very was we were what when where
+    which who whom why will with would you your
+    video videos clip clips footage recording recordings event events
+    find search all any
+  ))
+
+  @visual_synonym_expansions %{
+    "boy" => ~w(person child kid),
+    "girl" => ~w(person child kid),
+    "kid" => ~w(person child),
+    "child" => ~w(person kid),
+    "man" => ~w(person),
+    "woman" => ~w(person),
+    "guy" => ~w(person),
+    "lady" => ~w(person),
+    "someone" => ~w(person),
+    "somebody" => ~w(person),
+    "people" => ~w(person),
+    "human" => ~w(person),
+    "pedestrian" => ~w(person walking),
+    "driver" => ~w(person),
+    "puppy" => ~w(dog animal),
+    "dog" => ~w(dog animal),
+    "dogs" => ~w(dog animal),
+    "pet" => ~w(animal dog cat),
+    "cat" => ~w(cat animal),
+    "cats" => ~w(cat animal),
+    "kitten" => ~w(cat animal),
+    "car" => ~w(vehicle car),
+    "cars" => ~w(vehicle car),
+    "suv" => ~w(vehicle car truck),
+    "truck" => ~w(vehicle car truck),
+    "trucks" => ~w(vehicle truck),
+    "van" => ~w(vehicle car truck),
+    "pickup" => ~w(vehicle truck),
+    "sedan" => ~w(vehicle car),
+    "vehicle" => ~w(vehicle car truck),
+    "delivery" => ~w(package carrying),
+    "box" => ~w(package carrying),
+    "parcel" => ~w(package carrying),
+    "package" => ~w(package box parcel carrying),
+    "packages" => ~w(package box parcel carrying),
+    "bike" => ~w(bicycle cyclist),
+    "bicycle" => ~w(bicycle bike cyclist),
+    "cyclist" => ~w(person bicycle bike)
+  }
+
+  @max_or_tsquery_terms 24
+
   @doc """
   Executes an authorized semantic clip search across recorded camera footage (`3.2`, `3.3`).
   """
@@ -147,6 +203,100 @@ defmodule ServiceRadar.Camera.SemanticSearch do
     :ok
   end
 
+  @doc """
+  Strips leading conversational search preambles (e.g. `"show me videos with a ..."`,
+  `"find clips of a ..."`, `"can you please show me ..."`) so both SigLIP text
+  embeddings and PostgreSQL caption FTS focus on the visual subject.
+
+  Falls back to the original trimmed query if stripping empties it.
+  """
+  @spec clean_search_query(String.t()) :: String.t()
+  def clean_search_query(query) when is_binary(query) do
+    trimmed =
+      query
+      |> String.trim()
+      |> String.replace(~r/\s+/u, " ")
+
+    if trimmed == "" do
+      ""
+    else
+      stripped =
+        trimmed
+        |> String.replace(@conversational_prefix_regex, "")
+        |> String.trim()
+        |> String.trim_trailing("?")
+        |> String.trim()
+
+      if stripped == "", do: trimmed, else: stripped
+    end
+  end
+
+  def clean_search_query(_), do: ""
+
+  @doc """
+  Frames a cleaned visual query using SigLIP's canonical `"a photo of <subject>."`
+  template unless the query already starts with a visual framing prefix.
+  """
+  @spec format_siglip_prompt(String.t()) :: String.t()
+  def format_siglip_prompt(cleaned) when is_binary(cleaned) do
+    trimmed = String.trim(cleaned)
+    downcased = String.downcase(trimmed)
+
+    cond do
+      trimmed == "" ->
+        ""
+
+      String.starts_with?(downcased, "a photo of") or
+        String.starts_with?(downcased, "an image of") or
+          String.starts_with?(downcased, "a picture of") ->
+        trimmed
+
+      true ->
+        body = String.trim_trailing(trimmed, ".")
+        if body == "", do: trimmed, else: "a photo of #{body}."
+    end
+  end
+
+  def format_siglip_prompt(_), do: ""
+
+  @doc """
+  Builds a strictly sanitized PostgreSQL `to_tsquery('english', ...)` disjunction
+  (`"term1 | term2 | ..."`) from a natural-language search query.
+
+  Strips conversational prefixes, keeps only lowercase `[a-z0-9]+` tokens, filters
+  English stopwords and search filler words, and expands common visual-domain synonyms
+  (e.g. `boy` -> `person`, `dog` -> `animal`, `truck` -> `vehicle`) so partial and
+  IR/nighttime caption matches rank cleanly instead of returning zero hits.
+
+  Returns `""` when no alphanumeric tokens remain.
+  """
+  @spec build_or_tsquery_input(String.t()) :: String.t()
+  def build_or_tsquery_input(query) when is_binary(query) do
+    cleaned = clean_search_query(query)
+
+    raw_tokens =
+      ~r/[a-z0-9]+/
+      |> Regex.scan(String.downcase(cleaned))
+      |> List.flatten()
+
+    content_tokens =
+      Enum.filter(raw_tokens, fn tok ->
+        String.length(tok) >= 2 and not MapSet.member?(@fts_stopwords, tok)
+      end)
+
+    seed_tokens = if content_tokens == [], do: raw_tokens, else: content_tokens
+
+    seed_tokens
+    |> Enum.flat_map(fn tok ->
+      [tok | Map.get(@visual_synonym_expansions, tok, [])]
+    end)
+    |> Enum.uniq()
+    |> Enum.take(@max_or_tsquery_terms)
+    |> Enum.join(" | ")
+  end
+
+  def build_or_tsquery_input(_), do: ""
+
   # ---------------------------------------------------------------------------
   # Search execution pipeline
   # ---------------------------------------------------------------------------
@@ -154,7 +304,10 @@ defmodule ServiceRadar.Camera.SemanticSearch do
   defp run_authorized_search(auth_ctx, parsed, target_sources, opts) do
     model_cfg = VisualIndexDispatcher.active_model_config(opts)
     effective_ids = target_sources |> Map.keys() |> Enum.sort()
-    query_sha256 = sha256_hex(normalize_query_for_cache(parsed.query))
+    cleaned_query = clean_search_query(parsed.query)
+    embed_prompt = format_siglip_prompt(cleaned_query)
+    parsed = Map.put(parsed, :cleaned_query, cleaned_query)
+    query_sha256 = sha256_hex(normalize_query_for_cache(cleaned_query))
 
     if effective_ids == [] do
       with :ok <-
@@ -172,7 +325,7 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       end
     else
       with {:ok, query_vec} <-
-             resolve_query_embedding(parsed.query, query_sha256, model_cfg, opts),
+             resolve_query_embedding(embed_prompt, query_sha256, model_cfg, opts),
            {:ok, raw_candidates} <-
              execute_vector_candidates_query(
                query_vec,
@@ -1036,6 +1189,7 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       is_function(Map.get(loaders, :captions_loader), 2) ->
         loaders.captions_loader.(Ash.Vector.to_list(query_vec), %{
           query: parsed.query,
+          cleaned_query: Map.get(parsed, :cleaned_query, parsed.query),
           model_id: model_cfg.embedder_model_id,
           model_version: model_cfg.embedder_model_version,
           embedding_dim: model_cfg.embedding_dim,
@@ -1056,17 +1210,37 @@ defmodule ServiceRadar.Camera.SemanticSearch do
     dim = if model_cfg.embedding_dim == 512, do: 512, else: 768
     candidate_limit = clamp_int(parsed.limit * 4, 32, 200)
     cam_bins = Enum.map(effective_ids, &Ecto.UUID.dump!/1)
+    cleaned_query = Map.get(parsed, :cleaned_query) || clean_search_query(parsed.query)
+    or_tsquery_input = build_or_tsquery_input(cleaned_query)
 
     {profile_sql, profile_params, limit_idx} =
       if parsed.stream_profile_id do
-        {"AND cap.stream_profile_id = $6::uuid", [Ecto.UUID.dump!(parsed.stream_profile_id)], 7}
+        {"AND cap.stream_profile_id = $7::uuid", [Ecto.UUID.dump!(parsed.stream_profile_id)], 8}
       else
-        {"", [], 6}
+        {"", [], 7}
       end
+
+    fts_rank_expr = """
+    (
+      (CASE
+         WHEN q.and_tsq IS NOT NULL AND cap.caption_tsv @@ q.and_tsq
+           THEN 2.5 * ts_rank_cd(cap.caption_tsv, q.and_tsq)
+         ELSE 0.0
+       END)
+      +
+      (CASE
+         WHEN q.or_tsq IS NOT NULL AND cap.caption_tsv @@ q.or_tsq
+           THEN ts_rank_cd(cap.caption_tsv, q.or_tsq)
+         ELSE 0.0
+       END)
+    )::double precision
+    """
 
     sql = """
     WITH q AS (
-      SELECT websearch_to_tsquery('english', $1) AS tsq
+      SELECT
+        websearch_to_tsquery('english', $1) AS and_tsq,
+        to_tsquery('english', NULLIF($2, '')) AS or_tsq
     ),
     fts_hits AS (
       SELECT
@@ -1085,10 +1259,10 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         c.time_uncertainty_us,
         (f.thumbnail_jpeg IS NOT NULL) AS has_frame_thumbnail,
         (c.thumbnail_jpeg IS NOT NULL) AS has_block_thumbnail,
-        ts_rank_cd(cap.caption_tsv, q.tsq)::double precision AS fts_rank,
+        #{fts_rank_expr} AS fts_rank,
         CASE
           WHEN cap.caption_embedding IS NOT NULL AND cap.embedding_dim = #{dim}
-            THEN (1.0 - ((cap.caption_embedding::vector(#{dim})) <=> ($2::vector(#{dim}))))::double precision
+            THEN (1.0 - ((cap.caption_embedding::vector(#{dim})) <=> ($3::vector(#{dim}))))::double precision
           ELSE NULL
         END AS caption_similarity
       FROM platform.camera_visual_clip_captions cap
@@ -1097,14 +1271,17 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         ON c.id = cap.catalog_entry_id
       LEFT JOIN platform.camera_visual_frames f
         ON f.id = cap.visual_frame_id
-      WHERE cap.camera_source_id = ANY($3::uuid[])
-        AND cap.start_us < $5
-        AND cap.end_us >= $4
+      WHERE cap.camera_source_id = ANY($4::uuid[])
+        AND cap.start_us < $6
+        AND cap.end_us >= $5
         AND c.recording_block_id IS NOT NULL
         AND c.local_state <> 'quarantined'
         AND c.quarantine_reason IS NULL
         AND (c.local_state = 'present' OR c.archive_state = 'verified')
-        AND cap.caption_tsv @@ q.tsq
+        AND (
+          (q.or_tsq IS NOT NULL AND cap.caption_tsv @@ q.or_tsq)
+          OR (q.and_tsq IS NOT NULL AND cap.caption_tsv @@ q.and_tsq)
+        )
         #{profile_sql}
       ORDER BY fts_rank DESC, cap.start_us DESC
       LIMIT $#{limit_idx}
@@ -1126,21 +1303,17 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         c.time_uncertainty_us,
         (f.thumbnail_jpeg IS NOT NULL) AS has_frame_thumbnail,
         (c.thumbnail_jpeg IS NOT NULL) AS has_block_thumbnail,
-        CASE
-          WHEN cap.caption_tsv @@ q.tsq
-            THEN ts_rank_cd(cap.caption_tsv, q.tsq)::double precision
-          ELSE 0.0
-        END AS fts_rank,
-        (1.0 - ((cap.caption_embedding::vector(#{dim})) <=> ($2::vector(#{dim}))))::double precision AS caption_similarity
+        #{fts_rank_expr} AS fts_rank,
+        (1.0 - ((cap.caption_embedding::vector(#{dim})) <=> ($3::vector(#{dim}))))::double precision AS caption_similarity
       FROM platform.camera_visual_clip_captions cap
       CROSS JOIN q
       JOIN platform.camera_recording_catalog c
         ON c.id = cap.catalog_entry_id
       LEFT JOIN platform.camera_visual_frames f
         ON f.id = cap.visual_frame_id
-      WHERE cap.camera_source_id = ANY($3::uuid[])
-        AND cap.start_us < $5
-        AND cap.end_us >= $4
+      WHERE cap.camera_source_id = ANY($4::uuid[])
+        AND cap.start_us < $6
+        AND cap.end_us >= $5
         AND cap.caption_embedding IS NOT NULL
         AND cap.embedding_dim = #{dim}
         AND c.recording_block_id IS NOT NULL
@@ -1148,7 +1321,7 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         AND c.quarantine_reason IS NULL
         AND (c.local_state = 'present' OR c.archive_state = 'verified')
         #{profile_sql}
-      ORDER BY (cap.caption_embedding::vector(#{dim})) <=> ($2::vector(#{dim})) ASC,
+      ORDER BY (cap.caption_embedding::vector(#{dim})) <=> ($3::vector(#{dim})) ASC,
                cap.start_us DESC
       LIMIT $#{limit_idx}
     ),
@@ -1180,7 +1353,7 @@ defmodule ServiceRadar.Camera.SemanticSearch do
     """
 
     params =
-      [parsed.query, query_vec, cam_bins, parsed.from_us, parsed.to_us] ++
+      [cleaned_query, or_tsquery_input, query_vec, cam_bins, parsed.from_us, parsed.to_us] ++
         profile_params ++ [candidate_limit]
 
     case SQL.query(Repo, sql, params) do

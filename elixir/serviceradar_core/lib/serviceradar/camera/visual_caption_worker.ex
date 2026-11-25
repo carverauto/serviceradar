@@ -188,7 +188,7 @@ defmodule ServiceRadar.Camera.VisualCaptionWorker do
         }
 
       {:error, reason} ->
-        Logger.debug("Camera caption text embedding skipped (embedder unavailable)",
+        Logger.warning("Camera caption text embedding skipped (embedder unavailable)",
           reason: inspect(reason)
         )
 

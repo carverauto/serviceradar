@@ -250,6 +250,12 @@ _INBOX.media-worker
            which the API, ACK and inbox grants below already cover. */}}
       - "media.jobs.visual_index.v1"
       - "media.jobs.visual_index.backfill.v1"
+      {{- if $mediaWorkerEnabled }}
+      {{- /* Camera VLM caption embedding (Camera.VisualCaptionWorker, running on
+           core's :maintenance Oban queue) asks the media worker for a SigLIP text
+           embedding on this subject; the reply comes back on _INBOX. */}}
+      - "media.rpc.visual_text_embed.v1.>"
+      {{- end }}
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
            the bucket through the JetStream API and writes each bundle here. */}}
       - "$KV.{{ $zenRuleBucket }}.>"
