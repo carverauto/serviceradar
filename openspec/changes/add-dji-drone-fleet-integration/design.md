@@ -226,9 +226,17 @@ implements MQTT 3.1.1 with QoS 0/1/2 and needs JetStream.
   another gateway's or another gateway's aircraft's `osd` or `state`. The
   inventory and camera profiles derived from `state` (`live_capacity`,
   firmware, mode) depend on that.
-- **Shared aircraft.** An aircraft legitimately bound to two gateways (a dock
-  and a Pilot RC) appears in both grants. Either may report it, and the
-  current-gateway rule (D4) decides which report governs offline state.
+- **Single-owner binding.** Each sub-device serial is bound to at most one
+  gateway at a time, and only that gateway's grant names it.
+  - When another gateway binds the serial (an aircraft moved to a different
+    dock, or the same aircraft flown from a Pilot RC), the binding moves.
+  - The move is recorded as an audited event visible to operators. The
+    previous gateway's grant is re-issued without the serial, through KICK.
+  - A dock's self-reported `bind_devices` list can therefore claim a serial
+    only by moving it. A move is never silent.
+  - An installation that wants stricter control can require operator approval
+    for moves (a `DjiFleetSettings` option). This is a stated policy choice,
+    not a hidden residual risk.
 - MQTT session and retained-message streams count against the JetStream
   storage budget (`jetstream-storage-budget`).
 
@@ -558,6 +566,7 @@ is correlated with frames by time through spatial observations and
   - OSD forward rate cap
   - media intake on/off
   - log retention
+  - binding move policy (audited automatic, or operator-approved)
 
   It defaults to disabled. It is the user-facing switch and is never a Helm
   value.
@@ -682,7 +691,8 @@ is correlated with frames by time through spatial observations and
 - **H.265 transcode cost** is bounded per session, counted, and removed by
   `add-hevc-media-pipeline`.
 - **An enrollment credential leak** is limited by first-use serial binding,
-  per-gateway subject grants and revocation KICK.
+  exact per-serial grants, audited single-owner binding moves (optionally
+  operator-approved) and revocation KICK.
 - **License verification may need internet access** (unverified). Air-gapped
   sites may not be supported, and S1 records the result.
 - **The single `CameraMediaSessionTracker` GenServer** funnels every chunk. A

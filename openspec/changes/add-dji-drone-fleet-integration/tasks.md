@@ -28,8 +28,14 @@ Captures answer questions only. No captured value is committed (design D12).
 - [ ] 1.3 Add a credential broker grant for the `dji_cloud_api` and `dji_open_api` integration credentials. Add both descriptors to the credentials settings area.
 - [ ] 1.4 Add `platform.dji_gateway_enrollments` (Ash resource and migration): Argon2id hash, binding code, label, expiry, multi-gateway flag, first-bound serial. Add a web-ng enrollment UI that shows values once.
 - [ ] 1.5 Device-facing MQTT, depending on the S1 result:
-  - If NATS: add the chart `mqtt {}` block with its own TLS, the `DJI` account with JetStream, and exports and imports. Add the callout password-grant path with per-gateway permissions and revocation KICK.
-  - Otherwise: add a gateway-hosted MQTT 5 broker with the same grants.
+  - If NATS: add the chart `mqtt {}` block with its own TLS, the `DJI` account with JetStream, and exports and imports. Add the callout password-grant path.
+  - Otherwise: add a gateway-hosted MQTT 5 broker with the same admission rules.
+  - Either way, admission must:
+    - refuse every connection while `DjiFleetSettings` is disabled;
+    - take the gateway serial from the CONNECT client ID, or the identifier S1 finds;
+    - issue exact-serial grants built from binding records, with no wildcards;
+    - enforce single-owner binding moves, audited and optionally operator-approved;
+    - re-issue grants through KICK on any binding change, and on revocation.
 - [ ] 1.6 Add the internal gRPC API (mTLS / SPIFFE) for Core: `StartLivePush`, `StopLivePush`, `SetLiveQuality`, `ChangeLens`, `ListLogs`, `PullLogs`, `GetCapabilities`.
 - [ ] 1.7 Add a protocol simulator with invented serials (dock, O4, Pilot gateway) driving topology, OSD, state, HMS, binding and RTMP push. Wire it into gateway tests.
 
@@ -39,7 +45,7 @@ Captures answer questions only. No captured value is committed (design D12).
   - an aircraft resolves to one device across gateways
   - no address-based merge happens
 - [ ] 2.2 Add the `platform.dji_devices` sibling resource and migration, the model-key table (public DJI product table) and the `management_device_id` gateway relation.
-- [ ] 2.3 Turn topology into complete-snapshot `device_discovery` records, with offline marking for absent sub-devices.
+- [ ] 2.3 Turn topology into complete-snapshot `device_discovery` records. A sub-device absent from a report is marked offline only when the reporting gateway is its current gateway.
 - [ ] 2.4 Add the OSD/state metric catalog, emitting `serviceradar.metric.v1` through JetStream with the rate cap. Run the EventWriter path on both telemetry backends.
 - [ ] 2.5 Emit positions as spatial observations once #4911 is available. Until then, emit interim gauges plus the current position on `dji_devices`.
 - [ ] 2.6 Add the HMS full-set diff, emitting OCSF raise and clear events with a signal schema and condition keys. Vendor an `hms.json` snapshot and refresh it through `EgressClient`. Add default alert rules, created disabled.
@@ -53,7 +59,12 @@ Captures answer questions only. No captured value is committed (design D12).
   - FLV to Annex-B conversion and ms to 90 kHz rescaling
   - emission into `Pipeline` through the chunk seam
   - token and key validation against the session or source
-- [ ] 3.3 Push-orchestrated open, activate and teardown: token mint and hash, gateway `StartLivePush` / `StopLivePush`, recorder lease interaction.
+- [ ] 3.3 Push-orchestrated open, activate and teardown:
+  - session-scoped token mint and hash
+  - re-attach within the publisher-loss grace window (the session returns to reserved)
+  - after the grace window, re-mint the token (invalidating the old one) and re-issue `StartLivePush` while a lease remains
+  - gateway `StartLivePush` / `StopLivePush`
+  - recorder lease interaction
 - [ ] 3.4 Source-initiated keys: show-once, hashed, rotatable, offline state when there is no publisher. Show the published endpoint in the source UI.
 - [ ] 3.5 Add the HEVC path to `Membrane.FLV.Demuxer`. Carry it as a vendored patch, open the upstream PR, and add bounded H.265 to H.264 transcoding with relay metrics.
 - [ ] 3.6 Detect frame reordering and mark such profiles not recordable, with a visible reason.

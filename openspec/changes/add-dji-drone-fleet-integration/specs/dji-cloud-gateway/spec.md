@@ -43,7 +43,7 @@ The gateway SHALL map DJI workspaces and organizations to the single ServiceRada
 - **THEN** the gateway SHALL refuse the binding and record the attempt as an event without creating devices
 
 ### Requirement: Device-facing MQTT with per-gateway authorization
-The platform SHALL accept DJI gateway MQTT connections on a dedicated TLS listener. Each gateway SHALL authenticate with an enrollment or Pilot session credential. Each connection SHALL be restricted, in an isolated account that cannot address platform subjects, to topics that name exact serials: its own gateway's uplink and downlink topics, plus `osd` and `state` topics for the sub-devices bound to that gateway. Wildcard serial grants SHALL NOT be issued. A binding change SHALL re-issue the grant.
+The platform SHALL accept DJI gateway MQTT connections on a dedicated TLS listener. Each gateway SHALL authenticate with an enrollment or Pilot session credential. Each connection SHALL be restricted, in an isolated account that cannot address platform subjects, to topics that name exact serials: its own gateway's uplink and downlink topics, plus `osd` and `state` topics for the sub-devices bound to that gateway. Wildcard serial grants SHALL NOT be issued. A sub-device serial SHALL be bound to at most one gateway at a time; a bind from another gateway SHALL move it, record an audited event, and re-issue both gateways' grants.
 
 #### Scenario: Enrolled dock connects
 - **WHEN** a dock connects with a valid enrollment username and password
@@ -55,6 +55,11 @@ The platform SHALL accept DJI gateway MQTT connections on a dedicated TLS listen
 - **WHEN** a connected dock binds a newly paired aircraft
 - **THEN** the session SHALL be re-admitted with a grant that includes the aircraft's serial
 - **AND** the aircraft's telemetry SHALL then be accepted
+
+#### Scenario: Aircraft binding moves to another dock
+- **WHEN** dock B binds an aircraft that is currently bound to dock A
+- **THEN** the binding SHALL move to dock B with an audited event
+- **AND** dock A's re-issued grant SHALL no longer permit publishing for that aircraft
 
 #### Scenario: Forged telemetry for another gateway
 - **WHEN** an enrolled gateway publishes `osd` or `state` on a topic naming another gateway or another gateway's sub-device
@@ -135,7 +140,7 @@ The DJI integration SHALL be switched on and off by a CNPG-backed product runtim
 
 #### Scenario: Setting disabled
 - **WHEN** the DJI setting is disabled
-- **THEN** the gateway SHALL refuse device connections and the ingest SHALL refuse DJI pushes
+- **THEN** MQTT admission (the auth callout, or the gateway-hosted broker) SHALL refuse device connections and the ingest SHALL refuse DJI pushes
 - **AND** no Helm change SHALL be required to disable the integration
 
 #### Scenario: Hosted tenant endpoints
