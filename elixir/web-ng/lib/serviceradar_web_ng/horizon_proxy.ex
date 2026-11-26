@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   @traces_read_permission "observability.traces.view"
   @rules_read_permission "observability.rules.view"
   @rules_create_permission "observability.rules.create"
+  @rules_update_permission "observability.rules.update"
   @rules_delete_permission "observability.rules.delete"
   @write_permission "settings.integrations.manage"
 
@@ -35,13 +36,21 @@ defmodule ServiceRadarWebNG.HorizonProxy do
                                   "application/gzip",
                                   "text/csv"
                                 ])
+  @allowed_json_media_types MapSet.new([
+                              "application/json",
+                              "application/problem+json",
+                              "application/x-ndjson",
+                              "application/ndjson",
+                              "application/vnd.api+json",
+                              "application/ld+json"
+                            ])
 
   @id_regex ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z/
 
   @type route_match :: %{
           upstream_path: String.t(),
           required_permission: String.t(),
-          method: :get | :post | :delete
+          method: :get | :post | :patch | :delete
         }
 
   @type upstream_config :: Upstream.config()
@@ -328,6 +337,12 @@ defmodule ServiceRadarWebNG.HorizonProxy do
       else: {:error, :not_found}
   end
 
+  defp match_allowlisted_route(:patch, "v1", ["alerts", "rules", id]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/alerts/rules/#{id}", @rules_update_permission},
+      else: {:error, :not_found}
+  end
+
   defp match_allowlisted_route(:delete, "v1", ["alerts", "rules", id]) do
     if valid_id?(id),
       do: {:ok, "/api/v1/alerts/rules/#{id}", @rules_delete_permission},
@@ -391,7 +406,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   defp match_allowlisted_route(:get, "v1", ["webhooks", id, "deliveries"]) when id != "subscriptions" do
     if valid_id?(id),
-      do: {:ok, "/api/v1/webhooks/#{id}/deliveries", @read_permission},
+      do: {:ok, "/api/v1/webhooks/#{id}/deliveries", @write_permission},
       else: {:error, :not_found}
   end
 
@@ -419,6 +434,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
     case String.upcase(method) do
       "GET" -> {:ok, :get}
       "POST" -> {:ok, :post}
+      "PATCH" -> {:ok, :patch}
       "DELETE" -> {:ok, :delete}
       _ -> {:error, :unsupported_method}
     end
@@ -463,13 +479,13 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   defp build_upstream_url(base_url, upstream_path, ""), do: base_url <> upstream_path
   defp build_upstream_url(base_url, upstream_path, qs), do: base_url <> upstream_path <> "?" <> qs
 
-  defp maybe_put_content_type(headers, :post, body) when is_binary(body) do
+  defp maybe_put_content_type(headers, method, body) when method in [:post, :patch] and is_binary(body) do
     [{"content-type", "application/json"} | headers]
   end
 
   defp maybe_put_content_type(headers, _method, _body), do: headers
 
-  defp maybe_put_body(opts, :post, body) when is_binary(body) do
+  defp maybe_put_body(opts, method, body) when method in [:post, :patch] and is_binary(body) do
     Keyword.put(opts, :body, body)
   end
 
@@ -553,7 +569,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   defp allowed_response_content_type?(_), do: false
 
   defp json_media_type?(media_type) do
-    String.starts_with?(media_type, "application/") and String.contains?(media_type, "json")
+    MapSet.member?(@allowed_json_media_types, media_type)
   end
 
   defp normalize_response_body(body) when is_binary(body), do: body

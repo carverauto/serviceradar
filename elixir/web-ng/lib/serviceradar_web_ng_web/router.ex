@@ -724,6 +724,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/horizon/:version/*path", HorizonProxyController, :proxy)
     post("/horizon/:version/*path", HorizonProxyController, :proxy)
+    patch("/horizon/:version/*path", HorizonProxyController, :proxy)
     delete("/horizon/:version/*path", HorizonProxyController, :proxy)
   end
 

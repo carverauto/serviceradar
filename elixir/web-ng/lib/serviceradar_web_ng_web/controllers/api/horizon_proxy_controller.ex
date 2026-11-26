@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyController do
     end
   end
 
-  defp encode_request_body(conn, :post) do
+  defp encode_request_body(conn, method) when method in [:post, :patch] do
     case conn.body_params do
       %Plug.Conn.Unfetched{} ->
         {:ok, "{}"}
