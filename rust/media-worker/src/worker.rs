@@ -40,7 +40,7 @@ pub const VISUAL_INDEX_LIVE_SUBJECT: &str = "media.jobs.visual_index.v1";
 pub const VISUAL_INDEX_BACKFILL_SUBJECT: &str = "media.jobs.visual_index.backfill.v1";
 /// Idempotent visual-index result subject consumed by `ServiceRadar.Camera.VisualIndexResultProjector`.
 pub const VISUAL_INDEX_RESULTS_SUBJECT: &str = "media.results.visual_index.v1";
-/// Interactive query text-embedding NATS RPC schema & subject prefix (`ServiceRadar.Camera.SemanticSearch`).
+/// Interactive query text-embedding NATS RPC schema & subject prefix (requested by the Vantage provider).
 pub const VISUAL_TEXT_EMBED_RPC_PREFIX: &str = "media.rpc.visual_text_embed.v1";
 /// Queue group shared by compatible `serviceradar-media-worker` replicas on text-embed RPCs.
 pub const VISUAL_TEXT_EMBED_QUEUE_GROUP: &str = "serviceradar_media_worker_text_embed_v1";
@@ -501,7 +501,7 @@ pub trait ResultPublisher: Send + Sync {
     ) -> impl Future<Output = Result<(), MediaWorkerError>> + Send;
 }
 
-/// Interactive NATS request-reply payload sent by `ServiceRadar.Camera.SemanticSearch`.
+/// Interactive NATS request-reply payload sent by the Vantage provider.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextEmbedRpcRequest {
     #[serde(default)]
@@ -553,7 +553,7 @@ impl TextEmbedRpcRequest {
     }
 }
 
-/// Interactive NATS request-reply response consumed by `ServiceRadar.Camera.SemanticSearch`.
+/// Interactive NATS request-reply response consumed by the Vantage provider.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextEmbedRpcResponse {
     schema: String,

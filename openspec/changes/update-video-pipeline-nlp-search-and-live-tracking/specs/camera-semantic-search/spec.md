@@ -12,13 +12,8 @@ The system SHALL verify job ownership (`job_id` belongs to `catalog_entry_id`) a
 - **WHEN** non-media components (such as telemetry collectors, agents, or legacy org identities) connect to NATS
 - **THEN** their NATS permissions SHALL NOT grant publish or subscribe access to `media.jobs.visual_index.>`, `media.results.visual_index.>`, `media.rpc.visual_text_embed.>`, or `media.events.live_tracks.>`
 
-### Requirement: Decoupled detector identity and compositional attribute retrieval
-The system SHALL decouple `detector_model_id` and `detector_model_version` from `embedder_model_id` and `embedder_model_version` across Core dispatch, Helm configuration, and `serviceradar-media-worker`, and SHALL store structured sub-crop attributes (`upper_color`, `lower_color`, `object_class`, `track_id`) alongside crop embeddings with optional query-time bounded top-K reranking to resolve compositional queries (such as `"find the man in the red dress"`).
-
-#### Scenario: Compositional clothing query ranks matching upper/lower color subject above mismatched neighbors
-- **WHEN** an authorized operator searches for `"find the man in the red dress"` across `drone-surf` or `Gate North` (`cam-synth-0001`) footage containing multiple people wearing different colors
-- **THEN** the search service SHALL combine pre-filtered `SigLIP` crop similarity with structured sub-crop `upper_color` / `lower_color` attribute matching (and optional bounded top-K VLM reranking over at most 20 candidates)
-- **AND** SHALL rank the subject crop matching both person class and red garment attributes above whole-scene or color-mismatched subjects
+### Requirement: Decoupled detector identity and structured sub-crop attributes
+The system SHALL decouple `detector_model_id` and `detector_model_version` from `embedder_model_id` and `embedder_model_version` across Core dispatch, Helm configuration, and `serviceradar-media-worker`, and SHALL store structured sub-crop attributes (`upper_color`, `lower_color`, `object_class`, `track_id`) alongside each detection.
 
 #### Scenario: Detector and embedder upgrades do not invalidate unrelated model identity
 - **WHEN** an operator upgrades `detector_model_id` (such as `"yolox-s"`) while keeping `embedder_model_id = "siglip-b16-384"`

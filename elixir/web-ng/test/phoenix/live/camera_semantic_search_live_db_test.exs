@@ -12,7 +12,6 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
-  alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Camera.VisualFrame
@@ -32,19 +31,16 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
   @storage_id "00000000-0000-4000-8000-000000000621"
 
   setup %{tmp_dir: directory} do
-    previous_embedder = Application.get_env(:serviceradar_core, :camera_semantic_text_embedder)
     previous_web_opts = Application.get_env(:serviceradar_web_ng, :camera_semantic_search_opts)
+    previous_vantage_enabled = Application.get_env(:serviceradar_web_ng, :vantage_rpc_enabled)
+    previous_vantage_request_fn = Application.get_env(:serviceradar_web_ng, :vantage_rpc_request_fn)
 
     Application.delete_env(:serviceradar_web_ng, :camera_semantic_search_opts)
-    SemanticSearch.clear_query_cache()
     open_synthetic_recovery_gate!(directory)
 
     on_exit(fn ->
-      SemanticSearch.clear_query_cache()
-
-      if previous_embedder,
-        do: Application.put_env(:serviceradar_core, :camera_semantic_text_embedder, previous_embedder),
-        else: Application.delete_env(:serviceradar_core, :camera_semantic_text_embedder)
+      restore_web_env(:vantage_rpc_enabled, previous_vantage_enabled)
+      restore_web_env(:vantage_rpc_request_fn, previous_vantage_request_fn)
 
       if previous_web_opts,
         do: Application.put_env(:serviceradar_web_ng, :camera_semantic_search_opts, previous_web_opts),
@@ -128,9 +124,15 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     ctx = seed_recent_visual_fixture(actor, now)
 
-    # 1. Embedder offline banner on /cameras
-    Application.put_env(:serviceradar_core, :camera_semantic_text_embedder, fn _q, _m ->
-      {:error, :unavailable}
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_enabled, true)
+
+    # 1. Embedder offline banner on /cameras when the Vantage provider reports it
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_request_fn, fn
+      "vantage.rpc.semantic_search.v1", _json, _opts ->
+        {:ok, %{body: Jason.encode!(%{"status" => "error", "error" => "search_embedder_unavailable"})}}
+
+      _subject, _json, _opts ->
+        {:error, :no_responders}
     end)
 
     {:ok, fleet_view, _html} = live(authed_conn(viewer), ~p"/cameras")
@@ -146,10 +148,8 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
              "Visual search workers unavailable"
            )
 
-    # 2. Working embedder returns matching clip card with Open in Timeline deep link
-    Application.put_env(:serviceradar_core, :camera_semantic_text_embedder, fn _q, model_ctx ->
-      {:ok, basis_vector(model_ctx.embedding_dim, 0)}
-    end)
+    # 2. A Vantage hit renders a clip card with an Open in Timeline deep link
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_request_fn, vantage_stub(ctx))
 
     fleet_view
     |> form("#camera-fleet-semantic-search-form", %{
@@ -227,6 +227,52 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
   end
 
   defp authed_conn(user), do: log_in_user(build_conn(), user)
+
+  defp restore_web_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_web_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  # Stands in for the Vantage provider's NATS RPC responder.
+  defp vantage_stub(ctx) do
+    camera_source_id = to_string(ctx.source.id)
+    frame_id = to_string(ctx.frame.id)
+    frame_ts_us = ctx.frame.timeline_ts_us
+
+    detection = %{
+      "visual_frame_id" => frame_id,
+      "timeline_ts_us" => frame_ts_us,
+      "bbox" => [0.25, 0.2, 0.55, 0.88],
+      "object_class" => "person",
+      "score" => 0.94,
+      "dominant_colors" => ["red"],
+      "time_basis" => "received"
+    }
+
+    hit = %{
+      "catalog_entry_id" => to_string(ctx.entry.id),
+      "visual_frame_id" => frame_id,
+      "camera_source_id" => camera_source_id,
+      "camera_display_name" => "Synthetic Gate 7",
+      "clip_start_us" => ctx.entry.timeline_start_us,
+      "clip_end_us" => ctx.entry.timeline_end_us,
+      "best_timeline_ts_us" => frame_ts_us,
+      "score" => 0.91,
+      "object_class" => "person",
+      "dominant_colors" => ["red"],
+      "time_basis" => "received",
+      "frame_detections" => [detection]
+    }
+
+    fn
+      "vantage.rpc.semantic_search.v1", _json, _opts ->
+        {:ok, %{body: Jason.encode!(%{"status" => "ok", "time_basis" => "received", "results" => [hit]})}}
+
+      "vantage.rpc.frame_overlay.v1", _json, _opts ->
+        {:ok, %{body: Jason.encode!(%{"status" => "ok", "detections" => [detection]})}}
+
+      _subject, _json, _opts ->
+        {:error, :no_responders}
+    end
+  end
 
   defp seed_recent_visual_fixture(actor, now) do
     opts = [actor: actor]

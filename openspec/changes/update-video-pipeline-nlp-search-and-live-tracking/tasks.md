@@ -10,7 +10,7 @@
 - [ ] 2.1 Consume `github.com/carverauto/rusty_h264` `carverauto/0.17.3-fixes` (`4439375cf`, `default-features = false`) with Bazel `crate_universe` / `third_party/crate_mirror` verification; lift temporary single-slice and equal-QP refusals in `rust/media-worker/src/h264.rs` and persist `undecodable_keyframes` in Core.
 - [ ] 2.2 Extract pure-Rust `rust/media-core` (`cmaf`, `h264`, `keyframe_decoder`, `range_reader`, `tracking`, `tokenizer`, Tier-2 pixel gate), `rust/nats-client`, `rust/disk-spool`, and `rust/service-probes` following ServiceRadar Rust conventions (`rust/README_RUST.md`) and Ultra Style bounded-actor patterns (`~/src/ultragraphdb/openspec/protocols/ULTRA_STYLE.md`).
 - [ ] 2.3 Implement pure-Rust Apache-2.0 **YOLOX** in `candle-nn` (`detector_model_id: "yolox-s"`), decouple `detector_model_id` from `embedder_model_id` in `VisualIndexDispatcher` and Helm `media-worker.yaml`, and retire AGPL YOLOv8 / unimplemented `"rtdetr-r18"` defaults.
-- [ ] 2.4 Add upper-body/lower-body HSV sub-crop color classification and structured attribute extraction in `vision.rs`, SPS/container dimension fallback for `0x0` `camera_stream_profiles.metadata`, and optional query-time top-K VLM reranking (`<= 20` candidates).
+- [ ] 2.4 Add upper-body/lower-body HSV sub-crop color classification and structured attribute extraction in `vision.rs`, and SPS/container dimension fallback for `0x0` `camera_stream_profiles.metadata`.
 
 ## 3. Phase 2: Live Object Detection/Tracking & 8,000-Camera Scale
 

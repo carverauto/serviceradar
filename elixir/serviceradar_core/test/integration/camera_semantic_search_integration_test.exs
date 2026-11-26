@@ -1,7 +1,6 @@
 defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
-  alias Ash.Error.Forbidden
   alias Broadway.Message
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
@@ -10,7 +9,6 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   alias ServiceRadar.Camera.IngestOwner
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecorderOwnership
-  alias ServiceRadar.Camera.RecordingAccessAudit
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
@@ -18,7 +16,6 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
-  alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Camera.Thumbnail
@@ -57,11 +54,6 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
   setup_all do
     TestSupport.start_core!()
-    :ok
-  end
-
-  setup do
-    SemanticSearch.clear_query_cache()
     :ok
   end
 
@@ -481,7 +473,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
              reload(job, actor)
   end
 
-  test "end-to-end ResultProjector idempotency, pgvector HNSW cosine search, pre-k-NN camera scope isolation, frame overlay, and append-only RecordingAccessAudit (3.1, 3.2, 3.3)",
+  test "end-to-end ResultProjector idempotency and camera-scoped frame and block thumbnails (3.1)",
        %{tmp_dir: tmp_dir} do
     _gate = Fixtures.recording_recovery_gate(tmp_dir)
     actor = SystemActor.system(:semantic_e2e_test)
@@ -662,76 +654,6 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
                :block,
                to_string(entry_forb.id)
              )
-
-    scoped_investigator = %{
-      user: %{id: "investigator-e2e", email: "inv@example.test"},
-      permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"]),
-      authorized_camera_source_ids: [cam_authorized.id]
-    }
-
-    assert {:error, %Forbidden{}} =
-             SemanticSearch.search(
-               %{
-                 query: "person in red dress",
-                 camera_source_id: cam_forbidden.id,
-                 from_us: 1_750_000_990_000_000,
-                 to_us: 1_750_001_020_000_000
-               },
-               scope: scoped_investigator,
-               text_embedder: fn _q, _ctx -> {:ok, red_person_vec} end
-             )
-
-    assert {:ok, search_resp} =
-             SemanticSearch.search(
-               %{
-                 query: "person in red dress",
-                 object_class: "person",
-                 color: "red",
-                 from_us: 1_750_000_990_000_000,
-                 to_us: 1_750_001_020_000_000
-               },
-               scope: scoped_investigator,
-               bypass_cache: true,
-               text_embedder: fn _q, _ctx -> {:ok, red_person_vec} end
-             )
-
-    assert [hit] = search_resp.results
-    assert hit.camera_source_id == cam_authorized.id
-    assert hit.camera_display_name == "Gate C2 / Camera 07"
-    assert hit.time_basis == "received"
-    assert hit.score >= 0.99
-    assert hit.object_class == "person"
-    assert hit.dominant_colors == ["red"]
-    assert hit.clip_start_us <= hit.best_timeline_ts_us
-    assert hit.clip_end_us > hit.best_timeline_ts_us
-    assert length(hit.frame_detections) == 2
-
-    assert {:ok, [overlay_det]} =
-             SemanticSearch.get_frame_overlay(
-               cam_authorized.id,
-               hit.visual_frame_id,
-               scope: scoped_investigator
-             )
-
-    assert overlay_det.object_class == "person"
-    assert length(overlay_det.bbox) == 4
-
-    audits =
-      RecordingAccessAudit
-      |> Ash.Query.filter(actor_id == "investigator-e2e" and event_kind == :semantic_search)
-      |> Ash.read!(actor: actor)
-
-    assert [audit] = audits
-    assert is_nil(audit.camera_source_id)
-    assert audit.details["query_text"] == "person in red dress"
-    assert audit.details["result_count"] == 1
-
-    assert {:error, %Postgrex.Error{}} =
-             SQL.query(
-               Repo,
-               "DELETE FROM platform.camera_recording_access_audits WHERE id = $1",
-               [Ecto.UUID.dump!(audit.id)]
-             )
   end
 
   test "trg_camera_recording_catalog_purge_visual_index immediately purges embeddings on tombstone deletion and quarantine while RecordingHold preserves searchable clips and Backfill skips non-playable entries (1.3 & 3.4)",
@@ -877,26 +799,14 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
                build_single_crop_envelope(entry_quarantine, target_vec)
              )
 
-    # 3. Held entry remains intact & searchable; tombstoned & quarantined entries never appear!
-    assert {:ok, search_resp} =
-             SemanticSearch.search(
-               %{
-                 query: "yellow package",
-                 camera_source_id: cam.id,
-                 from_us: 1_750_001_990_000_000,
-                 to_us: 1_750_002_060_000_000
-               },
-               scope: %{
-                 user: hold_actor,
-                 permissions: hold_actor.permissions,
-                 authorized_camera_source_ids: [cam.id]
-               },
-               bypass_cache: true,
-               text_embedder: fn _q, _ctx -> {:ok, target_vec} end
-             )
+    # 3. Held entry keeps its frames and embeddings; tombstoned & quarantined entries do not.
+    assert VisualFrame
+           |> Ash.Query.filter(catalog_entry_id == ^entry_held.id)
+           |> Ash.count!(actor: actor) > 0
 
-    assert [surviving_hit] = search_resp.results
-    assert surviving_hit.catalog_entry_id == entry_held.id
+    assert VisualEmbedding
+           |> Ash.Query.filter(catalog_entry_id == ^entry_held.id)
+           |> Ash.count!(actor: actor) > 0
 
     # 4. Model-upgrade backfill enqueues ONLY entry_held (skipping tombstoned & quarantined entries!)
     assert {:ok, backfill_summary} =

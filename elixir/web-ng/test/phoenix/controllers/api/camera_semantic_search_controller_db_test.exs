@@ -11,7 +11,6 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
-  alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadar.Camera.VisualIndexDispatcher
@@ -33,18 +32,15 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
 
   setup %{conn: conn, tmp_dir: directory} do
     Fixtures.recording_recovery_gate(directory)
-    previous_embedder = Application.get_env(:serviceradar_core, :camera_semantic_text_embedder)
     previous_web_opts = Application.get_env(:serviceradar_web_ng, :camera_semantic_search_opts)
+    previous_vantage_enabled = Application.get_env(:serviceradar_web_ng, :vantage_rpc_enabled)
+    previous_vantage_request_fn = Application.get_env(:serviceradar_web_ng, :vantage_rpc_request_fn)
 
     Application.delete_env(:serviceradar_web_ng, :camera_semantic_search_opts)
-    SemanticSearch.clear_query_cache()
 
     on_exit(fn ->
-      SemanticSearch.clear_query_cache()
-
-      if previous_embedder,
-        do: Application.put_env(:serviceradar_core, :camera_semantic_text_embedder, previous_embedder),
-        else: Application.delete_env(:serviceradar_core, :camera_semantic_text_embedder)
+      restore_web_env(:vantage_rpc_enabled, previous_vantage_enabled)
+      restore_web_env(:vantage_rpc_request_fn, previous_vantage_request_fn)
 
       if previous_web_opts,
         do: Application.put_env(:serviceradar_web_ng, :camera_semantic_search_opts, previous_web_opts),
@@ -69,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
     }
   end
 
-  test "GET /api/cameras/search enforces RBAC, executes pgvector crop+scene k-NN excluding deleted/quarantined blocks, returns timeline_path, writes access audit, and returns 503 when embedder unavailable",
+  test "GET /api/cameras/search enforces RBAC, fails closed without Vantage, forwards only authorized cameras to Vantage, returns timeline_path, writes access audit, and returns 503 when the embedder is unavailable",
        %{
          conn: conn,
          anon_conn: anon_conn,
@@ -95,22 +91,57 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
     bad_limit = get(conn, ~p"/api/cameras/search?q=person&limit=99")
     assert json_response(bad_limit, 400) == %{"error" => "invalid_request"}
 
-    # 3. Embedder unavailable -> 503 + Retry-After: 5
-    Application.put_env(:serviceradar_core, :camera_semantic_text_embedder, fn _q, _ctx ->
-      {:error, :timeout}
+    # 3. No Vantage provider -> fail closed with 503
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_enabled, false)
+
+    disabled_resp = get(conn, ~p"/api/cameras/search?q=person+in+red+dress")
+    assert json_response(disabled_resp, 503) == %{"error" => "semantic_search_unavailable"}
+
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_enabled, true)
+
+    # 4. Embedder unavailable at the provider -> 503 + Retry-After: 5
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_request_fn, fn
+      "vantage.rpc.semantic_search.v1", _json, _opts ->
+        {:ok, %{body: Jason.encode!(%{"status" => "error", "error" => "embedder_timeout"})}}
     end)
 
     unavailable_resp = get(conn, ~p"/api/cameras/search?q=person+in+red+dress")
     assert json_response(unavailable_resp, 503) == %{"error" => "search_embedder_unavailable"}
     assert get_resp_header(unavailable_resp, "retry-after") == ["5"]
 
-    # 4. Live pgvector k-NN hit over playable block (reclaimed/deleted block excluded)
-    Application.put_env(:serviceradar_core, :camera_semantic_text_embedder, fn query, model_ctx ->
-      if String.contains?(query, "red dress") do
-        {:ok, basis_vector(model_ctx.embedding_dim, 0)}
-      else
-        {:ok, basis_vector(model_ctx.embedding_dim, 1)}
-      end
+    # 5. A provider hit for the authorized camera
+    test_pid = self()
+    entry = ctx.playable_entry
+    best_ts_us = entry.timeline_start_us + 1_000_000
+    frame_id = Ecto.UUID.generate()
+
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_request_fn, fn
+      "vantage.rpc.semantic_search.v1", json, _opts ->
+        send(test_pid, {:vantage_payload, Jason.decode!(json)})
+
+        {:ok,
+         %{
+           body:
+             Jason.encode!(%{
+               "status" => "ok",
+               "time_basis" => "received",
+               "results" => [
+                 %{
+                   "catalog_entry_id" => to_string(entry.id),
+                   "visual_frame_id" => frame_id,
+                   "camera_source_id" => to_string(ctx.source.id),
+                   "camera_display_name" => "Synthetic Entry Gate Camera",
+                   "clip_start_us" => entry.timeline_start_us,
+                   "clip_end_us" => entry.timeline_end_us,
+                   "best_timeline_ts_us" => best_ts_us,
+                   "score" => 0.93,
+                   "object_class" => "person",
+                   "dominant_colors" => ["red"],
+                   "bbox" => [0.1, 0.1, 0.4, 0.9]
+                 }
+               ]
+             })
+         }}
     end)
 
     resp =
@@ -119,6 +150,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
         ~p"/api/cameras/search?q=person+in+red+dress&camera_source_id=#{ctx.source.id}&from=#{from_us}&to=#{to_us}&object_class=person&color=red"
       )
 
+    assert_received {:vantage_payload, payload}
+    assert payload["authorized_camera_source_ids"] == [ctx.source.id]
+
     assert get_resp_header(resp, "cache-control") == ["private, no-store"]
     %{"data" => data} = json_response(resp, 200)
     assert data["query"] == "person in red dress"
@@ -126,8 +160,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
     assert [hit] = data["results"]
 
     assert hit["camera_source_id"] == ctx.source.id
-    assert hit["catalog_entry_id"] == ctx.playable_entry.id
-    refute hit["catalog_entry_id"] == ctx.reclaimed_entry.id
+    assert hit["catalog_entry_id"] == entry.id
     assert hit["object_class"] == "person"
     assert "red" in hit["dominant_colors"]
     assert is_list(hit["bbox"])
@@ -135,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
     assert hit["timeline_path"] =~ "seek=#{hit["best_timeline_ts_us"]}"
     assert hit["timeline_path"] =~ "highlight_frame=#{hit["visual_frame_id"]}"
 
-    # 5. Append-only RecordingAccessAudit recorded with event_kind == :semantic_search
+    # 6. Append-only RecordingAccessAudit recorded in OSS with event_kind == :semantic_search
     audits =
       RecordingAccessAudit
       |> Ash.Query.for_read(:read, %{}, actor: actor)
@@ -146,7 +179,11 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
     audit = List.last(audits)
     assert audit.camera_source_id == ctx.source.id
     assert audit.details["query_text"] == "person in red dress"
+    assert audit.details["provider"] == "vantage_rpc"
   end
+
+  defp restore_web_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_web_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
   defp seed_visual_search_fixture(actor) do
     opts = [actor: actor]

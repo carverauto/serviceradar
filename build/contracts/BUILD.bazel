@@ -224,30 +224,6 @@ py_test(
     deps = ["@pyyaml//:yaml"],
 )
 
-py_test(
-    name = "camera_vlm_cuda_workflow_test",
-    size = "small",
-    srcs = ["camera_vlm_cuda_workflow_test.py"],
-    data = [
-        "//:MODULE.bazel",
-        "//:github_workflows",
-        "//:rust-toolchain.toml",
-        "//docker/images:image_inventory.bzl",
-        "//scripts:build-camera-vlm-cuda.sh",
-        "//scripts:ci/camera-vlm-cuda-image.py",
-        "//scripts:ci/prepare-openbao-cosign-env.sh",
-        "//scripts:oci_registry.sh",
-        "//scripts:sign-oci-publish.sh",
-        "@jq_linux_amd64//file",
-        "@jq_linux_arm64//file",
-    ],
-    env = select({
-        "@platforms//cpu:aarch64": {"TEST_JQ": "$(rootpath @jq_linux_arm64//file)"},
-        "//conditions:default": {"TEST_JQ": "$(rootpath @jq_linux_amd64//file)"},
-    }),
-    deps = ["@pyyaml//:yaml"],
-)
-
 py_binary(
     name = "integration_benchmark_harness_hash",
     srcs = ["ci_heavy_gate_contract_test.py"],

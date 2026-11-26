@@ -712,21 +712,17 @@ static user that may:
   not to the account-wide `_INBOX.>`, which carries other services' JetStream
   deliveries;
 - publish to `_INBOX.>`. This is still account-wide: the worker answers each
-  embedding request on web-ng's reply subject, and web-ng draws every reply
-  subject from its one connection-wide `_INBOX.` prefix. Narrowing it needs a
-  dedicated reply prefix for those requests in web-ng (follow-up).
+  embedding request on the requester's reply subject.
 
-Follow-ups: a dedicated web-ng reply prefix for embedding requests (to narrow
-the worker's `_INBOX.>` publish), HEVC and multi-slice keyframe decoding, the
+Follow-ups: HEVC and multi-slice keyframe decoding, the
 NVR analysis-read listener, and a subject detector enabled by an explicit chart
 setting.
 
 Core may publish `media.jobs.visual_index.v1` and
-`media.jobs.visual_index.backfill.v1` regardless of `mediaWorker.enabled`. With
-the worker on, web-ng and core (for `VisualCaptionWorker`) may publish
-`media.rpc.visual_text_embed.v1.>`. With it
-off, the worker identity is refused everything and neither web-ng nor core gets
-the text-embed RPC grant. The first upgrade to a chart
+`media.jobs.visual_index.backfill.v1` regardless of `mediaWorker.enabled`.
+Neither core nor web-ng may publish `media.rpc.visual_text_embed.v1.>`; only the
+`serviceradar-vantage` identity requests text embeddings. With the worker off,
+the worker identity is refused everything. The first upgrade to a chart
 that includes this static user rolls the chart-managed NATS pods even with the
 worker disabled, because their configuration now includes the deny-all entry.
 

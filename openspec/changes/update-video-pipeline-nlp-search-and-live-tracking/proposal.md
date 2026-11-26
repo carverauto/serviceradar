@@ -13,7 +13,7 @@ Post-#6920 `origin/staging` (`22aabc7681`) ships `camera-semantic-search`, `vms-
 
 - **Pure-Rust NLP Search & Compositional Attribute Precision:**
   - Decouple `detector_model_id` from `embedder_model_id` across Core, Helm, and worker manifests; replace AGPL YOLOv8 with pure-Rust Apache-2.0 **YOLOX** (`candle-nn`) alongside `SigLIP-b16-384` (`768`-dim).
-  - Add torso/lower-body HSV sub-crop color and structured attribute extraction plus optional query-time top-K VLM reranking (`qwen3_vl` / `moondream`, bounded <= 20 hits) to solve attribute-binding collapse (`"find the man in the red dress"`).
+  - Add torso/lower-body HSV sub-crop color and structured attribute extraction in the worker.
   - Enforce SPS/container dimension fallback when `camera_stream_profiles.metadata` reports `fps=0, width=0, height=0`.
 - **Pure-Rust Live Object Detection & Tracking:**
   - Add a bounded live-frame tap on existing Core/recorder relays (or edge `retina` RTSP ingest) without opening a second upstream camera pull.

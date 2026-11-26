@@ -375,7 +375,6 @@ spec:
         {{- include "serviceradar.nvrReadClientEnv" . | nindent 8 }}
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         {{- include "serviceradar.agentCertValidityEnv" . | nindent 8 }}
-        {{- include "serviceradar.cameraVlmEnv" . | nindent 8 }}
         - name: PORT
           value: "4000"
         {{- if $archiveReader.enabled }}

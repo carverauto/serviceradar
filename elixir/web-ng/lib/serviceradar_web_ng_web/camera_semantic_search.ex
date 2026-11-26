@@ -1,12 +1,16 @@
 defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
   @moduledoc """
-  Shared input validation, Core search invocation, and result normalization for
-  camera semantic clip search across HTTP API and LiveView surfaces (`Stage 4.1`–`4.3`).
+  Shared input validation, RBAC, Vantage provider invocation, and result
+  normalization for camera semantic clip search across HTTP API and LiveView
+  surfaces (`Stage 4.1`–`4.3`).
+
+  Search and frame overlays are served only by the Vantage provider through
+  `ServiceRadarWebNG.Vantage.Client`. When the provider is not enabled, both fail
+  closed with `{:error, :vantage_unavailable}`.
   """
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Camera.RecordingAccessAudit
-  alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
   alias ServiceRadarWebNG.Accounts.Scope
@@ -51,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
 
   @doc """
   Validates user-supplied search query parameters and builds normalized parameters
-  for `ServiceRadar.Camera.SemanticSearch.search/2`.
+  for the Vantage `semantic_search` RPC.
   """
   @spec validate_params(map()) :: {:ok, map()} | {:error, atom()}
   def validate_params(params) when is_map(params) do
@@ -111,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
             execute_via_vantage(refreshed_scope, search_params, opts)
 
           true ->
-            SemanticSearch.search(search_params, call_opts)
+            {:error, :vantage_unavailable}
         end
 
       case raw_result do
@@ -132,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
 
   When `ServiceRadarWebNG.Vantage.Client.enabled?()` is `true`, enforces RBAC and
   camera source authorization in `web-ng` before calling `vantage.rpc.frame_overlay.v1`.
-  Otherwise delegates directly to `ServiceRadar.Camera.SemanticSearch.get_frame_overlay/3`.
+  Otherwise returns `{:error, :vantage_unavailable}`.
   """
   @spec get_frame_overlay(Scope.t() | nil, String.t(), String.t(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
@@ -154,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
         )
       end
     else
-      SemanticSearch.get_frame_overlay(camera_source_id, visual_frame_id, scope: scope)
+      {:error, :vantage_unavailable}
     end
   end
 

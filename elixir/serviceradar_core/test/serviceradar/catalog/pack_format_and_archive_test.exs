@@ -213,8 +213,6 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
       expected = %{
         "storage_entitlement_hard_cap" => {"storage-entitlement-utilization", "down"},
         "camera_continuous_recording_silence" => {"camera-continuous-recording-silence", "down"},
-        "camera_media_worker_unready" => {"media-worker-readiness", "down"},
-        "camera_visual_index_queue_lag" => {"visual-index-queue-lag", "down"},
         "http_api_journey_down" => {"http-api-journey-health", "down"},
         "tls_certificate_expiry_warning" => {"tls-certificate-expiry-posture", "degraded"},
         "network_segmentation_breach" => {"multi-vantage-segmentation-isolation", "down"},

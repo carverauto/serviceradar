@@ -1,7 +1,7 @@
 # camera-semantic-search Specification
 
 ## Purpose
-Opt-in semantic visual clip search over recorded camera keyframes, covering per-policy outbox admission, two-stage subject and scene embeddings in pgvector, RBAC and scope-pre-filtered search with access auditing, retention, quarantine, and hold lifecycle alignment, and timeline deep-link player overlays.
+Opt-in semantic visual clip search over recorded camera keyframes. ServiceRadar covers per-policy outbox admission, RBAC and camera-scope pre-filtering with access auditing, retention, quarantine, and hold lifecycle alignment, and timeline deep-link player overlays. Query execution is served by the commercial Vantage addon over the documented `vantage.rpc.*` contract; without it, search fails closed.
 
 ## Requirements
 ### Requirement: Per-policy opt-in visual keyframe indexing and durable outbox admission
@@ -23,31 +23,31 @@ The system SHALL make recorded-video visual indexing opt-in per `CameraRecording
 - **WHEN** a `media.jobs.visual_index.v1` job reaches `MaxDeliver` or exceeds its attempt budget without verified result ingestion
 - **THEN** the outbox reconciler SHALL transition the `platform.camera_visual_index_jobs` row to `:failed_terminal` with a bounded error class and record a deduplicated health check via `TripwireHealth` rather than retrying indefinitely
 
-### Requirement: Two-stage cropped subject and scene keyframe embeddings
-The system SHALL index sampled IDR keyframes using a two-stage pipeline that combines localized foreground subject crop embeddings (`person`, `vehicle`, `bicycle`, `animal`, `package`) with full-scene keyframe embeddings tagged by explicit `(model_id, model_version, embedding_dim)`, and SHALL ingest worker outputs exclusively through NATS JetStream (`media.results.visual_index.v1`) into CNPG `pgvector` projections idempotently.
-
-#### Scenario: Small foreground subject in wide-angle keyframe produces crop and scene embeddings
-- **WHEN** `serviceradar-media-worker` processes a sampled IDR keyframe containing a detected foreground subject (such as a person in a wide-angle parking-lot scene)
-- **THEN** Stage 1 SHALL extract bounded normalized `[x1, y1, x2, y2]` subject crops alongside the full-scene frame, Stage 2 SHALL compute L2-normalized embeddings for both the full scene (`embedding_kind = :scene`) and each admitted crop (`embedding_kind = :crop`) with structured class, confidence, and optional color attributes, and the worker SHALL publish the batch to `media.results.visual_index.v1` without writing directly to CNPG
+### Requirement: Idempotent visual index result ingestion
+The system SHALL ingest worker outputs exclusively through NATS JetStream (`media.results.visual_index.v1`) and SHALL project them into CNPG idempotently.
 
 #### Scenario: Redelivered JetStream result batch is ingested idempotently
 - **WHEN** a worker crashes after publishing to `media.results.visual_index.v1` and a redelivered attempt publishes results for the same `(catalog_entry_id, model_id, model_version)`
-- **THEN** the Core projection consumer SHALL upsert `platform.camera_visual_frames` and `platform.camera_visual_embeddings` idempotently by stable frame and crop identity, exposing at most one canonical projection set per `(catalog_entry_id, model_id, model_version)`
+- **THEN** the Core projection consumer SHALL upsert `platform.camera_visual_frames` and `platform.camera_visual_embeddings` idempotently by stable frame and region identity, exposing at most one canonical projection set per `(catalog_entry_id, model_id, model_version)`
 
 ### Requirement: Pre-filtered authorized semantic clip search and access audit
-The system SHALL enforce `devices.view` and `devices.cameras.recordings.view` permissions and pre-filter the caller's authorized `ServiceRadar.Camera.Source` scope and bounded time window before executing `pgvector` cosine similarity search, returning only playable non-quarantined clips with capture-time camera labels and explicit `time_basis` metadata while recording an append-only `RecordingAccessAudit` (`event_kind: :semantic_search`).
+The system SHALL enforce `devices.view` and `devices.cameras.recordings.view` permissions and resolve the caller's authorized `ServiceRadar.Camera.Source` scope and bounded time window in web-ng before forwarding a search to the Vantage provider over `vantage.rpc.semantic_search.v1`, SHALL forward only authorized `camera_source_id` values, and SHALL record an append-only `RecordingAccessAudit` (`event_kind: :semantic_search`) for every executed search.
 
 #### Scenario: Scoped operator searches across authorized cameras
-- **WHEN** an authenticated user with `devices.view` and `devices.cameras.recordings.view` submits a semantic query (such as `"person in red dress"`) over a bounded time window
-- **THEN** the search service SHALL resolve the caller's authorized camera `Source` IDs first, restrict `pgvector` HNSW cosine k-NN execution to those `camera_source_id` values and playable non-quarantined `RecordingCatalogEntry` rows, return bounded ranked hits with capture-time labels, explicit `time_basis` (`received` or `camera_reported`), normalized crop boxes, and seekable timeline intervals, and append a `RecordingAccessAudit` row with `event_kind = :semantic_search`
+- **WHEN** an authenticated user with `devices.view` and `devices.cameras.recordings.view` submits a semantic query over a bounded time window
+- **THEN** web-ng SHALL resolve the caller's authorized camera `Source` IDs first, send only those IDs to the Vantage provider, return the bounded hits with capture-time labels, explicit `time_basis` (`received` or `camera_reported`), and seekable timeline intervals, and append a `RecordingAccessAudit` row with `event_kind = :semantic_search`
 
 #### Scenario: Live-only viewer without recording playback permission is denied
 - **WHEN** a user who holds live camera viewing permission but lacks `devices.cameras.recordings.view` requests `/api/cameras/search` or submits a LiveView semantic clip search
-- **THEN** the system SHALL reject the request with `403 Forbidden` before invoking the text embedder or querying `platform.camera_visual_embeddings`
+- **THEN** the system SHALL reject the request with `403 Forbidden` before calling the Vantage provider
 
-#### Scenario: Requested camera outside caller scope is excluded before vector search
+#### Scenario: Requested camera outside caller scope is excluded before the provider call
 - **WHEN** an operator filters semantic clip search by a `camera_source_id` outside their authorized `Source` scope
-- **THEN** the system SHALL deny or exclude that camera before `pgvector` execution and SHALL leak zero similarity scores, timestamps, or bounding boxes from unauthorized cameras
+- **THEN** web-ng SHALL deny the request before calling the Vantage provider and SHALL leak zero scores, timestamps, or bounding boxes from unauthorized cameras
+
+#### Scenario: Search fails closed without the Vantage provider
+- **WHEN** `SERVICERADAR_VANTAGE_RPC_ENABLED` is not `true`, or the provider does not answer
+- **THEN** `/api/cameras/search` SHALL return `503` and the LiveView surfaces SHALL report search as unavailable, without any in-process fallback
 
 ### Requirement: Retention purge, quarantine exclusion and hold preservation of visual indexes
 The system SHALL couple `platform.camera_visual_frames` and `platform.camera_visual_embeddings` strictly to the retention, quarantine, and hold lifecycle of `platform.camera_recording_catalog` so deleted or quarantined footage can never surface in semantic search while held evidence remains searchable.

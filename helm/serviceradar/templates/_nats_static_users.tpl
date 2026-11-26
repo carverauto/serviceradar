@@ -116,12 +116,6 @@ _INBOX.media-worker
              sweeps (Edge.SweepHostMetrics), whose retries reach this queue. */}}
       - "availability.transitions.device"
       - "metrics.sweep.>"
-      {{- if $mediaWorkerEnabled }}
-      {{- /* Camera semantic search (Camera.SemanticSearch) asks the media worker
-           for a query embedding with a request on this subject; the reply comes
-           back on _INBOX. */}}
-      - "media.rpc.visual_text_embed.v1.>"
-      {{- end }}
       {{- /* Vantage provider RPC requests (ServiceRadarWebNG.Vantage.Client):
            capabilities, semantic_search, and frame_overlay request/reply calls.
            Replies arrive on _INBOX.>. */}}
@@ -257,12 +251,6 @@ _INBOX.media-worker
            which the API, ACK and inbox grants below already cover. */}}
       - "media.jobs.visual_index.v1"
       - "media.jobs.visual_index.backfill.v1"
-      {{- if $mediaWorkerEnabled }}
-      {{- /* Camera VLM caption embedding (Camera.VisualCaptionWorker, running on
-           core's :maintenance Oban queue) asks the media worker for a SigLIP text
-           embedding on this subject; the reply comes back on _INBOX. */}}
-      - "media.rpc.visual_text_embed.v1.>"
-      {{- end }}
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
            the bucket through the JetStream API and writes each bundle here. */}}
       - "$KV.{{ $zenRuleBucket }}.>"

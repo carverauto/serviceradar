@@ -217,7 +217,7 @@ LIVE_CONSUMER = "camera_visual_index_worker_v1_live"
 BACKFILL_CONSUMER = "camera_visual_index_worker_v1_backfill"
 LIVE_JOBS = "media.jobs.visual_index.v1"
 BACKFILL_JOBS = "media.jobs.visual_index.backfill.v1"
-# Camera.SemanticSearch requests on the embedder's id and version.
+# Text-embedding requests (the Vantage provider) on the embedder's id and version.
 TEXT_EMBED_REQUEST = "media.rpc.visual_text_embed.v1.siglip-b16-384.2026.1"
 # The worker's own inboxes (SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX), and an
 # inbox of the kind EventWriter pulls telemetry into.
@@ -301,20 +301,17 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             with self.subTest(subscribe=subject):
                 self.assertFalse(may(worker, "subscribe", subject))
 
-    def test_core_dispatches_jobs_and_web_ng_searches_only_while_the_worker_is_on(self):
-        for rendering, users, expected in (
-            ("enabled", self.enabled, True),
-            ("disabled", self.disabled, False),
-        ):
+    def test_core_dispatches_jobs_and_neither_core_nor_web_ng_requests_text_embeddings(self):
+        for rendering, users in (("enabled", self.enabled), ("disabled", self.disabled)):
             core = users[CORE]
             web = users[WEB_NG]
             for subject in (LIVE_JOBS, BACKFILL_JOBS):
                 with self.subTest(rendering=rendering, core=subject):
                     self.assertTrue(may_publish(core, subject))
             with self.subTest(rendering=rendering, core=TEXT_EMBED_REQUEST):
-                self.assertEqual(may_publish(core, TEXT_EMBED_REQUEST), expected)
+                self.assertFalse(may_publish(core, TEXT_EMBED_REQUEST))
             with self.subTest(rendering=rendering, web=TEXT_EMBED_REQUEST):
-                self.assertEqual(may_publish(web, TEXT_EMBED_REQUEST), expected)
+                self.assertFalse(may_publish(web, TEXT_EMBED_REQUEST))
         self.assertFalse(may_publish(self.enabled[WEB_NG], LIVE_JOBS))
 
 

@@ -215,7 +215,6 @@ spec:
         {{- include "serviceradar.nvrClientEnv" . | nindent 8 }}
         - name: SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED
           value: {{ include "serviceradar.mediaWorkerEnabled" . | quote }}
-        {{- include "serviceradar.cameraVlmEnv" . | nindent 8 }}
         {{- if $edgeIssuerSeedMounted }}
         - name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
           value: /etc/serviceradar/edge-issuer/seed

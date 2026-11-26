@@ -593,7 +593,6 @@ webNg:
     # plugins. Only this values file trusts it; its private key is held outside
     # the repository.
     PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=,serviceradar-demo-v1=KVPgZ+sTeTgFjsyNtMqoL3awEf0OcL0NDqsODepLaPM="
-    SERVICERADAR_CAMERA_VLM_MODEL: "Qwen3.5-4B"
   extraEnvValueFrom:
     # Authenticates GitHub API calls for the built-in plugin source and agent
     # release imports, which otherwise share the 60/hour anonymous limit.
@@ -824,40 +823,6 @@ mediaWorker:
     allowNvrRead: true
     nvrReadPort: 8445
 
-# Camera VLM inference server (crane-serve pure-Rust Candle CUDA running
-# Qwen/Qwen3.5-4B) on the arm64 GPU nodes. Operator-owned PVC
-# serviceradar-camera-vlm-models must exist in the namespace first (never
-# created by Helm) with the Qwen3.5-4B weights under Qwen3.5-4B/.
-cameraVlm:
-  enabled: true
-  runtime: crane
-  replicas: 2
-  image:
-    repository: registry.carverauto.dev/serviceradar/serviceradar-camera-vlm-cuda
-    tag: "sha-fa7e0a26ee914e424c70e636dca12423ec93511c"
-    digest: "sha256:a20bc1bde11ee219e5121dbe33821ba3bbe93df84436cb6d9bf79175c3e17cc6"
-  runtimeClassName: nvidia
-  gpuResourceName: nvidia.com/gpu
-  gpuCount: 1
-  nodeSelector:
-    kubernetes.io/arch: arm64
-  tolerations:
-    - key: nvidia.com/gpu
-      operator: Equal
-      value: present
-      effect: NoSchedule
-  resources:
-    requests:
-      cpu: "1"
-      memory: "8Gi"
-    limits:
-      cpu: "4"
-      memory: "20Gi"
-  models:
-    existingClaim: serviceradar-camera-vlm-models
-    mountPath: "/var/lib/serviceradar-camera-vlm/models"
-    modelSubPath: "Qwen3.5-4B"
-
 faker:
   enabled: true
   gobgp:
@@ -1020,7 +985,6 @@ core:
     SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION: "true"
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
-    SERVICERADAR_CAMERA_VLM_MODEL: "Qwen3.5-4B"
 
 # Keep mutable AWX callbacks disabled until a ServiceRadar-initiated live
 # preflight canary has passed and its redacted evidence is retained. The

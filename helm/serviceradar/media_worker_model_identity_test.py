@@ -2,8 +2,8 @@
 """The media worker the chart deploys announces the model identity core uses.
 
 Core has no setting for the camera model identity. VisualIndexDispatcher stamps
-its compiled defaults on every visual-index job, and SemanticSearch requests a
-query embedding on media.rpc.visual_text_embed.v1.<embedder id>.<version>. The
+its compiled defaults on every visual-index job, and text-embedding requests
+arrive on media.rpc.visual_text_embed.v1.<embedder id>.<version>. The
 worker rejects a job whose embedder id or dimension differs from its own and
 answers only the subject built from its own identity, so a chart that pins a
 different identity deploys a worker that indexes nothing and answers no search,
