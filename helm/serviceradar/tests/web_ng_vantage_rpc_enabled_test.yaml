@@ -1,0 +1,59 @@
+suite: web-ng Vantage RPC feature flag
+templates:
+  - templates/web.yaml
+tests:
+  - it: omits SERVICERADAR_VANTAGE_RPC_ENABLED by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_VANTAGE_RPC_ENABLED
+          any: true
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: omits SERVICERADAR_VANTAGE_RPC_ENABLED when vantage is disabled
+    set:
+      vantage.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_VANTAGE_RPC_ENABLED
+          any: true
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: sets SERVICERADAR_VANTAGE_RPC_ENABLED when vantage is enabled
+    set:
+      vantage.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_VANTAGE_RPC_ENABLED
+            value: "true"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: demo overlay enables SERVICERADAR_VANTAGE_RPC_ENABLED
+    values:
+      - ../values-demo.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_VANTAGE_RPC_ENABLED
+            value: "true"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
