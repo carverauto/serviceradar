@@ -2,7 +2,15 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   @moduledoc """
   Applies reverse-DNS hostnames onto `ocsf_devices` rows.
 
-  The AshOban trigger on `DeviceHostnameRdnsSettings` calls `run/2`. Lookups
+  The AshOban trigger on `DeviceHostnameRdnsSettings` calls `run/2`. Each run
+  processes every eligible device in the operator's SRQL cohort. One database
+  query pre-filters the fleet to devices that can be due (an IP, a missing or
+  IP-shaped hostname unless overwriting, and outside the retry window), most
+  recently seen first. The default all-devices query, any scope larger than
+  that pre-filter, and a scope walk that ends on a full page without a cursor,
+  are applied to those uids in chunks. A smaller scope is read in uid order,
+  with the operator's sort removed, and intersected with the pre-filter, then
+  processed in the pre-filter's order. `candidate?/4` still decides. Lookups
   are injected in tests so the job does not depend on a live resolver.
   """
 
@@ -14,6 +22,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.ReverseDns
   alias ServiceRadar.Observability.SRQLRunner
+  alias ServiceRadar.Repo
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLQuery
   alias ServiceRadar.Types.Cidr
@@ -22,8 +31,60 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   require Logger
 
   @default_srql_query "in:devices sort:last_seen:desc"
-  @srql_page_limit 500
-  @max_srql_pages 2_000
+
+  # SRQL list filters accept at most 200 values, so the operator scope is
+  # checked against at most this many pre-filtered uids per query.
+  @srql_uid_chunk 200
+
+  # Same explicit page size `SrqlInputResolver` uses. SRQL's default limit is
+  # 100, and a full page without a cursor stops inside the cursor window, so
+  # either one would drop the rest of a scope the job has to process.
+  @scope_page_limit 1_000
+
+  # Pre-filters the fleet to devices that can be due for a lookup, most recently
+  # seen first. It is a superset of `candidate?/4`, which still decides on the
+  # SRQL rows, so every clause errs toward keeping a device:
+  #
+  # * the hostname clause keeps every hostname that could parse as an IP
+  #   (`ReverseDns.missing_or_ip_hostname?/2`), and is skipped by `$1`
+  #   (overwrite_existing);
+  # * the retry clause excludes a device only when `rdns.looked_up_at` is a
+  #   strict ISO 8601 timestamp after the cutoff `$2`; a missing or malformed
+  #   value is kept, as `recently_looked_up?/3` treats it as never looked up.
+  #   A NULL `$2` (ignore_retry?) disables it. The LATERAL extracts the value
+  #   once per row instead of once per reference.
+  #
+  # Returned most recently seen first. The default all-devices query, and any
+  # operator scope larger than this set, is checked against these uids in
+  # `@srql_uid_chunk` chunks. A smaller scope is walked in uid order and the
+  # intersection is processed in this order.
+  @eligible_uids_sql ~S"""
+  SELECT d.uid
+  FROM platform.ocsf_devices AS d
+  CROSS JOIN LATERAL (
+    SELECT d.metadata #>> '{rdns,looked_up_at}' AS looked_up_at OFFSET 0
+  ) AS r
+  WHERE d.deleted_at IS NULL
+    AND d.ip IS NOT NULL
+    AND btrim(d.ip) <> ''
+    AND (
+      $1::boolean
+      OR d.hostname IS NULL
+      OR d.hostname ~ '^\s*[0-9A-Fa-fxX.:]*(%[^/]*)?(/.*)?\s*$'
+      OR lower(btrim(d.hostname)) = lower(btrim(split_part(btrim(d.ip), '/', 1)))
+    )
+    AND (
+      $2::timestamptz IS NULL
+      OR CASE
+        WHEN r.looked_up_at ~ '^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$'
+          AND r.looked_up_at !~ '-00:00$'
+          AND pg_input_is_valid(r.looked_up_at, 'timestamptz')
+        THEN r.looked_up_at::timestamptz <= $2::timestamptz
+        ELSE true
+      END
+    )
+  ORDER BY d.last_seen_time DESC, d.uid ASC
+  """
 
   @type stats :: %{
           looked_up: non_neg_integer(),
@@ -109,7 +170,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   def candidate?(device, settings, now \\ DateTime.utc_now(), opts \\ []) do
     ip = device_ip(device)
     overwrite? = Map.get(settings, :overwrite_existing) == true
-    retry_after = Map.get(settings, :retry_after_minutes) || 1_440
+    retry_after = retry_after_minutes(settings)
     ignore_retry? = Keyword.get(opts, :ignore_retry?, false)
 
     cond do
@@ -129,15 +190,16 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
 
   defp run_srql_cohort(settings, actor, now, lookup, persist, timeout_ms, cache?, opts) do
     batch_size = max(Map.get(settings, :batch_size) || 200, 1)
-    max_srql_pages = max(Keyword.get(opts, :max_srql_pages, @max_srql_pages), 1)
     ignore_retry? = Keyword.get(opts, :ignore_retry?, false)
     query_page = query_page_fun(opts)
     load_devices = Keyword.get(opts, :load_devices, &load_devices_by_uid/2)
+    eligible_uids = Keyword.get(opts, :eligible_uids, &eligible_uids/3)
 
     query =
       Map.get(settings, :srql_query) || Map.get(settings, "srql_query") || @default_srql_query
 
-    with {:ok, normalized} <- normalize_device_query(query) do
+    with {:ok, normalized} <- normalize_device_query(query),
+         {:ok, prefilter} <- eligible_uids.(settings, now, ignore_retry?) do
       context = %{
         actor: actor,
         batch_size: batch_size,
@@ -145,7 +207,6 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
         ignore_retry?: ignore_retry?,
         load_devices: load_devices,
         lookup: lookup,
-        max_pages: max_srql_pages,
         now: now,
         persist: persist,
         query: normalized,
@@ -154,14 +215,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
         timeout_ms: timeout_ms
       }
 
-      case process_srql_pages(
-             context,
-             nil,
-             MapSet.new(),
-             [],
-             0,
-             Map.put(empty_stats(), :query, normalized)
-           ) do
+      case select_cohort(context, prefilter, Map.put(empty_stats(), :query, normalized)) do
         {:ok, stats} ->
           Logger.info("DeviceHostnameRdns: selected cohort",
             query: normalized,
@@ -177,6 +231,228 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
           {:error, reason}
       end
     end
+  end
+
+  # The pre-filter is one query. Walking the operator's query is a page per
+  # `@scope_page_limit` devices, so a run pays for the smaller side. The default
+  # query is the whole fleet and is never the smaller side. An empty pre-filter
+  # has nothing to process, so it does not page either.
+  defp select_cohort(context, prefilter, stats) do
+    if prefilter == [] or default_device_query?(context.query) do
+      process_prefilter_chunks(context, prefilter, stats)
+    else
+      case scope_uids(context, length(prefilter)) do
+        {:ok, :scope_larger} ->
+          process_prefilter_chunks(context, prefilter, stats)
+
+        {:ok, scope} ->
+          process_intersection(
+            context,
+            Enum.filter(prefilter, &MapSet.member?(scope, &1)),
+            stats
+          )
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  defp default_device_query?(query), do: query == @default_srql_query
+
+  defp process_prefilter_chunks(context, uids, stats) do
+    process_scoped_chunks(context, Enum.chunk_every(uids, @srql_uid_chunk), [], stats)
+  end
+
+  # Pages the operator query in uid order. Membership does not depend on the
+  # operator's sort, so `sort:` and `order:` tokens are removed before
+  # `sort:uid:asc` is the walk's only order. Each page carries an explicit
+  # limit and the previous cursor. Once the scope has more devices than the
+  # pre-filter, or a full page comes back without a cursor, the caller checks
+  # the pre-filter in uid chunks instead.
+  defp scope_uids(context, prefilter_count) do
+    walk_scope(
+      context.query_page,
+      scope_membership_query(context.query),
+      nil,
+      MapSet.new(),
+      prefilter_count
+    )
+  end
+
+  defp scope_membership_query(query) do
+    kept =
+      query
+      |> srql_tokens()
+      |> Enum.reject(&order_token?/1)
+
+    Enum.join(kept, " ") <> " sort:uid:asc"
+  end
+
+  defp order_token?(token) do
+    key =
+      token
+      |> String.split(":", parts: 2)
+      |> hd()
+      |> String.trim()
+      |> String.downcase()
+
+    key in ["sort", "order"]
+  end
+
+  defp srql_tokens(query) do
+    query
+    |> split_srql_tokens([], [], nil, 0, false)
+    |> Enum.reverse()
+  end
+
+  defp split_srql_tokens(<<>>, tokens, current, _quoted, _depth, _escape) do
+    push_srql_token(tokens, current)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, quoted, depth, true) do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], quoted, depth, false)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, quoted, depth, false)
+       when quoted != nil do
+    cond do
+      ch == ?\\ ->
+        split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], quoted, depth, true)
+
+      ch == quoted ->
+        split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, depth, false)
+
+      true ->
+        split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], quoted, depth, false)
+    end
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, depth, false)
+       when ch in [?", ?', ?`] do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], ch, depth, false)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, depth, false)
+       when ch in [?(, ?[] do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, depth + 1, false)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, depth, false)
+       when ch in [?), ?]] do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, max(depth - 1, 0), false)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, 0, false) do
+    if whitespace?(ch) do
+      split_srql_tokens(rest, push_srql_token(tokens, current), [], nil, 0, false)
+    else
+      split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, 0, false)
+    end
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, depth, false) do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, depth, false)
+  end
+
+  defp push_srql_token(tokens, []), do: tokens
+
+  defp push_srql_token(tokens, current) do
+    token = current |> Enum.reverse() |> IO.iodata_to_binary() |> String.trim()
+    if token == "", do: tokens, else: [token | tokens]
+  end
+
+  defp whitespace?(ch), do: <<ch::utf8>> != String.trim(<<ch::utf8>>)
+
+  defp walk_scope(query_page, query, cursor, seen, prefilter_count) do
+    opts = [limit: @scope_page_limit]
+    opts = if is_binary(cursor), do: Keyword.put(opts, :cursor, cursor), else: opts
+
+    with {:ok, page} <- query_scope_page(query_page, query, opts),
+         {:ok, rows} <- page_rows(page) do
+      seen = Enum.reduce(rows, seen, &put_scope_uid/2)
+
+      if MapSet.size(seen) > prefilter_count do
+        {:ok, :scope_larger}
+      else
+        case next_page_cursor(page) do
+          next when is_binary(next) ->
+            walk_scope(query_page, query, next, seen, prefilter_count)
+
+          _no_cursor when length(rows) >= @scope_page_limit ->
+            {:ok, :scope_larger}
+
+          _last_page ->
+            {:ok, seen}
+        end
+      end
+    end
+  end
+
+  defp query_scope_page(query_page, query, opts) do
+    case query_page.(query, opts) do
+      {:ok, page} -> {:ok, page}
+      {:error, reason} -> {:error, {:srql_query_failed, reason}}
+      other -> {:error, {:srql_query_failed, other}}
+    end
+  end
+
+  defp page_rows(%{rows: rows}) when is_list(rows), do: {:ok, rows}
+  defp page_rows(rows) when is_list(rows), do: {:ok, rows}
+  defp page_rows(other), do: {:error, {:srql_query_failed, other}}
+
+  defp put_scope_uid(row, seen) do
+    case row_uid(row) do
+      nil -> seen
+      uid -> MapSet.put(seen, uid)
+    end
+  end
+
+  defp next_page_cursor(%{next_cursor: cursor}) when is_binary(cursor) and cursor != "",
+    do: cursor
+
+  defp next_page_cursor(_page), do: nil
+
+  # The scope walk already applied the operator query. Load these uids in the
+  # pre-filter's order and let candidate?/4 drop anything the pre-filter kept
+  # in excess of a device it would actually look up.
+  defp process_intersection(context, uids, stats) do
+    stats = Map.update!(stats, :cohort_rows, &(&1 + length(uids)))
+
+    uids
+    |> Stream.chunk_every(context.batch_size)
+    |> Enum.reduce_while({:ok, stats}, fn batch, {:ok, acc} ->
+      case context.load_devices.(Enum.map(batch, &%{uid: &1}), context.actor) do
+        {:ok, devices} when is_list(devices) ->
+          candidates =
+            Enum.filter(
+              devices,
+              &candidate?(&1, context.settings, context.now, ignore_retry?: context.ignore_retry?)
+            )
+
+          next =
+            process_devices(
+              candidates,
+              context.actor,
+              context.now,
+              context.lookup,
+              context.persist,
+              context.timeout_ms,
+              context.cache?,
+              acc
+              |> Map.update!(:candidates, &(&1 + length(candidates)))
+              |> Map.update!(:loaded, &(&1 + length(candidates)))
+            )
+
+          {:cont, {:ok, next}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+
+        other ->
+          {:halt, {:error, {:device_load_failed, other}}}
+      end
+    end)
   end
 
   defp process_candidate_batches(
@@ -248,126 +524,126 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     SRQLRunner.query_page(query, Keyword.merge([direction: "next"], opts))
   end
 
-  defp process_srql_pages(
-         %{max_pages: max_pages},
-         _cursor,
-         _seen_cursors,
-         _pending_candidates,
-         page,
-         stats
-       )
-       when page >= max_pages do
-    {:error,
-     {:srql_page_limit_exceeded, %{max_pages: max_pages, scanned_rows: stats.cohort_rows}}}
+  # One SRQL query per chunk of pre-filtered uids, each restricted to the chunk
+  # with `uid:(...)`, so the operator's query still decides the scope while the
+  # database only ever sorts the chunk.
+  defp process_scoped_chunks(context, [], pending_candidates, stats) do
+    process_candidate_batches(
+      pending_candidates,
+      context.batch_size,
+      context.load_devices,
+      context.actor,
+      context.now,
+      context.lookup,
+      context.persist,
+      context.timeout_ms,
+      context.cache?,
+      stats
+    )
   end
 
-  defp process_srql_pages(context, cursor, seen_cursors, pending_candidates, page, stats) do
-    page_opts = maybe_put([limit: @srql_page_limit, direction: "next"], :cursor, cursor)
-
-    case context.query_page.(context.query, page_opts) do
-      {:ok, %{rows: rows} = result} when is_list(rows) ->
-        absorb_candidate_page(
-          context,
-          result[:next_cursor] || result["next_cursor"],
-          seen_cursors,
-          pending_candidates,
-          page,
-          stats,
-          rows
-        )
-
-      {:ok, rows} when is_list(rows) ->
-        absorb_candidate_page(
-          context,
-          nil,
-          seen_cursors,
-          pending_candidates,
-          page,
-          stats,
-          rows
-        )
-
-      {:error, reason} ->
-        {:error, {:srql_query_failed, reason}}
-
-      other ->
-        {:error, {:srql_query_failed, other}}
+  defp process_scoped_chunks(context, [chunk | chunks], pending_candidates, stats) do
+    with {:ok, rows} <- query_scoped_chunk(context, chunk),
+         {:ok, remaining_candidates, stats} <-
+           absorb_scoped_rows(context, chunk, rows, pending_candidates, stats) do
+      process_scoped_chunks(context, chunks, remaining_candidates, stats)
     end
   end
 
-  defp absorb_candidate_page(
-         context,
-         next_cursor,
-         seen_cursors,
-         pending_candidates,
-         page,
-         stats,
-         rows
-       ) do
-    if valid_cursor?(next_cursor) and MapSet.member?(seen_cursors, next_cursor) do
-      {:error, {:srql_pagination_stalled, next_cursor}}
-    else
-      page_candidates =
-        rows
-        |> Enum.map(&row_to_device/1)
-        |> Enum.filter(
-          &candidate?(&1, context.settings, context.now, ignore_retry?: context.ignore_retry?)
-        )
+  defp absorb_scoped_rows(context, chunk, rows, pending_candidates, stats) do
+    rows_by_uid = Map.new(rows, &{row_uid(&1), &1})
 
-      stats =
-        stats
-        |> Map.update!(:cohort_rows, &(&1 + length(rows)))
-        |> Map.update!(:candidates, &(&1 + length(page_candidates)))
-
-      pending_candidates = pending_candidates ++ page_candidates
-      final_page? = not valid_cursor?(next_cursor)
-
-      {ready_candidates, remaining_candidates} =
-        if final_page? do
-          {pending_candidates, []}
-        else
-          split_complete_batches(pending_candidates, context.batch_size)
+    # Keep the pre-filter's order (most recently seen first); the operator's
+    # sort only ever orders this chunk.
+    chunk_candidates =
+      chunk
+      |> Enum.flat_map(fn uid ->
+        case Map.fetch(rows_by_uid, uid) do
+          {:ok, row} -> [row_to_device(row)]
+          :error -> []
         end
+      end)
+      |> Enum.filter(
+        &candidate?(&1, context.settings, context.now, ignore_retry?: context.ignore_retry?)
+      )
 
-      with {:ok, stats} <-
-             process_candidate_batches(
-               ready_candidates,
-               context.batch_size,
-               context.load_devices,
-               context.actor,
-               context.now,
-               context.lookup,
-               context.persist,
-               context.timeout_ms,
-               context.cache?,
-               stats
-             ) do
-        if final_page? do
-          {:ok, stats}
-        else
-          process_srql_pages(
-            context,
-            next_cursor,
-            MapSet.put(seen_cursors, next_cursor),
-            remaining_candidates,
-            page + 1,
-            stats
-          )
-        end
-      end
+    stats =
+      stats
+      |> Map.update!(:cohort_rows, &(&1 + length(rows)))
+      |> Map.update!(:candidates, &(&1 + length(chunk_candidates)))
+
+    {ready_candidates, remaining_candidates} =
+      split_complete_batches(pending_candidates ++ chunk_candidates, context.batch_size)
+
+    case process_candidate_batches(
+           ready_candidates,
+           context.batch_size,
+           context.load_devices,
+           context.actor,
+           context.now,
+           context.lookup,
+           context.persist,
+           context.timeout_ms,
+           context.cache?,
+           stats
+         ) do
+      {:ok, stats} -> {:ok, remaining_candidates, stats}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp query_scoped_chunk(context, uids) do
+    list = Enum.map_join(uids, ",", &quote_srql_string/1)
+
+    case context.query_page.("#{context.query} uid:(#{list})", limit: @srql_uid_chunk) do
+      {:ok, %{rows: rows}} when is_list(rows) -> {:ok, rows}
+      {:ok, rows} when is_list(rows) -> {:ok, rows}
+      {:error, reason} -> {:error, {:srql_query_failed, reason}}
+      other -> {:error, {:srql_query_failed, other}}
+    end
+  end
+
+  defp quote_srql_string(value) do
+    escaped =
+      value
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+
+    "\"#{escaped}\""
+  end
+
+  @doc """
+  Uids the pre-filter keeps for `settings`, most recently seen first.
+
+  The pre-filter is a superset of `candidate?/4`, which still decides.
+  """
+  @spec eligible_device_uids(map(), DateTime.t(), keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def eligible_device_uids(settings, now \\ DateTime.utc_now(), opts \\ [])
+      when is_map(settings) do
+    eligible_uids(settings, now, Keyword.get(opts, :ignore_retry?, false))
+  end
+
+  defp eligible_uids(settings, now, ignore_retry?) do
+    overwrite? = Map.get(settings, :overwrite_existing) == true
+
+    cutoff =
+      if ignore_retry?,
+        do: nil,
+        else: DateTime.shift(now, minute: -retry_after_minutes(settings))
+
+    case Repo.query(@eligible_uids_sql, [overwrite?, cutoff]) do
+      {:ok, %Postgrex.Result{rows: rows}} -> {:ok, Enum.map(rows, fn [uid] -> uid end)}
+      {:error, reason} -> {:error, {:eligible_devices_query_failed, reason}}
+    end
+  end
+
+  defp retry_after_minutes(settings), do: Map.get(settings, :retry_after_minutes) || 1_440
 
   defp split_complete_batches(candidates, batch_size) do
     complete_count = div(length(candidates), batch_size) * batch_size
     Enum.split(candidates, complete_count)
   end
-
-  defp valid_cursor?(cursor), do: is_binary(cursor) and cursor != ""
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, _key, ""), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp normalize_device_query(query) when is_binary(query) do
     normalized = SRQLQuery.ensure_target(query, :devices)

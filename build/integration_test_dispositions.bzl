@@ -102,6 +102,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/awx_host_identity_db_test.exs",
     "test/serviceradar/inventory/bumblebee_ingestor_test.exs",
     "test/serviceradar/inventory/device_facts_test.exs",
+    "test/serviceradar/inventory/device_hostname_rdns_eligible_uids_db_test.exs",
     "test/serviceradar/inventory/device_metadata_merge_test.exs",
     "test/serviceradar/inventory/device_remove_facts_test.exs",
     "test/serviceradar/inventory/device_revival_audit_db_test.exs",
