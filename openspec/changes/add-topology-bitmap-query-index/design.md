@@ -175,8 +175,14 @@ changed once its transaction commits: Ash device and alias actions through
 their notifiers, and the bulk and raw-SQL writers (bulk soft delete, ephemeral
 expiry, sweep and mapper restores, address release and seed retirement,
 source-retirement marks, hypervisor addresses, reported source facts) through
-`NotificationQueue.after_commit/1`. The backstop is left with genuine misses
-and with operator remediation run from Mix tasks, which does not hint.
+`NotificationQueue.after_commit/1`. AWX inventory ingestion owns the queue
+around its transaction, and the identity fence, merges and source reactivation
+return their `Ash.transact/3` notifications to it, so hints raised inside that
+ingestion are sent after it commits; the manual re-add, the device list's bulk
+service and management changes, the operator force-restore and the agent
+check-in force update also hint after commit. The backstop is left with
+genuine misses and with operator remediation run from Mix tasks, which does
+not hint.
 
 Expose seed readiness, last completed reconciliation, oldest pending work,
 source errors and unavailable facets. Exact counts mean exact for the returned

@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
   use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
@@ -80,6 +81,28 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert persisted.metadata["type_manually_set"] == true
     assert persisted.metadata["later_enrichment"] == "retained"
     assert persisted.metadata["new_identity_fact"] == "retained"
+  end
+
+  # The update runs inside a Repo transaction, where Ash cannot send its own notifications.
+  test "re-adding an existing device hints it once the update commits", %{scope: scope} do
+    assert {:ok, existing} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               ip: "192.0.2.87",
+               hostname: "readd-hint.example.com"
+             })
+
+    uid = existing.uid
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
+    assert {:ok, %Device{hostname: "readd-hint-renamed.example.com"}} =
+             ManualDeviceCreator.update_existing_device(
+               existing,
+               %{hostname: "readd-hint-renamed.example.com"},
+               scope
+             )
+
+    assert_receive {:devices_invalidated, [^uid]}
   end
 
   test "manual selection replaces an inference committed after the import read", %{scope: scope} do

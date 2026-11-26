@@ -44,6 +44,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Identity.BatchResolver
@@ -801,7 +802,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
 
   defp attempt_return(candidate, holder, evidence, actor) do
     Device
-    |> Ash.transact(fn -> return_identifier(candidate, holder, evidence, actor) end)
+    |> NotificationQueue.transact(fn -> return_identifier(candidate, holder, evidence, actor) end)
     |> case do
       {:ok, outcome} -> outcome
       {:error, error} -> {:failed, error}
@@ -1066,7 +1067,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
     holder = Map.get(canonical_uids([row.device_id], actor), row.device_id, row.device_id)
 
     Device
-    |> Ash.transact(fn -> return_archived(row, holder, actor, source) end)
+    |> NotificationQueue.transact(fn -> return_archived(row, holder, actor, source) end)
     |> case do
       {:ok, outcome} -> outcome
       {:error, error} -> {:error, error}

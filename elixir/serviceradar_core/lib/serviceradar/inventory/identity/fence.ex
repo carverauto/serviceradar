@@ -210,8 +210,9 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
   `fun` with the set of stale device ids. `fun` must write only the devices NOT
   in that set, and return `{:ok, value}` or `{:error, reason}` (which rolls the
   whole write back). Returns `{:ok, {value, stale_ids}}`. The transaction owns
-  the `ServiceRadar.Ash.NotificationQueue`, so notifications `fun` hands to it
-  are sent once the write commits, or once an enclosing queue's transaction does.
+  the `ServiceRadar.Ash.NotificationQueue`, so the notifications of the actions
+  `fun` runs, and those it hands to the queue, are sent once the write commits,
+  or once an enclosing queue's transaction does.
 
   The locks are what make this enforcement rather than detection: a transition
   that has not committed when the rows are locked cannot commit until the write
@@ -223,20 +224,18 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
           (MapSet.t() -> {:ok, term()} | {:error, term()})
         ) :: {:ok, {term(), MapSet.t()}} | {:error, term()}
   def fenced_write(pins, pipeline, fun) when is_map(pins) and is_function(fun, 1) do
-    NotificationQueue.with_queue(fn ->
-      Ash.transact([Device], fn ->
-        current = read_identity_rows(Map.keys(pins), lock?: true)
-        stale = stale_ids(pins, current)
+    NotificationQueue.transact([Device], fn ->
+      current = read_identity_rows(Map.keys(pins), lock?: true)
+      stale = stale_ids(pins, current)
 
-        Enum.each(stale, fn device_id ->
-          emit_batch(:stale, pipeline, device_id, Map.fetch!(pins, device_id), current)
-        end)
-
-        case fun.(stale) do
-          {:ok, value} -> {value, stale}
-          {:error, _} = error -> error
-        end
+      Enum.each(stale, fn device_id ->
+        emit_batch(:stale, pipeline, device_id, Map.fetch!(pins, device_id), current)
       end)
+
+      case fun.(stale) do
+        {:ok, value} -> {value, stale}
+        {:error, _} = error -> error
+      end
     end)
   end
 

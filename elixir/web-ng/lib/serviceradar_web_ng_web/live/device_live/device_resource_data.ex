@@ -2,7 +2,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData do
   @moduledoc false
 
   alias Ash.Error.Invalid
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
 
   require Ash.Query
@@ -87,6 +89,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData do
            return_records?: false
          ) do
       %Ash.BulkResult{status: :success} ->
+        # A bulk update sends no notifications.
+        NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated([device_uid]) end)
         :ok
 
       %Ash.BulkResult{status: :partial_success, errors: errors} ->

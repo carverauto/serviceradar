@@ -11,7 +11,9 @@ defmodule ServiceRadar.Ash.NotificationQueue do
   NATS publishes inside the transaction pass a zero-arity callback to
   `after_commit/1`. The code that opens the transaction wraps it in
   `with_queue/1`, which flushes the queued notifications and side effects once
-  the transaction has committed and drops them when it rolls back.
+  the transaction has committed and drops them when it rolls back. An
+  `Ash.transact/3` that may run inside such a transaction goes through
+  `transact/3` instead.
   """
 
   alias Ash.Actions.Helpers
@@ -102,6 +104,31 @@ defmodule ServiceRadar.Ash.NotificationQueue do
         Process.delete(@pending)
       end
     end
+  end
+
+  @doc """
+  Runs `fun` in `Ash.transact/3`, whose notifications then follow the queue.
+
+  `Ash.transact/3` opened inside a plain `Repo.transaction` sends nothing: it
+  tries to notify when its savepoint returns, finds the resource still in a
+  transaction, and drops what it holds. Here the transaction returns its
+  notifications instead, and they are sent once the outermost queue commits.
+  Opened outside any transaction, this owns the queue and sends them once its
+  own transaction commits, as `Ash.transact/3` does.
+  """
+  @spec transact(Ash.Resource.t() | [Ash.Resource.t()], (-> term()), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def transact(resources, fun, opts \\ []) when is_function(fun, 0) do
+    with_queue(fn ->
+      case Ash.transact(resources, fun, Keyword.put(opts, :return_notifications?, true)) do
+        {:ok, result, notifications} ->
+          notify_after_commit(notifications)
+          {:ok, result}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end)
   end
 
   defp flush(pending) when is_list(pending) do

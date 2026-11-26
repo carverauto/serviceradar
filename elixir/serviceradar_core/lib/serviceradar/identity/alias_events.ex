@@ -27,6 +27,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
       changed? = AliasEvents.alias_change_detected?(previous, current)
   """
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -564,7 +565,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
     |> Repo.transaction()
     |> case do
       {:ok, {updated, notifications}} ->
-        Ash.Notifier.notify(notifications)
+        # Inside an enclosing transaction (AWX ingestion), that one's commit sends them.
+        NotificationQueue.notify_after_commit(notifications)
         {:ok, updated}
 
       {:error, _reason} = error ->

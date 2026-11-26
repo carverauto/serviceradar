@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
@@ -495,8 +496,11 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     # and no merge_audit row. Resolver.follow_canonical_device_id/2 cannot detect
     # that state because it keys on deleted_at, so nothing downstream could ever
     # tell that the identity decision had gone stale.
+    #
+    # NotificationQueue.transact/3 wraps Ash.transact/3 so that a merge run inside
+    # an enclosing transaction (AWX ingestion) still notifies, once that commits.
     resources
-    |> Ash.transact(fn ->
+    |> NotificationQueue.transact(fn ->
       # Lock order (issue #6450): the per-agent availability rows this merge
       # will reassign go first, in (device_uid, agent_id) order, and the
       # device rows second, in uid order -- the order a sweep ingest locks
@@ -1156,7 +1160,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     # See do_merge_devices/7: must be transact, not transaction, or an unmerge
     # that fails partway commits a half-reversed merge.
     resources
-    |> Ash.transact(fn ->
+    |> NotificationQueue.transact(fn ->
       # Recreate the from-device
       with :ok <- lock_device_rows([from_device_id, to_device_id], actor),
            :ok <- check_merged(from_device_id, unmerge, actor),
