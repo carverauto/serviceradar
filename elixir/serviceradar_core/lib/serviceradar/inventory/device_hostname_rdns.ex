@@ -6,11 +6,12 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   processes every eligible device in the operator's SRQL cohort. One database
   query pre-filters the fleet to devices that can be due (an IP, a missing or
   IP-shaped hostname unless overwriting, and outside the retry window), most
-  recently seen first. The default all-devices query, and any scope larger than
-  that pre-filter, is applied to those uids in chunks. A smaller scope is read
-  in uid order and intersected with the pre-filter, then processed in the
-  pre-filter's order. `candidate?/4` still decides. Lookups are injected in
-  tests so the job does not depend on a live resolver.
+  recently seen first. The default all-devices query, any scope larger than
+  that pre-filter, and a scope walk that ends on a full page without a cursor,
+  are applied to those uids in chunks. A smaller scope is read in uid order,
+  with the operator's sort removed, and intersected with the pre-filter, then
+  processed in the pre-filter's order. `candidate?/4` still decides. Lookups
+  are injected in tests so the job does not depend on a live resolver.
   """
 
   import Ash.Expr
@@ -263,20 +264,105 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     process_scoped_chunks(context, Enum.chunk_every(uids, @srql_uid_chunk), [], stats)
   end
 
-  # Pages the operator query in uid order: `sort:uid:asc` extends whatever sort
-  # the operator wrote, and each page carries an explicit limit and the previous
-  # cursor. Once the scope has more devices than the pre-filter, the rest of the
-  # walk cannot be the cheaper side, so the caller checks the pre-filter in uid
-  # chunks instead. A full page with no cursor is an incomplete read.
+  # Pages the operator query in uid order. Membership does not depend on the
+  # operator's sort, so `sort:` and `order:` tokens are removed before
+  # `sort:uid:asc` is the walk's only order. Each page carries an explicit
+  # limit and the previous cursor. Once the scope has more devices than the
+  # pre-filter, or a full page comes back without a cursor, the caller checks
+  # the pre-filter in uid chunks instead.
   defp scope_uids(context, prefilter_count) do
     walk_scope(
       context.query_page,
-      context.query <> " sort:uid:asc",
+      scope_membership_query(context.query),
       nil,
       MapSet.new(),
       prefilter_count
     )
   end
+
+  defp scope_membership_query(query) do
+    kept =
+      query
+      |> srql_tokens()
+      |> Enum.reject(&order_token?/1)
+
+    Enum.join(kept, " ") <> " sort:uid:asc"
+  end
+
+  defp order_token?(token) do
+    key =
+      token
+      |> String.split(":", parts: 2)
+      |> hd()
+      |> String.trim()
+      |> String.downcase()
+
+    key in ["sort", "order"]
+  end
+
+  defp srql_tokens(query) do
+    query
+    |> split_srql_tokens([], [], nil, 0, false)
+    |> Enum.reverse()
+  end
+
+  defp split_srql_tokens(<<>>, tokens, current, _quoted, _depth, _escape) do
+    push_srql_token(tokens, current)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, quoted, depth, true) do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], quoted, depth, false)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, quoted, depth, false)
+       when quoted != nil do
+    cond do
+      ch == ?\\ ->
+        split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], quoted, depth, true)
+
+      ch == quoted ->
+        split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, depth, false)
+
+      true ->
+        split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], quoted, depth, false)
+    end
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, depth, false)
+       when ch in [?", ?', ?`] do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], ch, depth, false)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, depth, false)
+       when ch in [?(, ?[] do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, depth + 1, false)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, depth, false)
+       when ch in [?), ?]] do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, max(depth - 1, 0), false)
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, 0, false) do
+    if whitespace?(ch) do
+      split_srql_tokens(rest, push_srql_token(tokens, current), [], nil, 0, false)
+    else
+      split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, 0, false)
+    end
+  end
+
+  defp split_srql_tokens(<<ch::utf8, rest::binary>>, tokens, current, nil, depth, false) do
+    split_srql_tokens(rest, tokens, [<<ch::utf8>> | current], nil, depth, false)
+  end
+
+  defp push_srql_token(tokens, []), do: tokens
+
+  defp push_srql_token(tokens, current) do
+    token = current |> Enum.reverse() |> IO.iodata_to_binary() |> String.trim()
+    if token == "", do: tokens, else: [token | tokens]
+  end
+
+  defp whitespace?(ch), do: <<ch::utf8>> != String.trim(<<ch::utf8>>)
 
   defp walk_scope(query_page, query, cursor, seen, prefilter_count) do
     opts = [limit: @scope_page_limit]
@@ -294,7 +380,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
             walk_scope(query_page, query, next, seen, prefilter_count)
 
           _no_cursor when length(rows) >= @scope_page_limit ->
-            {:error, {:srql_query_failed, :selection_exceeds_cursor_window}}
+            {:ok, :scope_larger}
 
           _last_page ->
             {:ok, seen}
@@ -355,7 +441,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
               context.cache?,
               acc
               |> Map.update!(:candidates, &(&1 + length(candidates)))
-              |> Map.update!(:loaded, &(&1 + length(devices)))
+              |> Map.update!(:loaded, &(&1 + length(candidates)))
             )
 
           {:cont, {:ok, next}}

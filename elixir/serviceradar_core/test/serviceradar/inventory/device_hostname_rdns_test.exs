@@ -305,7 +305,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
        end)}
     end
 
-    assert {:ok, %{cohort_rows: 2, candidates: 1, loaded: 2, looked_up: 1}} =
+    assert {:ok, %{cohort_rows: 2, candidates: 1, loaded: 1, looked_up: 1}} =
              DeviceHostnameRdns.run(settings,
                eligible_uids: fn _settings, _now, false -> {:ok, eligible} end,
                query_page: query_page,
@@ -320,6 +320,43 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
     refute_received {:scope_page, _}
     assert_received {:loaded, ["sr:dev-5", "sr:dev-20"]}
     refute_received {:loaded, _}
+  end
+
+  test "a scope walk keeps filters and drops the operator sort" do
+    settings = %{
+      srql_query:
+        ~s(partition:lab hostname:"edge sort:decoy" Sort:last_seen:desc order:hostname:asc),
+      batch_size: 10,
+      timeout_ms: 250,
+      overwrite_existing: false,
+      retry_after_minutes: 1_440
+    }
+
+    query_page = fn query, _opts ->
+      assert query ==
+               ~s(in:devices partition:lab hostname:"edge sort:decoy" sort:uid:asc)
+
+      send(self(), :scope_page)
+      {:ok, %{rows: [%{"uid" => "sr:a"}]}}
+    end
+
+    assert {:ok, %{cohort_rows: 1, candidates: 1, loaded: 1, looked_up: 1}} =
+             DeviceHostnameRdns.run(settings,
+               eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, ["sr:a", "sr:b"]} end,
+               query_page: query_page,
+               load_devices: fn requested, _actor ->
+                 {:ok,
+                  Enum.map(requested, fn %{uid: uid} ->
+                    %{uid: uid, ip: "192.0.2.8", hostname: nil, metadata: %{}}
+                  end)}
+               end,
+               lookup: fn _ip, _opts -> {"host.example.com", "ok", nil} end,
+               persist: fn _device, _hostname, _status, _error, _now, _actor -> :updated end,
+               cache?: false
+             )
+
+    assert_received :scope_page
+    refute_received :scope_page
   end
 
   test "a scope the same size as the pre-filter is intersected in pre-filter order" do
@@ -424,29 +461,93 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
     assert_received {:loaded, ["sr:z", "sr:a"]}
   end
 
-  test "a full scope page without a cursor is an error" do
-    rows = for n <- 1..1_000, do: %{"uid" => "sr:page-#{n}"}
-    eligible = for n <- 1..1_000, do: "sr:keep-#{n}"
+  test "a full scope page without a cursor falls back to pre-filter uid chunks" do
+    page_rows = for n <- 1..1_000, do: %{"uid" => "sr:page-#{n}"}
+    eligible = ["sr:z" | for(n <- 1..999, do: "sr:keep-#{n}")]
 
     query_page = fn query, opts ->
-      assert query == "in:devices partition:lab sort:uid:asc"
-      assert opts[:limit] == 1_000
-      refute opts[:cursor]
-      send(self(), :scope_page)
-      {:ok, %{rows: rows}}
+      send(self(), {:query, query})
+
+      if String.contains?(query, "uid:(") do
+        assert String.starts_with?(
+                 query,
+                 "in:devices partition:lab sort:last_seen:desc order:hostname:asc uid:("
+               )
+
+        refute String.contains?(query, "sort:uid:asc")
+
+        [_, list] = String.split(query, "uid:(", parts: 2)
+
+        uids =
+          list
+          |> String.trim_trailing(")")
+          |> String.split(",")
+          |> Enum.map(&String.trim(&1, "\""))
+
+        {:ok,
+         %{
+           rows:
+             Enum.map(uids, fn uid ->
+               %{"uid" => uid, "ip" => "192.0.2.9", "hostname" => nil}
+             end)
+         }}
+      else
+        assert query == "in:devices partition:lab sort:uid:asc"
+        assert opts[:limit] == 1_000
+        refute opts[:cursor]
+        {:ok, %{rows: page_rows}}
+      end
     end
 
-    assert {:error, {:srql_query_failed, :selection_exceeds_cursor_window}} =
+    load_devices = fn requested, _actor ->
+      send(self(), {:loaded, Enum.map(requested, & &1.uid)})
+      {:ok, requested}
+    end
+
+    assert {:ok, %{cohort_rows: 1_000, candidates: 1_000, loaded: 1_000, looked_up: 1_000}} =
              DeviceHostnameRdns.run(
-               %{srql_query: "partition:lab", batch_size: 10, timeout_ms: 250},
+               %{
+                 srql_query: "partition:lab sort:last_seen:desc order:hostname:asc",
+                 batch_size: 1_000,
+                 timeout_ms: 250,
+                 overwrite_existing: false,
+                 retry_after_minutes: 1_440
+               },
                eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, eligible} end,
                query_page: query_page,
-               load_devices: fn _requested, _actor -> flunk("loaded an incomplete scope") end,
+               load_devices: load_devices,
+               lookup: fn _ip, _opts -> {"host.example.com", "ok", nil} end,
+               persist: fn _device, _hostname, _status, _error, _now, _actor -> :updated end,
                cache?: false
              )
 
-    assert_received :scope_page
-    refute_received :scope_page
+    queries =
+      for _ <- 1..6 do
+        assert_received {:query, query}
+        query
+      end
+
+    refute_received {:query, _}
+    assert hd(queries) == "in:devices partition:lab sort:uid:asc"
+
+    chunks = tl(queries)
+    assert length(chunks) == 5
+
+    assert Enum.all?(
+             chunks,
+             &String.starts_with?(
+               &1,
+               "in:devices partition:lab sort:last_seen:desc order:hostname:asc uid:("
+             )
+           )
+
+    assert Enum.any?(chunks, &String.contains?(&1, "\"sr:z\""))
+    refute Enum.any?(chunks, &String.contains?(&1, "sr:page-"))
+
+    assert_received {:loaded, loaded}
+    assert hd(loaded) == "sr:z"
+    assert length(loaded) == 1_000
+    refute Enum.any?(loaded, &String.starts_with?(&1, "sr:page-"))
   end
 
   test "run returns an error when a narrow scope page cannot be queried" do
