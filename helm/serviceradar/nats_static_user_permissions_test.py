@@ -229,11 +229,12 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
     def test_static_user_subjects_match_full_certificate_subjects(self):
         enabled_identities = yaml.safe_load(self.enabled_cm["chart-identities.yaml"])
         disabled_identities = yaml.safe_load(self.disabled_cm["chart-identities.yaml"])
-        for subject in (MEDIA_WORKER, CORE, WEB_NG):
+        for subject in (MEDIA_WORKER, VANTAGE, CORE, WEB_NG):
             self.assertIn(subject, self.enabled)
             self.assertIn(subject, self.disabled)
             self.assertIn(subject, enabled_identities)
         self.assertNotIn(MEDIA_WORKER, disabled_identities)
+        self.assertNotIn(VANTAGE, disabled_identities)
 
     def test_the_worker_can_run_its_job_loop_and_answer_searches_only_while_enabled(self):
         # What the addon media worker sends through async-nats: stream
