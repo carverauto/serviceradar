@@ -50,7 +50,10 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTargetItemsTest do
                runner: PagedSRQLRunner.serving(@devices)
              )
 
-    assert PagedSRQLRunner.queries() == ["in:devices switch_port_attachment.switch_hostname:%"]
+    assert PagedSRQLRunner.queries() == [
+             "in:devices switch_port_attachment.switch_hostname:% sort:uid:asc"
+           ]
+
     assert targets["entity"] == "devices"
     assert targets["total"] == 3
     assert targets["truncated"] == true

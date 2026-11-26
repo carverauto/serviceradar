@@ -19,7 +19,7 @@ defmodule ServiceRadar.Plugins.SRQLInputResolverTest do
 
     assert query == "in:devices vendor:AXIS"
     assert rows == [@row]
-    assert PagedSRQLRunner.queries() == ["in:devices vendor:AXIS"]
+    assert PagedSRQLRunner.queries() == ["in:devices vendor:AXIS sort:uid:asc"]
   end
 
   # SRQL answers a request that names no limit with 100 rows, so a resolver
@@ -35,19 +35,28 @@ defmodule ServiceRadar.Plugins.SRQLInputResolverTest do
     assert length(PagedSRQLRunner.queries()) == 3
   end
 
-  # Each page is its own offset query; without a unique order, agents with
-  # equal last_seen values can move between pages and be skipped.
-  test "agent selections are paged in uid order after any operator sort" do
-    runner = PagedSRQLRunner.serving([%{"uid" => "agent-1"}])
+  # Each page is its own offset query. Without a unique order, agents with
+  # equal last_seen values can move between pages and be skipped. The device
+  # default order is unique but unindexable, so every page of a fleet-wide walk
+  # sorted every device row in full.
+  test "agent and device selections are paged in uid order after any operator sort" do
+    runner = PagedSRQLRunner.serving([%{"uid" => "uid-1"}])
 
-    for query <- ["in:agents", "in:agents sort:last_seen:desc"] do
-      defs = [%{name: "targets", entity: "agents", query: query}]
+    for {entity, query} <- [
+          {"agents", "in:agents"},
+          {"agents", "in:agents sort:last_seen:desc"},
+          {"devices", "in:devices"},
+          {"devices", "in:devices sort:hostname:asc"}
+        ] do
+      defs = [%{name: "targets", entity: entity, query: query}]
       assert {:ok, [%{query: ^query}]} = SRQLInputResolver.resolve(defs, runner: runner)
     end
 
     assert PagedSRQLRunner.queries() == [
              "in:agents sort:uid:asc",
-             "in:agents sort:last_seen:desc sort:uid:asc"
+             "in:agents sort:last_seen:desc sort:uid:asc",
+             "in:devices sort:uid:asc",
+             "in:devices sort:hostname:asc sort:uid:asc"
            ]
   end
 
