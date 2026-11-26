@@ -562,11 +562,10 @@ Above the video stage, badges and banners surface timing and durability provenan
 
 In **Timeline** mode, `/cameras/:camera_source_id/recordings` projects a
 server-side paginated slice of event clips for the active coverage window and
-stream profile via `RecordingEventClips.list_page/3`, pairing non-quarantined
-playable `RecordingCatalogEntry` blocks with `VisualFrame` detections (queried
-with separate bounded limits of `500` frames with detections and `500`
-non-suppressed motion-only frames per window, newest-first, so high motion
-volume never crowds out older smart detections):
+stream profile via `RecordingEventClips.list_page/3`, listing non-quarantined
+playable `RecordingCatalogEntry` blocks as `Recording` segments. Smart and
+motion clips need a detection provider, which the ServiceRadar Vantage addon
+supplies; without it, only `Recording` segments appear:
 
 - **Coalescing & clip classification:** Adjacent observations of the same
   category within a catalog entry (up to an `8 s` gap) coalesce into one clip:
@@ -616,7 +615,7 @@ max-age=300`. Playlist, init, and fragment endpoints forbid HTTP `Range` headers
 | `GET /api/cameras/:camera_source_id/timeline/playlist.m3u8?from=&to=&profile=&source=` | Emits an HLS v7 VOD playlist for windows up to `60` minutes and `2,048` segments (`EXT-X-MAP` deduplicated per `init_sha256`, `EXT-X-DISCONTINUITY` across init/epoch/gap boundaries, `EXT-X-PROGRAM-DATE-TIME`), and writes one `RecordingAccessAudit` row. |
 | `GET /api/cameras/:camera_source_id/timeline/blocks/:entry_id/init?source=` | Serves verified CMAF initialization bytes (`<= 1 MiB`) with `Content-Type: video/mp4` and `X-Recording-Copy`. |
 | `GET /api/cameras/:camera_source_id/timeline/blocks/:entry_id/fragments/:index?source=` | Serves verified fragment `0..4095` (`<= 4 MiB`) with `Content-Type: video/mp4` and `X-Recording-Copy`. |
-| `GET /api/cameras/:camera_source_id/timeline/thumbnails/:kind/:id.jpg` | Serves a bounded JPEG clip thumbnail (`<= 64 KiB`, `Content-Type: image/jpeg`, `Cache-Control: private, max-age=300`) for a playable non-quarantined `frame` (`VisualFrame`) or `block` (`RecordingCatalogEntry`) scoped to `:camera_source_id` (`:id` accepts `<uuid>` or `<uuid>.jpg`). Returns `400 invalid_request` on invalid kind/UUID and `404 thumbnail_not_found` when absent, cross-camera, quarantined, or purged on terminal retention deletion. |
+| `GET /api/cameras/:camera_source_id/timeline/thumbnails/:kind/:id.jpg` | Serves a bounded JPEG clip thumbnail (`<= 64 KiB`, `Content-Type: image/jpeg`, `Cache-Control: private, max-age=300`) for a playable non-quarantined `block` (`RecordingCatalogEntry`) scoped to `:camera_source_id` (`:id` accepts `<uuid>` or `<uuid>.jpg`). Returns `400 invalid_request` on invalid kind/UUID and `404 thumbnail_not_found` when absent, cross-camera, quarantined, or purged on terminal retention deletion. |
 
 #### Source modes, SHA-256 verification, and `X-Recording-Copy`
 

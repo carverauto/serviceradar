@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Camera.RecordingEventClips do
   @moduledoc """
-  Query and projection service for per-camera event clips over `VisualFrame`
-  detections and playable `RecordingCatalogEntry` segments.
+  Query and projection service for per-camera event clips over detection
+  frames and playable `RecordingCatalogEntry` segments.
 
   `list_clips/3` projects coalesced event clips (`:person`, `:vehicle`,
   `:animal`, `:package`, `:motion`, and `:recording` fallback segments) for a
@@ -12,6 +12,12 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   `category_counts/1` and `filter_clips/2` provide in-memory mode
   (`:all | :smart | :basic`) and category counting and filtering.
 
+  Detection and motion frames come only from a detection provider passed as
+  `loaders.visual_frames_loader/4` (`camera_source_id, stream_profile_id,
+  from_us, to_us -> {:ok, frames}`). ServiceRadar ships none: detections come
+  from the commercial Vantage addon. Without a provider, only `:recording`
+  segments over playable `RecordingCatalogEntry` blocks are listed.
+
   Supports both live CNPG execution and `:loaders` injection for `:db_free`
   unit test suites in `serviceradar_core` and `web-ng`.
   """
@@ -21,7 +27,6 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingTimeline
   alias ServiceRadar.Camera.Thumbnail
-  alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   require Ash.Query
@@ -32,8 +37,6 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   @default_limit 100
   @default_per_page 12
   @max_per_page 48
-  @detection_frames_query_limit 500
-  @motion_frames_query_limit 500
   @default_coalesce_gap_us 8_000_000
   @default_detection_clip_duration_us 4_000_000
 
@@ -366,41 +369,11 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
     end
   end
 
+  # Detection frames come only from an injected provider; without one there are none.
   defp load_window_visual_frames(camera_uuid, profile_uuid, from_us, to_us, loaders) do
     case Map.get(loaders, :visual_frames_loader) do
-      loader when is_function(loader, 4) ->
-        loader.(camera_uuid, profile_uuid, from_us, to_us)
-
-      nil ->
-        base =
-          VisualFrame
-          |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
-          |> Ash.Query.filter(
-            camera_source_id == ^camera_uuid and
-              timeline_ts_us >= ^from_us and
-              timeline_ts_us <= ^to_us
-          )
-          |> maybe_filter_profile_query(profile_uuid)
-          |> Ash.Query.load([:has_thumbnail])
-          |> Ash.Query.sort(timeline_ts_us: :desc, fragment_sequence: :desc)
-
-        detection_query =
-          base
-          |> Ash.Query.filter(fragment("coalesce(cardinality(?), 0) > 0", detections))
-          |> Ash.Query.limit(@detection_frames_query_limit)
-
-        motion_query =
-          base
-          |> Ash.Query.filter(
-            scene_suppressed == false and
-              fragment("coalesce(cardinality(?), 0) = 0", detections)
-          )
-          |> Ash.Query.limit(@motion_frames_query_limit)
-
-        with {:ok, detection_frames} <- Ash.read(detection_query, actor: @system_actor),
-             {:ok, motion_frames} <- Ash.read(motion_query, actor: @system_actor) do
-          {:ok, detection_frames ++ motion_frames}
-        end
+      loader when is_function(loader, 4) -> loader.(camera_uuid, profile_uuid, from_us, to_us)
+      _ -> {:ok, []}
     end
   end
 
@@ -442,7 +415,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
 
   defp build_detection_clips(frames, camera_uuid, playable_by_id, coalesce_gap_us) do
     frames
-    |> Enum.flat_map(&expand_frame_observations(&1, camera_uuid))
+    |> Enum.flat_map(&expand_frame_observations/1)
     |> Enum.sort_by(fn obs -> {obs.catalog_entry_id, obs.category, obs.timeline_ts_us} end)
     |> coalesce_observations(coalesce_gap_us)
     |> Enum.map(fn cluster ->
@@ -451,10 +424,10 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
     end)
   end
 
-  defp expand_frame_observations(frame, camera_uuid) do
+  defp expand_frame_observations(frame) do
     detections = List.wrap(fetch_val(frame, :detections))
     scene_suppressed? = fetch_val(frame, :scene_suppressed) == true
-    thumbnail_url = frame_thumbnail_url(frame, camera_uuid)
+    thumbnail_url = frame_thumbnail_url(frame)
 
     cond do
       detections != [] ->
@@ -683,17 +656,12 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
     }
   end
 
-  defp frame_thumbnail_url(frame, camera_uuid) do
+  # A provider may supply a thumbnail URL per frame; otherwise the clip falls back
+  # to its recording block's thumbnail.
+  defp frame_thumbnail_url(frame) do
     case fetch_val(frame, :thumbnail_url) do
-      url when is_binary(url) and url != "" ->
-        url
-
-      _ ->
-        frame_id = fetch_val(frame, :id)
-
-        if fetch_val(frame, :has_thumbnail) == true and not is_nil(frame_id) do
-          Thumbnail.frame_url(camera_uuid, frame_id)
-        end
+      url when is_binary(url) and url != "" -> url
+      _ -> nil
     end
   end
 

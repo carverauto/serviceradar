@@ -10,8 +10,6 @@ exports_files([
     "check-oci-image-tags-exist.sh",
     "ci/publish-helm-bundle.py",
     "ci/harbor-publish.py",
-    "ci/media-worker-cuda-image.py",
-    "build-media-worker-cuda.sh",
     "check-addon-binary-size.sh",
     "check-oci-chart-version-available.sh",
     "check-native-addon-version-bumps.sh",

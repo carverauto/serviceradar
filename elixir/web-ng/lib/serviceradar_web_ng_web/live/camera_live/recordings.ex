@@ -12,7 +12,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadar.Camera.RecordingPubSub
   alias ServiceRadar.Camera.RecordingTimeline
   alias ServiceRadar.Camera.Source
-  alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Repo
   alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.CameraArchiveWindow
@@ -47,7 +46,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   ]
 
   @max_playlist_window_us 3_600_000_000
-  @max_overlay_frames_per_window 500
   @default_refresh_interval_ms 15_000
   @default_debounce_ms 500
   @default_switcher_per_page 20
@@ -2852,34 +2850,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   defp default_list_window_overlays(source_id, from_us, to_us, profile_id, scope)
        when is_binary(source_id) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
-    with {:ok, cam_uuid} <- Ecto.UUID.cast(String.trim(source_id)),
-         {:ok, prof_uuid} <- cast_optional_profile_uuid(profile_id) do
-      VisualFrame
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.filter(
-        camera_source_id == ^cam_uuid and
-          timeline_ts_us >= ^from_us and
-          timeline_ts_us <= ^to_us and
-          fragment("coalesce(cardinality(?), 0) > 0", detections) and
-          not is_nil(catalog_entry.recording_block_id) and
-          catalog_entry.local_state != :quarantined and
-          is_nil(catalog_entry.quarantine_reason) and
-          (catalog_entry.local_state == :present or catalog_entry.archive_state == :verified)
-      )
-      |> maybe_filter_overlay_profile(prof_uuid)
-      |> Ash.Query.select([:id, :timeline_ts_us, :time_basis, :detections])
-      |> Ash.Query.sort(timeline_ts_us: :asc, fragment_sequence: :asc)
-      |> Ash.Query.limit(@max_overlay_frames_per_window)
-      |> Ash.read(scope: scope)
-      |> case do
-        {:ok, frames} ->
-          Enum.flat_map(frames, &visual_frame_to_overlay_detections/1)
-
-        {:error, reason} ->
-          Logger.warning("Failed to list window overlays for source #{source_id}: #{inspect(reason)}")
-          []
-      end
-    else
+    case CameraSemanticSearch.list_window_overlays(scope, source_id, from_us, to_us, profile_id) do
+      {:ok, detections} when is_list(detections) -> detections
       _ -> []
     end
   rescue
@@ -2892,83 +2864,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp default_list_window_overlays(_source_id, _from_us, _to_us, _profile_id, _scope), do: []
-
-  defp cast_optional_profile_uuid(profile_id) do
-    case blank_to_nil(profile_id) do
-      nil -> {:ok, nil}
-      val -> Ecto.UUID.cast(val)
-    end
-  end
-
-  defp maybe_filter_overlay_profile(query, nil), do: query
-
-  defp maybe_filter_overlay_profile(query, profile_uuid) do
-    Ash.Query.filter(query, stream_profile_id == ^profile_uuid)
-  end
-
-  defp visual_frame_to_overlay_detections(frame) do
-    frame_id = to_string(frame.id)
-    ts_us = frame.timeline_ts_us
-    basis = to_string(frame.time_basis || "received")
-
-    if is_integer(ts_us) do
-      frame.detections
-      |> List.wrap()
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(&detection_map_to_overlay(&1, frame_id, ts_us, basis))
-      |> Enum.reject(&is_nil/1)
-    else
-      []
-    end
-  end
-
-  defp detection_map_to_overlay(det, frame_id, ts_us, basis) do
-    bbox = normalize_overlay_bbox(det["bbox"] || det[:bbox] || det["bbox_norm"] || det[:bbox_norm] || det)
-
-    if is_list(bbox) do
-      raw_conf = det["confidence"] || det[:confidence] || det["score"] || det[:score]
-
-      score =
-        if is_number(raw_conf),
-          do: Float.round(max(min(raw_conf * 1.0, 1.0), 0.0), 4),
-          else: 0.0
-
-      colors =
-        (det["dominant_colors"] || det[:dominant_colors])
-        |> List.wrap()
-        |> Enum.map(&to_string/1)
-        |> Enum.reject(&(&1 == ""))
-
-      %{
-        visual_frame_id: frame_id,
-        timeline_ts_us: ts_us,
-        start_us: max(ts_us - 1_500_000, 0),
-        end_us: ts_us + 1_500_000,
-        bbox: bbox,
-        object_class: to_string(det["object_class"] || det[:object_class] || "subject"),
-        score: score,
-        dominant_colors: colors,
-        time_basis: basis
-      }
-    end
-  end
-
-  defp normalize_overlay_bbox(raw) do
-    case normalize_detection_bbox(raw) do
-      [x1, y1, x2, y2] ->
-        rx1 = Float.round(max(min(x1, 1.0), 0.0), 4)
-        ry1 = Float.round(max(min(y1, 1.0), 0.0), 4)
-        rx2 = Float.round(max(min(x2, 1.0), 0.0), 4)
-        ry2 = Float.round(max(min(y2, 1.0), 0.0), 4)
-
-        if rx2 > rx1 and ry2 > ry1 do
-          [rx1, ry1, rx2, ry2]
-        end
-
-      _ ->
-        nil
-    end
-  end
 
   defp default_get_frame_overlay(source_id, highlight_frame_id, scope)
        when is_binary(source_id) and is_binary(highlight_frame_id) do

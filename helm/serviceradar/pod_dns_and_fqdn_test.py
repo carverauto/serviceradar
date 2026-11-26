@@ -3,7 +3,7 @@
 
 Enforces OpenSpec change `harden-pod-dns-and-cluster-resolver`:
 1. Every chart-managed Deployment, StatefulSet, Job, and CronJob in `helm/serviceradar`
-   (all 35 workload manifests across default and gated renders) and the unpacked
+   (all 34 workload manifests across default and gated renders) and the unpacked
    `helm/serviceradar/charts/dgraph` subchart (all 5 workload manifests) renders
    `dnsConfig.options` with `ndots=2`, `timeout=2`, `attempts=2`, `single-request-reopen`.
 2. Intra-cluster Service endpoints in rendered ConfigMaps, Jobs, workload environments,
@@ -67,14 +67,7 @@ ALL_GATED_OVERRIDES = {
     "mediaStorage.authSecretName": "synthetic-media-storage-auth",
     "mediaStorage.tlsSecretName": "synthetic-media-storage-tls",
     "mediaStorage.providerEgress.cidrs": ["192.0.2.17/32"],
-    "mediaWorker.enabled": True,
-    "mediaWorker.runtimeClassName": "nvidia",
-    "mediaWorker.image.repository": "registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda",
-    "mediaWorker.image.tag": "sha-0123456789abcdef0123456789abcdef01234567",
-    "mediaWorker.models.existingClaim": "synthetic-media-worker-models",
-    "mediaWorker.auth.existingSecret": "synthetic-media-worker-auth",
-    "mediaWorker.auth.deploymentRef": "11111111-2222-4333-8444-555555555555",
-    "mediaWorker.auth.generation": "3",
+    "vantage.enabled": True,
     "bmpCollector.enabled": True,
     "faker.enabled": True,
     "flowCollector.enabled": True,
@@ -166,7 +159,7 @@ class PodDnsAndFqdnTest(unittest.TestCase):
 
     @staticmethod
     def enableable_templates() -> list[str]:
-        # All 35 pod-bearing templates + config templates that emit documents under ALL_GATED_OVERRIDES.
+        # All 34 pod-bearing templates + config templates that emit documents under ALL_GATED_OVERRIDES.
         return [
             "templates/agent-gateway.yaml",
             "templates/agent.yaml",
@@ -190,7 +183,6 @@ class PodDnsAndFqdnTest(unittest.TestCase):
             "templates/k8s-inventory.yaml",
             "templates/log-collector.yaml",
             "templates/media-storage.yaml",
-            "templates/media-worker.yaml",
             "templates/nats-creds-generator.yaml",
             "templates/nats.yaml",
             "templates/nvr.yaml",
@@ -224,8 +216,8 @@ class PodDnsAndFqdnTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             len(workload_templates),
-            35,
-            f"Expected at least 35 pod-bearing templates in helm/serviceradar, saw {len(workload_templates)}: {sorted(workload_templates)}",
+            34,
+            f"Expected at least 34 pod-bearing templates in helm/serviceradar, saw {len(workload_templates)}: {sorted(workload_templates)}",
         )
         self.assertEqual(
             missing,
@@ -371,21 +363,6 @@ class PodDnsAndFqdnTest(unittest.TestCase):
 
         tools_dep = next(d for d in self.gated_docs["templates/tools.yaml"] if d["kind"] == "Deployment")
         self.assertEqual(_env_map(tools_dep)["NATS_URL"], f"tls://serviceradar-nats.{NAMESPACE}.svc.cluster.local:4222")
-
-        mw_dep = next(d for d in self.gated_docs["templates/media-worker.yaml"] if d["kind"] == "Deployment")
-        mw_env = _env_map(mw_dep)
-        self.assertEqual(
-            mw_env["SERVICERADAR_MEDIA_WORKER_CONTROL_PLANE_URL"],
-            f"http://serviceradar-web-ng-headless.{NAMESPACE}.svc.cluster.local:4001",
-        )
-        self.assertEqual(
-            mw_env["SERVICERADAR_MEDIA_WORKER_NATS_URL"],
-            f"nats://serviceradar-nats.{NAMESPACE}.svc.cluster.local:4222",
-        )
-        self.assertEqual(
-            mw_env["SERVICERADAR_MEDIA_WORKER_OTEL_ENDPOINT"],
-            f"http://serviceradar-log-collector.{NAMESPACE}.svc.cluster.local:4317",
-        )
 
         # Collector ConfigMaps & StarRocks catalog Job
         fc_cm = next(d for d in self.gated_docs["templates/flow-collector.yaml"] if d["kind"] == "ConfigMap")

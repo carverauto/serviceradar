@@ -80,7 +80,6 @@ image:
     trivySidecar: *appTag
     k8sInventory: *appTag
     dgraphMigrate: *appTag
-    mediaWorker: *appTag
   # Optional per-service digest pins. Keys match image.tags service names
   # (core, webNg, agent, agentGateway, datasvc, tools, etc.). Values can be
   # either "sha256:..." or "@sha256:..."; when set they override tags.
@@ -484,150 +483,23 @@ archiveReader:
       memory: 512Mi
       ephemeral-storage: 64Mi
 
-# Standalone stateless Rust GPU media worker (serviceradar-media-worker) for
-# recorded-block keyframe decoding, Stage 1 subject detection, Stage 2
-# vision-language embedding, and reserved interactive search text embeddings.
-# Runs completely outside the BEAM ERTS cluster with zero CNPG or StarRocks
-# connectivity; all jobs/results traverse NATS JetStream and media access uses
-# short-lived execution-time read grants from web-ng.
-#
-# Enabling it also needs webNg.controlPlaneRuntime.mediaWorker enabled with the
-# same deploymentRef and generation (the chart refuses a mismatch), a PVC holding
-# the model weights for the candle backend, JetStream room for the worker's two
-# fixed streams (512Mi jobs, 2Gi results), and, for GPU execution, a GPU node,
-# its runtime class and an image built with CUDA. The chart then issues the
-# worker's NATS client certificate (CN=serviceradar-media-worker) and grants it,
-# core and web-ng the camera media subjects. The worker indexes whole scenes
-# from H.264 single-slice IDR keyframes; HEVC and other variants are recorded
-# as undecodable. See README.md, Camera semantic search worker.
-mediaWorker:
+# Hooks for the commercial ServiceRadar Vantage addon, which deploys its own
+# services (the Vantage provider and its media worker). Enabling it turns on the
+# serviceradar-vantage and serviceradar-media-worker NATS identities, issues the
+# addon media worker's client certificate (CN=serviceradar-media-worker) into the
+# runtime certificate Secret, counts the addon's two fixed JetStream streams
+# (512Mi jobs, 2Gi results) in the budget check, and leaves the addon media
+# worker pods out of the namespace-wide egress policies. The addon's media worker
+# fetches recordings through web-ng's read-grant endpoint, which
+# webNg.controlPlaneRuntime.mediaWorker enables.
+vantage:
   enabled: false
-  # 0 is honoured (scaled to zero). A single-replica GPU worker uses Recreate
-  # (a pool without a spare GPU cannot surge); multi-replica GPU workers
-  # (replicas > 1) use RollingUpdate with maxSurge: 0 and maxUnavailable: 1 so
-  # one GPU replica rolls at a time without needing a spare GPU. cpu_explicit rolls.
-  replicas: 1
-  image:
-    # Empty selects the release's CPU build, image.registry/serviceradar-media-worker
-    # at the release tag (or image.digests.mediaWorker), which only runs
-    # cpu_explicit. The GPU build is a separate repository,
-    # image.registry/serviceradar-media-worker-cuda (arm64), published only under
-    # sha-<commit> tags by a manually dispatched workflow: set repository to it and
-    # tag to the sha-<commit> tag that workflow produced, or pin digest. A
-    # repository other than the release's needs an explicit tag or digest and
-    # never inherits image.digests.mediaWorker, which pins the release CPU build.
-    repository: ""
-    tag: ""
-    # Optional "sha256:..." for the selected repository; with tag, both are used.
-    digest: ""
-    pullPolicy: ""
-  port: 8096
-  # "candle" runs SigLIP from the weights in models.existingClaim (required).
-  # "stub" emits deterministic fake embeddings for pipeline tests and never
-  # produces useful search results; choose it explicitly or not at all.
-  backend: "candle"
-  # "cuda" | "tensorrt" | "cpu_explicit" (fails closed if GPU runtime is
-  # unavailable unless explicitly set to "cpu_explicit"). cuda and tensorrt need
-  # runtimeClassName and the CUDA image (see image); the release image is CPU-only
-  # and the chart refuses a GPU provider on it.
-  # tensorrt additionally needs a loadable ONNX Runtime with the TensorRT
-  # execution provider (ortDylibPath), which the CUDA image does not include.
-  executionProvider: "cuda"
-  # Model weight precision (MEDIA_WORKER_DTYPE): "auto" (f16 on CUDA, f32 on
-  # CPU), "f32" or "f16". cpu_explicit accepts only auto or f32.
-  dtype: "auto"
-  # Writable compiled-kernel cache for GPU providers, mounted at
-  # /var/cache/serviceradar-media-worker/cuda as CUDA_CACHE_PATH (about 350 MB;
-  # the root filesystem is read-only). An emptyDir of sizeLimit, or existingClaim
-  # to keep the cache across pod restarts.
-  cudaCache:
-    sizeLimit: 1Gi
-    existingClaim: ""
-  # Inference device for the candle backend. Empty derives cuda for the GPU
-  # providers and cpu for cpu_explicit. GPU providers accept "cuda" or "auto";
-  # cpu_explicit accepts only "cpu", since it requests no GPU.
-  device: ""
-  gpuResourceName: "nvidia.com/gpu"
-  # At least 1 under cuda or tensorrt; ignored (no GPU requested) under
-  # cpu_explicit.
-  gpuCount: 1
-  # Required for cuda and tensorrt, e.g. "nvidia" on clusters running the
-  # NVIDIA container toolkit or GPU operator.
-  runtimeClassName: ""
-  ortDylibPath: ""
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-  # Optional override for pod topology spread constraints. When left empty and
-  # replicas > 1 (or global topologySpread.enabled is true), the chart spreads
-  # pods across kubernetes.io/hostname (maxSkew: 1, ScheduleAnyway).
-  topologySpreadConstraints: []
-  resources:
-    requests:
-      cpu: "500m"
-      memory: "1Gi"
-    limits:
-      cpu: "4"
-      memory: "8Gi"
-  concurrency:
-    indexJobs: 2
-    textEmbeds: 4
-  # The model identity (embedder siglip-b16-384 2026.1, detector yolox-s
-  # 2026.1, 768 dimensions) is fixed to core's and has no keys here; setting one
-  # fails rendering even while the worker is disabled.
-  models:
-    # PVC holding the SigLIP config.json, model.safetensors and tokenizer.json
-    # (and optionally yolox-s detector.safetensors + detector_config.json) at
-    # its root. Only the three SigLIP files are mounted (read-only, one by one)
-    # into mountPath unless detectorPath is set, which additionally mounts
-    # detectorPath and detectorConfigPath (defaulting to
-    # <mountPath>/detector_config.json) via subPath. Nothing is downloaded.
-    existingClaim: ""
-    mountPath: "/var/lib/serviceradar-media-worker/models"
-    detectorPath: ""
-    detectorConfigPath: ""
-    detectorSha256: ""
-    embedderPath: ""
-    embedderSha256: ""
-    textPath: ""
-    textSha256: ""
-  auth:
-    existingSecret: ""
-    tokenKey: "media-worker-token"
-    deploymentRef: ""
-    generation: "1"
-  # Empty derives 4-dot intra-cluster FQDNs for the release namespace:
-  #   controlPlaneUrl -> http://serviceradar-web-ng-headless.<ns>.svc.cluster.local:<controlPlanePort>
-  #   natsUrl         -> nats://serviceradar-nats.<ns>.svc.cluster.local:4222
-  #   otelEndpoint    -> http://serviceradar-log-collector.<ns>.svc.cluster.local:4317
-  controlPlaneUrl: ""
-  natsUrl: ""
-  otelEndpoint: ""
-  networkPolicy:
-    # The worker's own policy: default-deny egress with the allowlist below. It is
-    # the worker's only egress grant from this chart (the namespace-wide policies
-    # leave the worker out), rendered whenever the worker is enabled, regardless of
-    # the top-level networkPolicy.enabled. Turning it off requires operatorManaged.
-    enabled: true
-    # Set true, with enabled false, to state that you supply the worker's network
-    # policy and own its isolation; the chart then renders none for it, nor the
-    # web-ng ingress exception for it, so your policies must also admit the
-    # worker to web-ng on webNg.controlPlaneRuntime.port (4001 by default).
-    operatorManaged: false
-    # Opens the worker's egress to the NVR pods, and their ingress from it, on
-    # nvrReadPort for local (not yet archived) visual indexing reads against the
-    # NVR's dedicated analysisRead listener (nvr.analysisRead.port, default 8445).
+  mediaWorker:
+    # Admits the addon media worker pods (app: serviceradar-media-worker) to the
+    # NVR pods on nvrReadPort, the NVR's dedicated analysisRead listener
+    # (nvr.analysisRead.port, default 8445), for local (not yet archived) reads.
     allowNvrRead: false
-    nvrReadPort: 8444
-    s3EgressCidrs:
-      - "0.0.0.0/0"
-      - "::/0"
-    s3ExceptCidrs:
-      - "10.0.0.0/8"
-      - "172.16.0.0/12"
-      - "192.168.0.0/16"
-      - "fc00::/7"
-      - "fe80::/10"
+    nvrReadPort: 8445
 
 core:
   replicas: 3
@@ -3480,7 +3352,7 @@ nvr:
       tokenSecretName: ""
       tlsSecretName: ""
   analysisRead:
-    # Private HTTPS analysis-read listener per NVR replica for serviceradar-media-worker
+    # Private HTTPS analysis-read listener per NVR replica for the Vantage addon media worker
     # local visual indexing before S3 archive verification completes. Separate port,
     # client certificate pin, bearer token, and read pool from both ingest (8443) and
     # web-ng playback read (8444). Keys: config Secret config.json, token Secret

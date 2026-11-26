@@ -800,51 +800,10 @@ write_source_files(
 )
 
 ash_schema(
-    name = "camera_semantic_clip_search_schema",
-    # do not sort: generator arguments are positional.
-    srcs = [
-        "priv/resource_snapshots/repo/platform.camera_recording_policies/20261117021015.json",
-        "priv/resource_snapshots/repo/platform.camera_recording_policies_versions/20261117021015.json",
-        "priv/resource_snapshots/repo/platform.camera_recording_access_audits/20261117073000.json",
-        "priv/resource_snapshots/repo/platform.storage_entitlements/20261117173000.json",
-        "priv/resource_snapshots/repo/platform.storage_entitlement_versions/20261117173000.json",
-    ],
-    # do not sort: generator arguments are positional.
-    outs = [
-        "generated_camera_semantic_clip_search/policy.json",
-        "generated_camera_semantic_clip_search/access_audit.json",
-        "generated_camera_semantic_clip_search/entitlement.json",
-        "generated_camera_semantic_clip_search/visual_job.json",
-        "generated_camera_semantic_clip_search/visual_frame.json",
-        "generated_camera_semantic_clip_search/visual_embedding.json",
-        "generated_camera_semantic_clip_search/migration.exs",
-    ],
-    app = ":erlang_app",
-    generator = "//build:camera_semantic_clip_search_schema.exs",
-    tags = ["manual"],
-)
-
-write_source_files(
-    name = "update_camera_semantic_clip_search_schema",
-    diff_test = False,
-    files = {
-        "priv/resource_snapshots/repo/platform.camera_recording_policies/20261117223000.json": ":generated_camera_semantic_clip_search/policy.json",
-        "priv/resource_snapshots/repo/platform.camera_recording_access_audits/20261117223000.json": ":generated_camera_semantic_clip_search/access_audit.json",
-        "priv/resource_snapshots/repo/platform.storage_entitlements/20261117223000.json": ":generated_camera_semantic_clip_search/entitlement.json",
-        "priv/resource_snapshots/repo/platform.camera_visual_index_jobs/20261117223000.json": ":generated_camera_semantic_clip_search/visual_job.json",
-        "priv/resource_snapshots/repo/platform.camera_visual_frames/20261117223000.json": ":generated_camera_semantic_clip_search/visual_frame.json",
-        "priv/resource_snapshots/repo/platform.camera_visual_embeddings/20261117223000.json": ":generated_camera_semantic_clip_search/visual_embedding.json",
-        "priv/repo/migrations/20261117223000_add_camera_semantic_clip_search.exs": ":generated_camera_semantic_clip_search/migration.exs",
-    },
-    tags = ["manual"],
-)
-
-ash_schema(
     name = "camera_clip_thumbnails_snapshots",
     # do not sort: generator arguments are positional.
     outs = [
         "generated_camera_clip_thumbnails/catalog.json",
-        "generated_camera_clip_thumbnails/visual_frame.json",
     ],
     app = ":erlang_app",
     generator = "//build:camera_clip_thumbnails_snapshots.exs",
@@ -856,7 +815,6 @@ write_source_files(
     diff_test = True,
     files = {
         "priv/resource_snapshots/repo/platform.camera_recording_catalog/20261122222500.json": ":generated_camera_clip_thumbnails/catalog.json",
-        "priv/resource_snapshots/repo/platform.camera_visual_frames/20261122222500.json": ":generated_camera_clip_thumbnails/visual_frame.json",
     },
 )
 
@@ -1290,14 +1248,6 @@ filegroup(
         ["priv/repo/migrations/*.exs"],
         allow_empty = False,
     ),
-)
-
-# The camera model identity core compiles in, read as source by
-# //helm/serviceradar:media_worker_model_identity_test so the chart's media worker
-# cannot announce a different one.
-filegroup(
-    name = "camera_model_identity_src",
-    srcs = ["lib/serviceradar/camera/visual_index_dispatcher.ex"],
 )
 
 # Schema-template identity inputs. Keep these separate from the migration execution

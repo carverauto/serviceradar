@@ -1574,7 +1574,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
   end
 
   describe "window overlay detections, live refresh, and camera switch search reset" do
-    test "loads bounded window VisualFrame detections during normal playback, clip playback, and live refresh" do
+    test "loads bounded window overlay detections during normal playback, clip playback, and live refresh" do
       from_us = @base_now_us - @hour_us
       to_us = @base_now_us
       block = playable_block(from_us, to_us, :verified)

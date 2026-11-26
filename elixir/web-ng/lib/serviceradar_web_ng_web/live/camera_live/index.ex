@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Camera.Thumbnail
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.CameraRelayComponents
@@ -318,7 +317,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
               class="group flex flex-col overflow-hidden rounded-xl border border-sr-line bg-sr-canvas transition-colors hover:border-sr-brand/60 hover:bg-sr-surface"
             >
               <% thumb_url = hit_thumbnail_url(hit) %>
-              <% fallback_thumb_url = hit_fallback_thumbnail_url(hit, thumb_url) %>
               <% object_label = format_hit_object_class(hit.object_class) %>
               <div class="relative aspect-video w-full overflow-hidden bg-zinc-950">
                 <div
@@ -336,8 +334,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
                   alt={"#{hit.camera_display_name} — #{object_label || "Clip"} match"}
                   loading="lazy"
                   data-role="semantic-hit-thumbnail"
-                  data-fallback-src={fallback_thumb_url}
-                  onerror={thumbnail_onerror_js(fallback_thumb_url)}
+                  onerror="this.style.display='none'"
                   class="absolute inset-0 h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                 />
                 <div class="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-black/70 via-black/30 to-transparent">
@@ -689,34 +686,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
   defp hit_thumbnail_url(hit) when is_map(hit) do
     CameraSemanticSearch.build_thumbnail_url(
       Map.get(hit, :camera_source_id),
-      Map.get(hit, :visual_frame_id),
       Map.get(hit, :catalog_entry_id),
-      Map.get(hit, :has_frame_thumbnail),
       Map.get(hit, :has_block_thumbnail)
     )
   end
 
   defp hit_thumbnail_url(_), do: nil
-
-  defp hit_fallback_thumbnail_url(hit, primary_url) when is_map(hit) and is_binary(primary_url) do
-    source_id = Map.get(hit, :camera_source_id)
-    entry_id = Map.get(hit, :catalog_entry_id)
-
-    if String.contains?(primary_url, "/thumbnails/frame/") and
-         is_binary(source_id) and source_id != "" and
-         is_binary(entry_id) and entry_id != "" and
-         Map.get(hit, :has_block_thumbnail) != false do
-      Thumbnail.block_url(source_id, entry_id)
-    end
-  end
-
-  defp hit_fallback_thumbnail_url(_, _), do: nil
-
-  defp thumbnail_onerror_js(nil), do: "this.style.display='none'"
-
-  defp thumbnail_onerror_js(_fallback_url) do
-    "if(!this.dataset.fallbackTried&&this.dataset.fallbackSrc){this.dataset.fallbackTried='1';this.src=this.dataset.fallbackSrc;}else{this.style.display='none';}"
-  end
 
   defp present_caption?(hit) when is_map(hit) do
     case Map.get(hit, :caption_text) do

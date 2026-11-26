@@ -113,15 +113,14 @@ listed in `docker/images/image_inventory.bzl`:
 - `DOCKERFILE_IMAGES`, built from a Dockerfile by `publish-dockerfile-image.yml`
   and signed with `SERVICERADAR_DOCKERFILE_IMAGE`;
 - `NATIVE_BUILD_IMAGES`, assembled with crane around a binary built natively on a
-  credential-less runner and signed with `SERVICERADAR_NATIVE_IMAGE`. The only one
-  is `serviceradar-media-worker-cuda`
-  ([media-worker-cuda-image.md](media-worker-cuda-image.md)).
+  credential-less runner and signed with `SERVICERADAR_NATIVE_IMAGE`. The list is
+  currently empty.
 
-The Dockerfile workflow resolves the published tag. The native workflow passes
+The Dockerfile workflow resolves the published tag. A native workflow passes
 the verified build digest directly through signing and promotion. Both use the same
 `sign-oci-publish.sh` path and OpenBao role as `publish-oci.yml`, and are
 promoted like any other image. The Dockerfile workflow publishes only from
-`staging`. The CUDA workflow also admits branches matching `test/demo-test-<digits>`.
+`staging`.
 
 ### Publishing the promotion tool
 
@@ -482,7 +481,7 @@ line per event, written by `scripts/cosign_receipt.py`):
 
 Every release-key signing workflow (`release.yml`, `publish-oci.yml`,
 `wasm-plugins.yml`, `native-addons.yml`, `external-wasm-plugin.yml`,
-`publish-dockerfile-image.yml` and `publish-media-worker-cuda.yml`) uploads its ledger with `if: always()` as the
+and `publish-dockerfile-image.yml`) uploads its ledger with `if: always()` as the
 artifact `signing-ledger-<workflow>-<job>-<run id>-<attempt>`, retained 90 days.
 Tag runs also attach it to the draft GitHub release
 (`scripts/ci/attach-signing-ledger.sh`).

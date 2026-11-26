@@ -38,7 +38,6 @@ defmodule ServiceRadarWebNGWeb.CameraIndexSemanticSearchUnitTest do
                dominant_colors: ["blue", "white"],
                action_tags: ["walking"],
                caption_text: "A person in a blue jacket walking past the front entry.",
-               has_frame_thumbnail: true,
                has_block_thumbnail: true
              },
              %{
@@ -55,7 +54,6 @@ defmodule ServiceRadarWebNGWeb.CameraIndexSemanticSearchUnitTest do
                object_class: "vehicle",
                dominant_colors: [],
                caption_text: nil,
-               has_frame_thumbnail: false,
                has_block_thumbnail: false
              }
            ]
@@ -88,20 +86,16 @@ defmodule ServiceRadarWebNGWeb.CameraIndexSemanticSearchUnitTest do
     cards = LazyHTML.query(doc, "[data-role='semantic-search-result-card']")
     assert Enum.count(cards) == 2
 
-    # First card: frame thumbnail + block fallback + caption + score pill + camera badge + timeline link
+    # First card: block thumbnail + caption + score pill + camera badge + timeline link
     first_thumb = LazyHTML.query(doc, "[data-role='semantic-hit-thumbnail']")
     assert Enum.count(first_thumb) == 1
 
     assert LazyHTML.attribute(first_thumb, "src") == [
-             "/api/cameras/#{@camera_id}/timeline/thumbnails/frame/#{@frame_id}.jpg"
-           ]
-
-    assert LazyHTML.attribute(first_thumb, "data-fallback-src") == [
              "/api/cameras/#{@camera_id}/timeline/thumbnails/block/#{@entry_id}.jpg"
            ]
 
     assert [onerror] = LazyHTML.attribute(first_thumb, "onerror")
-    assert onerror =~ "fallbackSrc"
+    assert onerror =~ "display='none'"
 
     score_pills = LazyHTML.query(doc, "[data-role='semantic-hit-score-pill']")
     assert Enum.count(score_pills) == 2

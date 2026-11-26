@@ -147,7 +147,6 @@ exports_files([
     "camera_recording_reconciliation_schema.exs",
     "camera_recording_access_audit_schema.exs",
     "storage_entitlement_and_cloud_archive_credentials_schema.exs",
-    "camera_semantic_clip_search_schema.exs",
     "camera_clip_thumbnails_snapshots.exs",
     "netperf_schema.exs",
     "alert_evaluation_schema.exs",

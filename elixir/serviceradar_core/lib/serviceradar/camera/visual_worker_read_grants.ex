@@ -1,18 +1,21 @@
 defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   @moduledoc """
   Execution-time scoped fragment read grants (`POST /v1/media/workers/read-grants`)
-  for standalone `serviceradar-media-worker` workloads (`1.6`, `design.md` `2.3`).
+  for external media worker workloads, such as the Vantage addon's.
 
   - Authenticates workload-scoped callers (`media_worker` purpose / system actor;
     never human RBAC or cross-domain tokens).
-  - Validates `job_id`, `catalog_entry_id`, and `descriptor_sha256` against live
-    `VisualIndexJob` and `RecordingCatalogEntry` state before any job state
-    transition.
+  - Validates `catalog_entry_id` and `descriptor_sha256` against live
+    `RecordingCatalogEntry` state. The caller owns its job bookkeeping: an
+    optional `job_id` is echoed back unchanged and never read or changed here.
+  - Grants the frozen descriptor fragments named by `fragment_sequences`, a
+    string of 1 to 64 distinct comma-separated decimal sequence numbers such as
+    `"0,2,5"` (the control-plane JSON contract carries no arrays), or every
+    fragment when omitted, which is refused with `too_many_fragments` past 64.
   - Returns `{:error, :recording_gone}` (`410 Gone`) when the verified catalog
     entry is absent, has no `recording_block_id`, has `quarantine_reason` set,
     has `local_state == :quarantined`, or is terminally deleted
-    (`local_state == :reclaimed` and `archive_state in [:deleted, :not_required]`),
-    cancelling only the matching active job row.
+    (`local_state == :reclaimed` and `archive_state in [:deleted, :not_required]`).
   - Coalesces adjacent sampled fragment byte ranges into chunks `<= 4 MiB` while
     preserving exact `init_sha256` and per-fragment `sha256` digests from the
     frozen descriptor.
@@ -39,8 +42,6 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingCatalogEntry
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexJob
 
   require Ash.Query
 
@@ -90,6 +91,8 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
 
   @hex64 ~r/\A[0-9a-f]{64}\z/
   @max_init_bytes 1_048_576
+  @max_fragments 64
+  @max_job_id_bytes 128
   @max_chunk_bytes 4_194_304
   @max_coalesce_gap_bytes 262_144
   @default_ttl_seconds 300
@@ -101,8 +104,8 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   def max_chunk_bytes, do: @max_chunk_bytes
 
   @doc """
-  Issues a short-lived execution-time fragment read grant for an active
-  `VisualIndexJob`.
+  Issues a short-lived execution-time fragment read grant for one playable
+  recording block.
 
   Supports both `issue_read_grant(installation, params, opts)` and
   `issue_read_grant(params, opts)`.
@@ -129,18 +132,17 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
 
     with :ok <- authorize_worker_caller(installation, opts),
          {:ok, req} <- validate_request(params),
-         {:ok, job} <- load_and_check_job(req, loaders),
-         {:ok, entry} <- load_and_check_catalog_entry(req, job, loaders),
+         {:ok, entry} <- load_and_check_catalog_entry(req, loaders),
          {:ok, descriptor} <- load_frozen_descriptor(entry, loaders),
          {:ok, init_slice} <- extract_init_slice(descriptor, entry),
-         {:ok, fragments} <- resolve_sampled_fragments(job, descriptor) do
+         {:ok, fragments} <- resolve_requested_fragments(req, descriptor) do
       coalesced = coalesce_fragment_ranges(fragments)
       expires_at = DateTime.shift(now, second: ttl_seconds)
 
       build_backing_grant(
         installation,
         entry,
-        job,
+        req,
         init_slice,
         fragments,
         coalesced,
@@ -257,19 +259,53 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
 
   defp validate_request(params) when is_map(params) do
     with :ok <- validate_optional_schema_version(params),
-         {:ok, job_id} <- cast_uuid(fetch_val(params, :job_id)),
+         {:ok, job_id} <- validate_optional_job_id(fetch_val(params, :job_id)),
          {:ok, entry_id} <- cast_uuid(fetch_val(params, :catalog_entry_id)),
-         {:ok, desc_sha} <- parse_hex64(fetch_val(params, :descriptor_sha256)) do
+         {:ok, desc_sha} <- parse_hex64(fetch_val(params, :descriptor_sha256)),
+         {:ok, sequences} <- validate_fragment_sequences(fetch_val(params, :fragment_sequences)) do
       {:ok,
        %{
          job_id: job_id,
          catalog_entry_id: entry_id,
-         descriptor_sha256: desc_sha
+         descriptor_sha256: desc_sha,
+         fragment_sequences: sequences
        }}
     else
+      {:error, :too_many_fragments} = error -> error
       _ -> {:error, :invalid_read_grant_request}
     end
   end
+
+  defp validate_request(_), do: {:error, :invalid_read_grant_request}
+
+  defp validate_optional_job_id(nil), do: {:ok, ""}
+
+  defp validate_optional_job_id(job_id)
+       when is_binary(job_id) and byte_size(job_id) <= @max_job_id_bytes do
+    if String.printable?(job_id), do: {:ok, job_id}, else: :error
+  end
+
+  defp validate_optional_job_id(_), do: :error
+
+  defp validate_fragment_sequences(nil), do: {:ok, nil}
+
+  defp validate_fragment_sequences(raw) when is_binary(raw) do
+    parts = String.split(raw, ",")
+
+    cond do
+      length(parts) > @max_fragments ->
+        {:error, :too_many_fragments}
+
+      not Enum.all?(parts, &Regex.match?(~r/\A[0-9]{1,9}\z/, &1)) ->
+        :error
+
+      true ->
+        sequences = Enum.map(parts, &String.to_integer/1)
+        if length(Enum.uniq(sequences)) == length(sequences), do: {:ok, sequences}, else: :error
+    end
+  end
+
+  defp validate_fragment_sequences(_), do: :error
 
   defp validate_optional_schema_version(params) do
     case fetch_val(params, :schema_version) do
@@ -279,7 +315,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp load_and_check_catalog_entry(req, job, loaders) do
+  defp load_and_check_catalog_entry(req, loaders) do
     with {:ok, entry} <- load_catalog_entry(req.catalog_entry_id, loaders),
          :ok <- verify_entry_descriptor_sha(req.descriptor_sha256, entry) do
       case RecordingCatalogEntry.availability(entry) do
@@ -287,48 +323,11 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
           {:ok, entry}
 
         :recording_gone ->
-          with :ok <- cancel_matching_job(job, req, loaders) do
-            {:error, :recording_gone}
-          end
+          {:error, :recording_gone}
 
         :recording_unavailable ->
           {:error, :recording_unavailable}
       end
-    end
-  end
-
-  defp load_and_check_job(req, loaders) do
-    case load_job(req.job_id, loaders) do
-      {:ok, nil} ->
-        {:error, :job_not_found}
-
-      {:ok, job} ->
-        job_entry_id = to_string(fetch_val(job, :catalog_entry_id) || "")
-        job_sha = fetch_val(job, :descriptor_sha256)
-        state = normalize_job_state(fetch_val(job, :state))
-
-        cond do
-          job_entry_id != req.catalog_entry_id ->
-            {:error, :job_catalog_mismatch}
-
-          job_sha != req.descriptor_sha256 ->
-            {:error, :descriptor_sha256_mismatch}
-
-          state == :cancelled ->
-            {:error, :recording_gone}
-
-          state in [:completed, :failed_terminal] ->
-            {:error, :job_already_terminal}
-
-          state in [:pending, :dispatched] ->
-            {:ok, job}
-
-          true ->
-            {:error, :invalid_job_state}
-        end
-
-      {:error, _} = err ->
-        err
     end
   end
 
@@ -369,23 +368,26 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp resolve_sampled_fragments(job, descriptor) do
+  defp resolve_requested_fragments(req, descriptor) do
     desc_fragments = Map.get(descriptor, "fragments") || Map.get(descriptor, :fragments) || []
     by_seq = Map.new(desc_fragments, &{fetch_val(&1, :sequence), &1})
 
     requested =
-      case fetch_val(job, :sampled_fragments) do
-        list when is_list(list) and list != [] ->
-          list
-
-        _ ->
-          VisualIndexDispatcher.sample_descriptor_fragments(descriptor, 2000, 64)
+      case req.fragment_sequences do
+        nil -> Enum.map(desc_fragments, &fetch_val(&1, :sequence))
+        sequences -> Enum.sort(sequences)
       end
 
-    requested
-    |> Enum.reduce_while({:ok, []}, fn req_frag, {:ok, acc} ->
-      seq = fetch_val(req_frag, :sequence)
+    if length(requested) > @max_fragments do
+      {:error, :too_many_fragments}
+    else
+      select_authoritative_fragments(requested, by_seq)
+    end
+  end
 
+  defp select_authoritative_fragments(requested, by_seq) do
+    requested
+    |> Enum.reduce_while({:ok, []}, fn seq, {:ok, acc} ->
       case Map.get(by_seq, seq) do
         nil ->
           {:halt, {:error, :fragment_not_found}}
@@ -443,7 +445,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   defp build_backing_grant(
          installation,
          entry,
-         job,
+         req,
          init_slice,
          fragments,
          coalesced,
@@ -461,7 +463,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
         build_archive_grant(
           installation,
           entry,
-          job,
+          req,
           init_slice,
           fragments,
           coalesced,
@@ -475,7 +477,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
       local_state == :present ->
         build_local_grant(
           entry,
-          job,
+          req,
           init_slice,
           fragments,
           coalesced,
@@ -493,7 +495,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   defp build_archive_grant(
          _installation,
          entry,
-         job,
+         req,
          init_slice,
          fragments,
          coalesced,
@@ -523,7 +525,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
          schema_version: 1,
          backing: :archive,
          source: "archive",
-         job_id: to_string(fetch_val(job, :id)),
+         job_id: req.job_id,
          catalog_entry_id: to_string(fetch_val(entry, :id)),
          camera_source_id: to_string(fetch_val(entry, :camera_source_id)),
          stream_profile_id: to_string(fetch_val(entry, :stream_profile_id)),
@@ -608,7 +610,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
 
   defp build_local_grant(
          entry,
-         job,
+         req,
          init_slice,
          fragments,
          coalesced,
@@ -627,7 +629,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
        backing: :local,
        source: "local",
        read_pool: "analysis_read",
-       job_id: to_string(fetch_val(job, :id)),
+       job_id: req.job_id,
        catalog_entry_id: to_string(fetch_val(entry, :id)),
        camera_source_id: to_string(fetch_val(entry, :camera_source_id)),
        stream_profile_id: to_string(fetch_val(entry, :stream_profile_id)),
@@ -860,46 +862,6 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp load_job(job_id, loaders) do
-    cond do
-      is_function(Map.get(loaders, :job_loader), 1) ->
-        loaders.job_loader.(job_id)
-
-      map_size(loaders) > 0 ->
-        {:ok, nil}
-
-      true ->
-        VisualIndexJob.get_by_id(job_id, actor: @system_actor, not_found_error?: false)
-    end
-  end
-
-  defp cancel_matching_job(job, req, loaders) do
-    if map_size(loaders) > 0 do
-      :ok
-    else
-      job_id = fetch_val(job, :id)
-
-      VisualIndexJob
-      |> Ash.Query.filter(
-        id == ^job_id and
-          catalog_entry_id == ^req.catalog_entry_id and
-          descriptor_sha256 == ^req.descriptor_sha256 and
-          state in [:pending, :dispatched]
-      )
-      |> Ash.bulk_update(
-        :mark_cancelled,
-        %{last_error_class: "source_deleted_or_quarantined"},
-        actor: @system_actor,
-        strategy: [:atomic],
-        return_errors?: true
-      )
-      |> case do
-        %Ash.BulkResult{status: :success} -> :ok
-        %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-      end
-    end
-  end
-
   defp load_frozen_descriptor(entry, loaders) do
     direct =
       fetch_val(entry, :frozen_descriptor) ||
@@ -1066,14 +1028,6 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   end
 
   defp normalize_atom(_), do: nil
-
-  defp normalize_job_state(val) when is_atom(val), do: val
-
-  defp normalize_job_state(val) when is_binary(val) do
-    Enum.find(VisualIndexJob.states(), &(Atom.to_string(&1) == val))
-  end
-
-  defp normalize_job_state(_), do: nil
 
   defp fetch_val(map, key) when is_map(map) do
     case Map.fetch(map, key) do

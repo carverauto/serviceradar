@@ -32,8 +32,6 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
   alias ServiceRadar.Camera.RecordingPubSub
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Repo
   alias ServiceRadarRecordingControl.RecoveryGate
@@ -856,15 +854,13 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
     case Ash.read_one(existing_query, actor: @catalog_actor) do
       {:ok, %RecordingCatalogEntry{} = existing} ->
         if matches_catalog_retry?(existing, frozen, prepared) do
-          maybe_admit_visual_index_job(existing, frozen.descriptor, now)
+          {:ok, existing}
         else
           {:error, :recording_descriptor_conflict}
         end
 
       {:ok, nil} ->
-        with {:ok, created} <- insert_sealed_catalog_entry(frozen, now, prepared) do
-          maybe_admit_visual_index_job(created, frozen.descriptor, now)
-        end
+        insert_sealed_catalog_entry(frozen, now, prepared)
 
       {:error, _} = error ->
         error
@@ -935,23 +931,6 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
     RecordingCatalogEntry
     |> Ash.Changeset.for_create(:register_sealed, attrs)
     |> Ash.create(actor: @catalog_actor)
-  end
-
-  defp maybe_admit_visual_index_job(%RecordingCatalogEntry{} = entry, descriptor, now)
-       when is_map(descriptor) do
-    case VisualIndexDispatcher.maybe_admit_for_catalog_entry(
-           entry,
-           descriptor,
-           job_kind: :live,
-           now: now
-         ) do
-      {:ok, _job_or_nil} -> {:ok, entry}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp maybe_admit_visual_index_job(%RecordingCatalogEntry{} = entry, _descriptor, _now) do
-    {:ok, entry}
   end
 
   defp resolve_sealed_archive_transition(:local_only), do: {:not_required, nil}
@@ -1382,15 +1361,10 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
 
     case Ash.read_one(existing_query, actor: @catalog_actor) do
       {:ok, %RecordingCatalogEntry{} = existing} ->
-        with {:ok, verified} <-
-               verify_historical_catalog_retry(existing, frozen, prepared, explicit_attrs) do
-          maybe_admit_visual_index_job(verified, frozen.descriptor, now)
-        end
+        verify_historical_catalog_retry(existing, frozen, prepared, explicit_attrs)
 
       {:ok, nil} ->
-        with {:ok, created} <- insert_sealed_catalog_entry(frozen, now, prepared) do
-          maybe_admit_visual_index_job(created, frozen.descriptor, now)
-        end
+        insert_sealed_catalog_entry(frozen, now, prepared)
 
       {:error, _} = error ->
         error
@@ -2096,8 +2070,7 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
       RecordingGap,
       RecordingDisposition,
       LocalStorageBinding,
-      CameraRecordingPolicy,
-      VisualIndexJob
+      CameraRecordingPolicy
     ]
     |> Ash.transact(fn ->
       case fun.() do

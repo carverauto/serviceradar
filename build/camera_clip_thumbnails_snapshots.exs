@@ -7,11 +7,10 @@ defmodule ServiceRadar.CameraClipThumbnailsSnapshots do
 
   resources do
     resource ServiceRadar.Camera.RecordingCatalogEntry
-    resource ServiceRadar.Camera.VisualFrame
   end
 end
 
-[catalog_output, visual_frame_output] = System.argv()
+[catalog_output] = System.argv()
 
 scratch = Path.join(Path.dirname(catalog_output), "camera_clip_thumbnails_snapshots_scratch")
 File.mkdir_p!(scratch)
@@ -27,10 +26,7 @@ try do
     format: false
   )
 
-  for {table, output} <- [
-        {"camera_recording_catalog", catalog_output},
-        {"camera_visual_frames", visual_frame_output}
-      ] do
+  for {table, output} <- [{"camera_recording_catalog", catalog_output}] do
     [snapshot] = Path.wildcard(Path.join(scratch, "repo/platform.#{table}/*.json"))
     File.mkdir_p!(Path.dirname(output))
     File.cp!(snapshot, output)

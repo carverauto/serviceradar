@@ -620,19 +620,6 @@ defmodule ServiceRadar.EventWriter.ConsumerReconcilerTest do
            }
   end
 
-  test "visual index results bind only to the worker stream with 20 pending acks per worker",
-       %{config: config} do
-    stream = Config.camera_visual_index_results_stream()
-
-    for {workers, budget} <- [{1, 20}, {3, 60}] do
-      opts = ConsumerReconciler.ensure_opts(%{config | workers: workers}, stream)
-      assert opts[:filter_subject] == "media.results.visual_index.v1"
-      assert opts[:stream_name] == "CAMERA_MEDIA_RESULTS"
-      assert opts[:allow_stream_fallback] == false
-      assert opts[:max_ack_pending] == budget
-    end
-  end
-
   defp connected(conn, config) do
     %ConsumerReconciler{
       config: config,

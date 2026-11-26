@@ -18,7 +18,6 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
-  alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
@@ -84,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
           deployment_ref,
           %{
             "schema_version" => 1,
-            "job_id" => ctx.archive_job.id,
+            "job_id" => "caller-archive-job",
             "catalog_entry_id" => ctx.archive_entry.id,
             "descriptor_sha256" => ctx.archive_entry.descriptor_sha256
           },
@@ -98,7 +97,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
     archive_conn =
       post_grant(deployment_ref, %{
         "schema_version" => 1,
-        "job_id" => ctx.archive_job.id,
+        "job_id" => "caller-archive-job",
         "catalog_entry_id" => ctx.archive_entry.id,
         "descriptor_sha256" => ctx.archive_entry.descriptor_sha256
       })
@@ -112,6 +111,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
     assert archive_body["backing"] == "archive"
     assert archive_body["source"] == "archive"
     assert archive_body["init_sha256"] == ctx.init_sha
+    assert archive_body["job_id"] == "caller-archive-job"
     assert archive_body["grant"]["role"] == "reader"
     assert Enum.sort(archive_body["grant"]["allowed_methods"]) == ["GET", "HEAD"]
     refute Map.has_key?(archive_body["credential"], "access_key_id")
@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
     local_conn =
       post_grant(deployment_ref, %{
         "schema_version" => 1,
-        "job_id" => ctx.local_job.id,
+        "job_id" => "caller-local-job",
         "catalog_entry_id" => ctx.local_entry.id,
         "descriptor_sha256" => ctx.local_entry.descriptor_sha256
       })
@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
     assert local_body["read_pool"] == "analysis_read"
     assert local_body["local"]["pool"] == "analysis_read"
 
-    # 4. Terminally reclaimed/deleted block -> 410 Gone and job cancelled
+    # 4. Terminally reclaimed/deleted block -> 410 Gone
     now = DateTime.utc_now()
 
     ctx.local_entry
@@ -178,16 +178,13 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
     gone_conn =
       post_grant(deployment_ref, %{
         "schema_version" => 1,
-        "job_id" => ctx.local_job.id,
+        "job_id" => "caller-local-job",
         "catalog_entry_id" => ctx.local_entry.id,
         "descriptor_sha256" => ctx.local_entry.descriptor_sha256
       })
 
     assert gone_conn.status == 410
     assert Jason.decode!(gone_conn.resp_body) == %{"status" => "recording_gone"}
-
-    {:ok, refreshed_job} = VisualIndexJob.get_by_id(ctx.local_job.id, actor: actor)
-    assert refreshed_job.state == :cancelled
   end
 
   defp post_grant(deployment_ref, payload, token \\ @media_worker_token) do
@@ -320,8 +317,6 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
       )
       |> Ash.update!(opts)
 
-    archive_job = ensure_job_for_entry(archive_entry, opts)
-
     block_1 = reserve_block(live_ctx, 1, "epoch-wg-1", opts)
     desc_1 = single_frag_descriptor(block_1, init_bytes, init_sha, frag_bytes, frag_sha, 2_000_000_000)
 
@@ -339,40 +334,13 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
         opts
       )
 
-    local_job = ensure_job_for_entry(local_entry, opts)
-
     %{
       archive_entry: archive_entry,
-      archive_job: archive_job,
       local_entry: local_entry,
-      local_job: local_job,
       init_sha: init_sha,
       frag_sha: frag_sha,
       secret_access_key: secret_access_key
     }
-  end
-
-  defp ensure_job_for_entry(entry, opts) do
-    case VisualIndexJob
-         |> Ash.Query.filter(catalog_entry_id == ^entry.id)
-         |> Ash.read_one!(opts) do
-      nil ->
-        VisualIndexJob
-        |> Ash.Changeset.for_create(
-          :enqueue,
-          %{
-            catalog_entry_id: entry.id,
-            camera_source_id: entry.camera_source_id,
-            stream_profile_id: entry.stream_profile_id,
-            descriptor_sha256: entry.descriptor_sha256
-          },
-          opts
-        )
-        |> Ash.create!(opts)
-
-      existing ->
-        existing
-    end
   end
 
   defp open_claim(source, profile, storage_id, tag, opts) do

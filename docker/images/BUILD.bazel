@@ -661,36 +661,6 @@ declare_multiarch_image_index(
 )
 
 declare_service_container_amd64(
-    name = "media_worker_image_amd64",
-    empty_dirs = [
-        "etc/serviceradar/certs",
-        "etc/serviceradar/creds",
-        "var/lib/serviceradar",
-        "var/lib/serviceradar-media-worker/models",
-        "var/log/serviceradar",
-    ],
-    entrypoint = ["/usr/local/bin/serviceradar-media-worker"],
-    exposed_ports = [
-        "8096/tcp",
-    ],
-    files = {
-        "//rust/media-worker:media-worker": "usr/local/bin/serviceradar-media-worker",
-    },
-    image_title = "serviceradar-media-worker",
-    modes = {
-        "usr/local/bin/serviceradar-media-worker": "0755",
-    },
-    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-media-worker:local"],
-    runtime = "ubuntu",
-    workdir = "/var/lib/serviceradar",
-)
-
-declare_multiarch_image_index(
-    name = "media_worker_image_multiarch",
-    image = ":media_worker_image_amd64",
-)
-
-declare_service_container_amd64(
     name = "faker_image_amd64",
     cmd = [
         "/usr/local/bin/serviceradar-faker",
@@ -925,7 +895,6 @@ _MULTIARCH_INDEXES = [
     "flow_collector_image_multiarch",
     "k8s_inventory_image_multiarch",
     "log_collector_image_multiarch",
-    "media_worker_image_multiarch",
     "nvr_image_multiarch",
     "tools_image_multiarch",
     "trapd_image_multiarch",

@@ -321,7 +321,7 @@ spec:
         {{- $baselineCerts := list "tools.pem" "falcosidekick.pem" "trivy-sidecar.pem" "k8s-inventory.pem" }}
         {{- /* The worker mounts its certificate and key from this Secret, so both are
              required while it is enabled, whether or not core projects the inventory. */}}
-        {{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+        {{- if eq (include "serviceradar.vantageEnabled" .) "true" }}
         {{- $baselineCerts = concat $baselineCerts (list "media-worker.pem" "media-worker-key.pem") }}
         {{- end }}
         {{- $projectedCerts := list }}

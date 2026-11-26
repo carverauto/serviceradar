@@ -47,8 +47,6 @@ members = [
     "rust/anomaly-core",
     "rust/anomaly-addon",
     "rust/anomaly-disposition",
-    "rust/media-core",
-    "rust/media-worker",
     "rust/protoc-plugins",
 ]
 
@@ -83,9 +81,6 @@ base64 = "0.22"
 bb8 = "0.8"
 bgpkit-parser = { version = "0.20", default-features = false }
 bytes = "1"
-candle-core = { version = "0.11", default-features = false }
-candle-nn = { version = "0.11", default-features = false }
-candle-transformers = { version = "0.11", default-features = false }
 capnp = "0.27"
 capnpc = "0.27"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
@@ -193,14 +188,6 @@ runfiles = "0.3"
 rustler = { version = "0.38", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"]}
 rustls-pemfile = "2"
-# Pure-Rust H.264 decoder for media-worker keyframes. Exact-pinned: a young crate with a fast
-# release cadence, so every bump is a deliberate, reviewed change. Default features are OFF
-# because they install a process-wide #[global_allocator]; `asm` is the stable-Rust SIMD
-# kernels (SSE2/AVX2 + aarch64 NEON intrinsics in rusty_h264-accel), not assembly.
-rusty_h264-common = { version = "=0.17.3", default-features = false, features = ["std"] }
-rusty_h264-decoder = { version = "=0.17.3", default-features = false, features = ["std", "asm"] }
-rusty_h264-encoder = { version = "=0.17.3", default-features = false, features = ["std"] }
-safetensors = "0.8"
 serde = { version = "1.0", default-features = false, features = ["std"] }
 serde_json = "1.0"
 serial_test = "3.2"
@@ -225,7 +212,6 @@ tonic-prost-build = "0.14"
 tonic-reflection = "0.14"
 tower = "0.5"
 tower-http = { version = "0.7", default-features = false }
-trackforge = { version = "0.5", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std"] }
 ultragraph = "0.9"

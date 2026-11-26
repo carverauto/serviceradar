@@ -9,14 +9,10 @@ planning, not a continuous-recording or capacity claim. Upon approval, productio
 scale-out targets recorder pools; the existing bounded core-attached capture and
 optional core-spool work remain valid with their current evidence and gates.
 
-Visual-search fleet sizing stays gated on measured frame-change suppression.
-The two-tier pure-Rust and Core frame-change gate is
-[add-vms-frame-change-gate](../add-vms-frame-change-gate/proposal.md), tracked on
-[#6658](https://github.com/carverauto/serviceradar/issues/6658), and natural-language
-search plus live object detection/tracking are reconciled in
-[update-video-pipeline-nlp-search-and-live-tracking](../update-video-pipeline-nlp-search-and-live-tracking/proposal.md)
-against the shipped [camera-semantic-search](../../specs/camera-semantic-search/spec.md)
-and [vms-media-workers](../../specs/vms-media-workers/spec.md) specs.
+Visual search, detection, tracking and frame-change gating are provided by the
+commercial ServiceRadar Vantage addon. ServiceRadar keeps the hooks it uses, in
+the [camera-semantic-search](../../specs/camera-semantic-search/spec.md) and
+[vms-media-workers](../../specs/vms-media-workers/spec.md) specs.
 
 [Archive player #6096](https://github.com/carverauto/serviceradar/pull/6096)
 is merged. The [published-head evidence](validation.md#published-head-archive-player-validation)
@@ -83,16 +79,12 @@ identifiers and failure injections are independently invented synthetic data.
 
 The requested [follow-ups](tasks.md) remain unchecked: task 1.8 adds a bounded
 per-viewer bitrate/health graph with source-ingest rate labeled separately;
-task 3.7 adds low-cost object/person detection, live tracking, and authorized
-recent-detection thumbnails/clip links through the shared camera ingest and
-Rust `serviceradar-media-worker` / `serviceradar-media-core` pipeline. Legacy
-Boombox keyframe metadata/capture summaries are superseded for semantic analysis
-by `camera-semantic-search`, `vms-media-workers`, and
-`update-video-pipeline-nlp-search-and-live-tracking`. Benchmark small local
-models (`YOLOX` Apache-2.0 + `SigLIP`), two-tier frame-change gating, and CPU/GPU
-costs before choosing defaults; analysis overload must not stall live or
-recording consumers. These are future implementation tasks, not part of provider
-diagnostics.
+task 3.7 covers object/person detection, live tracking, and authorized
+recent-detection thumbnails/clip links, which the commercial Vantage addon
+provides through the shared camera ingest. Legacy Boombox keyframe
+metadata/capture summaries are superseded for semantic analysis by the addon.
+Analysis overload must not stall live or recording consumers. These are not part
+of provider diagnostics.
 
 The current checkpoint adds an opt-in
 [encryption-policy diagnostic](../../../build/media/provider-probe.md#encryption-policy-diagnostic).

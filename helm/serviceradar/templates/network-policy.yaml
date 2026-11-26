@@ -246,10 +246,10 @@
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-nvr"))) -}}
 {{- end -}}
-{{- /* The media worker's only egress grant is its own policy (templates/media-worker.yaml).
+{{- /* The Vantage addon's media worker gets its egress only from the addon's own policy.
      This policy grants egress to whatever it selects, so the worker is left out of it
-     whenever the worker is enabled, whatever base selector is configured. */ -}}
-{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+     whenever vantage is enabled, whatever base selector is configured. */ -}}
+{{- if eq (include "serviceradar.vantageEnabled" .) "true" -}}
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-worker"))) -}}
 {{- end -}}

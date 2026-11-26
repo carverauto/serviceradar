@@ -53,8 +53,6 @@ defmodule ServiceRadar.EventWriter.Config do
     `_FALLBACK_REPLICAS` - JetStream stream sizes, see `jetstream_sizes_from_env!/1`
   """
 
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
@@ -1227,44 +1225,6 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_duplicate_window: 120_000_000_000,
       consumer_max_deliver: 5
     }
-  end
-
-  @doc """
-  Media worker visual index results (`media.results.visual_index.v1`), stored
-  by the CameraVisualIndexResults processor.
-
-  The media worker creates `CAMERA_MEDIA_RESULTS` and owns its shape, so
-  EventWriter only binds its durable (`ensure_stream: false`). A result can
-  carry a few MiB of vectors. Each EventWriter worker contributes 20 pending
-  acknowledgements to the durable (60 with three workers). A transient failure
-  is redelivered with backoff for up to ten deliveries.
-  """
-  @spec camera_visual_index_results_stream() :: stream_config()
-  def camera_visual_index_results_stream do
-    %{
-      name: "CAMERA_VISUAL_INDEX_RESULTS",
-      stream_name: "CAMERA_MEDIA_RESULTS",
-      subject: VisualIndexResultProjector.result_subject(),
-      allow_stream_fallback: false,
-      processor: ServiceRadar.EventWriter.Processors.CameraVisualIndexResults,
-      ensure_stream: false,
-      batch_size: 10,
-      batch_timeout: 1_000,
-      consumer_max_ack_pending: 20,
-      consumer_max_deliver: 10
-    }
-  end
-
-  @doc """
-  The visual index result stream, for both runtime stream lists, when the
-  deployment relays visual index jobs
-  (`ServiceRadar.Camera.VisualIndexDispatcher.deployment_enabled?/0`).
-  """
-  @spec camera_visual_index_results_streams() :: [stream_config()]
-  def camera_visual_index_results_streams do
-    if VisualIndexDispatcher.deployment_enabled?(),
-      do: [camera_visual_index_results_stream()],
-      else: []
   end
 
   @doc """

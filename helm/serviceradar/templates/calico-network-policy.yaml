@@ -74,10 +74,10 @@
 {{- if $nvr.enabled -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-nvr'" $selector -}}
 {{- end -}}
-{{- /* Same exclusion as serviceradar-egress, whenever the worker is enabled: this
-     policy grants egress to whatever it selects, and the worker's only egress grant
-     is its own policy. */ -}}
-{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+{{- /* Same exclusion as serviceradar-egress, whenever vantage is enabled: this
+     policy grants egress to whatever it selects, and the addon media worker's only
+     egress grant is the addon's own policy. */ -}}
+{{- if eq (include "serviceradar.vantageEnabled" .) "true" -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-media-worker'" $selector -}}
 {{- end -}}
 ---

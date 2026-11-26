@@ -744,6 +744,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
             >
               Visual indexing mode
             </label>
+            <p id="policy-visual-index-vantage-note" class="mt-0.5 text-[11px] text-sr-muted">
+              Read by the ServiceRadar Vantage addon; has no effect without it.
+            </p>
             <select
               id="policy-visual-index-mode-select"
               name="policy[visual_index_mode]"

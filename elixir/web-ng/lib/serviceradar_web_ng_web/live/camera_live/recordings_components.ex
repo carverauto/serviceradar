@@ -3377,9 +3377,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
     ServiceRadarWebNGWeb.CameraSemanticSearch.build_thumbnail_url(
       source_id,
-      Map.get(hit, :visual_frame_id),
       Map.get(hit, :catalog_entry_id),
-      Map.get(hit, :has_frame_thumbnail),
       Map.get(hit, :has_block_thumbnail)
     )
   end

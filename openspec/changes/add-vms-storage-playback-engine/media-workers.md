@@ -104,18 +104,11 @@ EventWriter and the configured telemetry backend. The later P3 proposal must
 define projection versus telemetry ownership, retention and rebuild semantics
 before adding a raw `vms_ai_events` firehose to CNPG. CLIP visual search,
 PostGIS field-of-view and OCR/POS search retain their PRD goals but require their
-own model, event and spatial contracts. Visual semantic search and standalone GPU
-worker execution are now specified in
+own model, event and spatial contracts. Visual semantic search, detection,
+tracking and GPU worker execution are provided by the commercial ServiceRadar
+Vantage addon; ServiceRadar keeps the hooks specified in
 [camera-semantic-search](../../specs/camera-semantic-search/spec.md) and
-[vms-media-workers](../../specs/vms-media-workers/spec.md) (`serviceradar-media-worker`).
-Samples worth neural detection and embedding are filtered by the separate
-[frame-change gate](../add-vms-frame-change-gate/proposal.md) (`#6658`): a two-tier
-pure-Rust and Core gate (Tier 1 CMAF `trun`/byte-rate delta via
-`serviceradar-anomaly-core` plus Tier 2 pre-Stage-1 Y-plane spatial-block max-L1
-in `serviceradar-media-core`), without `Vix`/`libvips`, custom SIMD assembly, or
-FPGA bitstreams. Live object detection/tracking and 8,000-camera NLP search scaling
-are reconciled in
-[update-video-pipeline-nlp-search-and-live-tracking](../update-video-pipeline-nlp-search-and-live-tracking/proposal.md).
+[vms-media-workers](../../specs/vms-media-workers/spec.md).
 
 Deleting media or expiring a policy reconciles transcripts, embeddings, thumbnails
 and exports according to their explicit retention/hold policy. Holds include

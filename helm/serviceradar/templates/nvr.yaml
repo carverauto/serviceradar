@@ -19,7 +19,7 @@
 {{- include "serviceradar.validateNvrIngest" . -}}
 {{- include "serviceradar.validateNvrRead" . -}}
 {{- include "serviceradar.validateNvrAnalysisRead" . -}}
-{{- include "serviceradar.validateMediaWorkerNvrReadPort" . -}}
+{{- include "serviceradar.validateVantageMediaWorkerNvrReadPort" . -}}
 {{- $maxBlockFragments := int $nvr.maxBlockFragments -}}
 {{- if or (lt $maxBlockFragments 8) (gt $maxBlockFragments 256) -}}{{- fail "nvr.maxBlockFragments must be from 8 through 256" -}}{{- end -}}
 {{- $maxKeyframeIntervalMs := 15000 -}}
@@ -42,10 +42,9 @@
 {{- $analysisReadEnabled := default false $analysisRead.enabled -}}
 {{- $analysisReadPort := int (default 8445 $analysisRead.port) -}}
 {{- $archive := default (dict) $nvr.archive -}}
-{{- $mediaWorker := default (dict) .Values.mediaWorker -}}
-{{- $mediaWorkerPolicy := default (dict) $mediaWorker.networkPolicy -}}
-{{- $mediaWorkerRead := and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") -}}
-{{- $mediaWorkerReadPort := int (default 8444 $mediaWorkerPolicy.nvrReadPort) -}}
+{{- $vantageMediaWorker := default (dict) (default (dict) .Values.vantage).mediaWorker -}}
+{{- $mediaWorkerRead := and (eq (include "serviceradar.vantageEnabled" .) "true") (eq (include "serviceradar.vantageMediaWorkerAllowNvrRead" .) "true") -}}
+{{- $mediaWorkerReadPort := int (default 8445 $vantageMediaWorker.nvrReadPort) -}}
 {{- $archiveEnabled := default false $archive.enabled -}}
 {{- $podSecurity := include "serviceradar.elixirReleasePodSecurityContext" . -}}
 {{- $nodeSelector := deepCopy (default (dict) $nvr.nodeSelector) -}}
@@ -431,8 +430,8 @@ spec:
           port: {{ $readPort }}
     {{- end }}
     {{- if $mediaWorkerRead }}
-    {{- /* Pairs with the media worker's egress rule (mediaWorker.networkPolicy.allowNvrRead)
-         for local-recording analysis reads. */}}
+    {{- /* The Vantage addon's media worker reads local recordings here under a read
+         grant (vantage.mediaWorker.allowNvrRead); the addon owns its egress rule. */}}
     - from:
         - podSelector:
             matchLabels:

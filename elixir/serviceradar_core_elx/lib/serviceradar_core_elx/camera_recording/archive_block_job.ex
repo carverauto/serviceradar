@@ -59,8 +59,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingPubSub
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Repo
   alias ServiceRadar.Storage.StorageEntitlements
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -301,7 +299,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
       {:ok, :verified} ->
         emit_outcome(:completed, entry.id, nil)
         RecordingPubSub.broadcast_updated(Map.get(entry, :camera_source_id), :archive_verified)
-        maybe_nudge_visual_index_dispatch(entry, opts)
         :ok
 
       {:ok, :skipped} ->
@@ -318,39 +315,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
         else
           error_class = sanitize_error_class(reason, "archive_commit_failed")
           fail_retryable(entry, error_class, opts)
-        end
-    end
-  end
-
-  defp maybe_nudge_visual_index_dispatch(entry, opts) do
-    enabled_fn = Keyword.get(opts, :visual_index_enabled_fn, &VisualIndexDispatcher.deployment_enabled?/0)
-
-    if enabled_fn.() and pending_visual_index_job?(entry.id, opts) do
-      nudge_opts =
-        opts
-        |> Keyword.take([:dispatch_enqueuer, :insert_fn])
-        |> Keyword.put(:enabled_fn, fn -> true end)
-
-      VisualIndexDispatcher.nudge_dispatch(nudge_opts)
-    end
-
-    :ok
-  rescue
-    _ -> :ok
-  end
-
-  defp pending_visual_index_job?(entry_id, opts) do
-    case Keyword.get(opts, :has_pending_visual_job_fn) do
-      fun when is_function(fun, 1) ->
-        fun.(entry_id) == true
-
-      _ ->
-        VisualIndexJob
-        |> Ash.Query.filter(catalog_entry_id == ^entry_id and state == :pending)
-        |> Ash.exists?(actor: @system_actor)
-        |> case do
-          {:ok, true} -> true
-          _ -> false
         end
     end
   end

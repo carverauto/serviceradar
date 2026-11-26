@@ -171,7 +171,6 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
   defp parse_source_mode("archive"), do: {:ok, :archive}
   defp parse_source_mode(_), do: {:error, :invalid_source_mode}
 
-  defp parse_thumbnail_kind("frame"), do: {:ok, :frame}
   defp parse_thumbnail_kind("block"), do: {:ok, :block}
   defp parse_thumbnail_kind(_), do: {:error, :invalid_id}
 
