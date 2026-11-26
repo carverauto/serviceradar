@@ -65,7 +65,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
 
   describe "target_contexts_from_srql/3" do
     test "normalizes device SRQL queries and materializes target contexts" do
-      translate_fn = fn "in:devices tags.role:edge limit:25", 25, nil, nil, nil ->
+      translate_fn = fn "in:devices tags.role:edge limit:25 sort:uid:asc", 25, nil, nil, nil ->
         {:ok,
          Jason.encode!(%{
            "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices",
@@ -113,7 +113,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
 
     test "continues paging until it finds enough eligible target contexts" do
       translate_fn = fn
-        "in:devices tags.role:edge limit:2", 2, nil, nil, nil ->
+        "in:devices tags.role:edge limit:2 sort:uid:asc", 2, nil, nil, nil ->
           {:ok,
            Jason.encode!(%{
              "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_1",
@@ -121,7 +121,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
              "pagination" => %{"limit" => 2, "next_cursor" => "cursor-2"}
            })}
 
-        "in:devices tags.role:edge limit:2", 2, "cursor-2", nil, nil ->
+        "in:devices tags.role:edge limit:2 sort:uid:asc", 2, "cursor-2", nil, nil ->
           {:ok,
            Jason.encode!(%{
              "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_2",
@@ -184,7 +184,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
     # scope of 251 devices silently traced its first 100 with nothing logged.
     test "with no limit, pages to exhaustion and caps nothing" do
       translate_fn = fn
-        "in:devices tags.role:edge limit:2", 2, nil, nil, nil ->
+        "in:devices tags.role:edge limit:2 sort:uid:asc", 2, nil, nil, nil ->
           {:ok,
            Jason.encode!(%{
              "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_1",
@@ -192,7 +192,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
              "pagination" => %{"limit" => 2, "next_cursor" => "cursor-2"}
            })}
 
-        "in:devices tags.role:edge limit:2", 2, "cursor-2", nil, nil ->
+        "in:devices tags.role:edge limit:2 sort:uid:asc", 2, "cursor-2", nil, nil ->
           {:ok,
            Jason.encode!(%{
              "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_2",
@@ -238,7 +238,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
     # request keeps paging until the cursor runs out or the ceiling is hit.
     test "an explicit limit above the page size still pages past one page" do
       translate_fn = fn
-        "in:devices tags.role:edge limit:2", 2, nil, nil, nil ->
+        "in:devices tags.role:edge limit:2 sort:uid:asc", 2, nil, nil, nil ->
           {:ok,
            Jason.encode!(%{
              "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_1",
@@ -246,7 +246,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
              "pagination" => %{"limit" => 2, "next_cursor" => "cursor-2"}
            })}
 
-        "in:devices tags.role:edge limit:2", 2, "cursor-2", nil, nil ->
+        "in:devices tags.role:edge limit:2 sort:uid:asc", 2, "cursor-2", nil, nil ->
           {:ok,
            Jason.encode!(%{
              "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_2",
@@ -286,7 +286,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
     end
 
     test "returns SRQL errors" do
-      translate_fn = fn "in:devices hostname:bad limit:10", 10, nil, nil, nil ->
+      translate_fn = fn "in:devices hostname:bad limit:10 sort:uid:asc", 10, nil, nil, nil ->
         {:error, :bad_query}
       end
 
@@ -495,7 +495,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
 
     test "target_contexts_from_srql/3 excludes link-local rows before the ceiling" do
       translate_fn = fn
-        "in:devices tags.role:edge limit:2", 2, nil, nil, nil ->
+        "in:devices tags.role:edge limit:2 sort:uid:asc", 2, nil, nil, nil ->
           {:ok,
            Jason.encode!(%{
              "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_1",
@@ -503,7 +503,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
              "pagination" => %{"limit" => 2, "next_cursor" => "cursor-2"}
            })}
 
-        "in:devices tags.role:edge limit:2", 2, "cursor-2", nil, nil ->
+        "in:devices tags.role:edge limit:2 sort:uid:asc", 2, "cursor-2", nil, nil ->
           {:ok,
            Jason.encode!(%{
              "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_2",

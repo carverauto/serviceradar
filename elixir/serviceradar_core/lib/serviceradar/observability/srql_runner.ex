@@ -124,11 +124,12 @@ defmodule ServiceRadar.Observability.SRQLRunner do
          :ok <- assert_executable(sql, mode),
          {:ok, params} <- decode_params(Map.get(translation, "params", []), opts),
          {:ok, %Postgrex.Result{columns: columns, rows: rows} = result} <-
-           run_sql(sql, params, mode, opts) do
+           run_sql(sql, params, mode, opts),
+         {:ok, next_cursor} <- next_cursor(translation, result) do
       {:ok,
        %{
          rows: columns |> rows_to_maps(rows) |> warehouse_shape(query, mode),
-         next_cursor: next_cursor(translation, result)
+         next_cursor: next_cursor
        }}
     end
   end
@@ -285,14 +286,50 @@ defmodule ServiceRadar.Observability.SRQLRunner do
     end
   end
 
+  # A keyset-paged translation (`pagination.keyset`) carries no cursor: SRQL
+  # never sees the rows, so the next cursor is signed here from the last row's
+  # key. Failing to mint one for a full page is an error, never a short walk.
+  defp next_cursor(
+         %{"pagination" => %{"keyset" => %{} = keyset, "limit" => limit}},
+         %Postgrex.Result{
+           columns: columns,
+           rows: rows
+         }
+       )
+       when is_integer(limit) do
+    if length(rows) >= limit do
+      mint_keyset_cursor(keyset, columns, List.last(rows))
+    else
+      {:ok, nil}
+    end
+  end
+
   defp next_cursor(translation, %Postgrex.Result{rows: rows}) do
     limit = get_in(translation, ["pagination", "limit"])
     candidate = get_in(translation, ["pagination", "next_cursor"])
 
     if is_integer(limit) and is_binary(candidate) and length(rows) >= limit do
-      candidate
+      {:ok, candidate}
+    else
+      {:ok, nil}
     end
   end
+
+  defp mint_keyset_cursor(
+         %{"entity" => entity, "column" => column, "direction" => direction},
+         columns,
+         last_row
+       )
+       when is_list(last_row) do
+    with index when is_integer(index) <- Enum.find_index(columns, &(&1 == column)),
+         key when is_binary(key) and key != "" <- Enum.at(last_row, index) do
+      ServiceRadarSRQL.Native.keyset_cursor(entity, column, direction, key)
+    else
+      _ -> {:error, {:keyset_key_missing, column}}
+    end
+  end
+
+  defp mint_keyset_cursor(_keyset, _columns, _last_row), do: {:error, :invalid_srql_keyset}
 
   defp text_param_decoder(opts) do
     Keyword.get(opts, :text_param_decoder, &default_text_param_decoder/1)

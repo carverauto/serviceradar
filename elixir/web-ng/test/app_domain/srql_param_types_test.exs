@@ -206,4 +206,35 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       assert Enum.any?(results, fn log -> log["id"] == log_id end)
     end
   end
+
+  describe "keyset cursor (text key) pages" do
+    # A uid-ordered device query is paged by key: the executor signs the next
+    # cursor from the last row's uid, and the next page binds that uid as text.
+    test "a uid-ordered walk returns every device once and stops on the short page" do
+      prefix = "srkeyset-#{System.unique_integer([:positive])}-"
+      uids = for n <- 1..5, do: prefix <> String.pad_leading("#{n}", 2, "0")
+
+      SQL.query!(
+        Repo,
+        "INSERT INTO platform.ocsf_devices (uid) SELECT unnest($1::text[])",
+        [Enum.reverse(uids)]
+      )
+
+      query = "in:devices uid:%#{prefix}% sort:uid:asc"
+
+      walk = fn walk, cursor, acc ->
+        opts = %{scope: @srql_test_scope, limit: 2, cursor: cursor}
+        assert {:ok, %{"results" => rows, "pagination" => pagination}} = ServiceRadarWebNG.SRQL.query(query, opts)
+        assert pagination["prev_cursor"] == nil
+        acc = acc ++ Enum.map(rows, & &1["uid"])
+
+        case pagination["next_cursor"] do
+          next when is_binary(next) -> walk.(walk, next, acc)
+          nil -> {acc, length(rows)}
+        end
+      end
+
+      assert {^uids, 1} = walk.(walk, nil, [])
+    end
+  end
 end

@@ -84,6 +84,12 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   order (availability rank, then the first address parsed as `inet`, then uid)
   cannot be served by an index, so every offset page sorts every matching device
   row in full, and a fleet-wide walk repeats that sort once per page.
+
+  A device or agent query with no operator-supplied sort is ordered by `uid`
+  alone, which SRQL pages with keyset cursors: each page is an index range scan
+  after the previous page's last uid, and the cursor window does not apply. An
+  operator-supplied sort stays first, so that query keeps offset cursors and
+  the full-page-without-cursor check above still fails it past the window.
   """
   @spec reduce_pages(input_definition(), acc, ([map()], acc -> {:cont | :halt, acc}), keyword()) ::
           {:ok, acc} | {:error, [String.t()]}

@@ -215,7 +215,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
       device = create_device!(actor)
       backdate!(device.uid, 31)
 
-      query_page = fn "in:devices tags.keep:true", _opts ->
+      query_page = fn "in:devices tags.keep:true sort:uid:asc", _opts ->
         {:ok, %{rows: [%{"uid" => device.uid}], next_cursor: nil}}
       end
 
@@ -413,7 +413,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
 
       excluded = Enum.map(by_exclusion, &%{"uid" => &1.uid})
 
-      query_page = fn "in:devices tags.keep:true", _opts ->
+      query_page = fn "in:devices tags.keep:true sort:uid:asc", _opts ->
         {:ok, %{rows: excluded, next_cursor: nil}}
       end
 

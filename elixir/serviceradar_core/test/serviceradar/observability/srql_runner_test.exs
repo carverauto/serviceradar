@@ -55,6 +55,56 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
            end)
   end
 
+  describe "keyset pages" do
+    # The translation carries no cursor for a uid-ordered device query; the
+    # runner signs one from the last row of a full page, and SRQL reads the
+    # next page strictly after that uid with no OFFSET.
+    test "a full uid-ordered page continues after its last row; a short page ends the walk" do
+      put_cutover([])
+      query = "in:devices sort:uid:asc"
+      parent = self()
+
+      query_fn = fn rows ->
+        fn sql, params ->
+          send(parent, {:sql, sql, params})
+          {:ok, %Postgrex.Result{columns: ["hostname", "uid"], rows: rows}}
+        end
+      end
+
+      full = [["host01.example.com", "sr:dev-0001"], ["host02.example.com", "sr:dev-0002"]]
+
+      assert {:ok, %{next_cursor: cursor}} =
+               SRQLRunner.query_page(query, limit: 2, query_fn: query_fn.(full))
+
+      assert is_binary(cursor)
+      assert_received {:sql, first_sql, _}
+      refute first_sql =~ "OFFSET"
+
+      assert {:ok, %{next_cursor: nil}} =
+               SRQLRunner.query_page(query,
+                 limit: 2,
+                 cursor: cursor,
+                 query_fn: query_fn.([["host03.example.com", "sr:dev-0003"]])
+               )
+
+      assert_received {:sql, next_sql, next_params}
+      assert next_sql =~ ~r/"uid" > \$\d+/
+      refute next_sql =~ "OFFSET"
+      assert "sr:dev-0002" in next_params
+    end
+
+    test "a full page whose rows lack the key column is an error, not the end of the walk" do
+      put_cutover([])
+
+      query_fn = fn _sql, _params ->
+        {:ok, %Postgrex.Result{columns: ["hostname"], rows: [["host01.example.com"]]}}
+      end
+
+      assert {:error, {:keyset_key_missing, "uid"}} =
+               SRQLRunner.query_page("in:devices sort:uid:asc", limit: 1, query_fn: query_fn)
+    end
+  end
+
   defp put_cutover(datasets) do
     previous = Application.get_env(:serviceradar_core, StarRocks, [])
 

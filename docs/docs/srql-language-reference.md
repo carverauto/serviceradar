@@ -186,6 +186,15 @@ the 90-day cap. Hourly rollups serve the aggregates that have a stored column.
   the ceiling. This exception applies to both query execution and SQL
   translation, including caller-supplied queries; it is not restricted to
   internal workers. Per-page row limits still apply.
+- A `devices` or `agents` query sorted by `uid` alone (`sort:uid:asc` or
+  `sort:uid:desc`; repeating the same `sort:uid` token changes nothing) is
+  paged by key instead of by row offset. Each page after the first reads only
+  the rows after the previous page's last `uid`, so a deep page costs the same
+  as the first, and the cursor-offset cap does not apply. These cursors only go
+  forward: the response has no `prev_cursor`, and `direction: "prev"` with one
+  is rejected. A cursor issued for one order is rejected by a query with a
+  different order or entity. Any other sort, including `sort:uid:asc` after
+  another `sort:` key, keeps offset cursors. Cursors stay opaque either way.
 
 ## Aggregation with `stats`
 
