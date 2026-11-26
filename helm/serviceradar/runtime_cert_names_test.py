@@ -163,16 +163,20 @@ class RuntimeCertNamesTest(unittest.TestCase):
             self.assertEqual((self.certs / f"{copy}-key.pem").read_bytes(), (self.certs / "log-collector-key.pem").read_bytes())
 
     def test_media_worker_cert_follows_names_only_rules(self):
-        # Missing media-worker cert is not created by the NAMES_ONLY pass.
+        # Missing Vantage certs are not created by the NAMES_ONLY pass.
         self.assertFalse((self.certs / "media-worker.pem").exists())
+        self.assertFalse((self.certs / "vantage.pem").exists())
         self.assertEqual(run(self.certs, render(media_worker=True), NAMES_ONLY="true"), [])
         self.assertEqual(digests(self.certs), self.issued)
 
-        # Issuing with media_worker=True adds only the worker keypair, and a
-        # subsequent broker SAN addition leaves the worker cert untouched.
+        # Issuing with media_worker=True adds only the Vantage keypairs, and a
+        # subsequent broker SAN addition leaves the Vantage certs untouched.
         run(self.certs, render(media_worker=True))
         with_worker = digests(self.certs)
-        self.assertEqual(changed(self.issued, with_worker), ["media-worker-key.pem", "media-worker.pem"])
+        self.assertEqual(
+            changed(self.issued, with_worker),
+            ["media-worker-key.pem", "media-worker.pem", "vantage-key.pem", "vantage.pem"],
+        )
         reissued = run(self.certs, render(leaf_host=LEAF_HOST, media_worker=True), NAMES_ONLY="true")
         self.assertEqual(reissued, ["nats.pem"])
         self.assertEqual(changed(with_worker, digests(self.certs)), ["nats-key.pem", "nats.pem"])
