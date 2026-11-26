@@ -113,56 +113,16 @@ py_library(
     deps = ["@pyyaml//:yaml"],
 )
 
-# Source-side isolation of the media worker: across the default, demo, tenant and HA
-# values, its own NetworkPolicy is the only chart policy (Kubernetes or Calico) whose
-# selector matches it and that governs egress, and that policy allows no PostgreSQL
-# traffic into the namespace.
-py_test(
-    name = "media_worker_egress_isolation_test",
-    srcs = ["media_worker_egress_isolation_test.py"],
-    data = [
-        ":chart_files",
-        ":helm_unittest_binary",
-    ],
-    env = {
-        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
-    },
-    deps = [
-        ":chart_render",
-        "@pyyaml//:yaml",
-    ],
-)
-
 # Runs the rendered runtime certificate generator (openssl) and its Job's
-# preserve check against a synthetic Secret: the media worker's certificate
-# carries the subject its static NATS user maps, and enabling the worker later
-# makes the Job reissue an existing Secret that lacks it.
+# preserve check against a synthetic Secret: the Vantage addon's media worker
+# certificate carries the subject its static NATS user maps, and enabling
+# vantage later makes the Job reissue an existing Secret that lacks it.
 py_test(
     name = "runtime_cert_media_worker_test",
     srcs = ["runtime_cert_media_worker_test.py"],
     data = [
         ":chart_files",
         ":helm_unittest_binary",
-    ],
-    env = {
-        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
-    },
-    deps = [
-        ":chart_render",
-        "@pyyaml//:yaml",
-    ],
-)
-
-# Core stamps a compiled model identity on every camera visual-index job and search
-# request and has no setting for it; a chart worker announcing another indexes nothing
-# and answers no search while staying healthy.
-py_test(
-    name = "media_worker_model_identity_test",
-    srcs = ["media_worker_model_identity_test.py"],
-    data = [
-        ":chart_files",
-        ":helm_unittest_binary",
-        "//elixir/serviceradar_core:camera_model_identity_src",
     ],
     env = {
         "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",

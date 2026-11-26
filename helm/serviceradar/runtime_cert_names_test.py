@@ -38,7 +38,7 @@ def render(leaf_host="", gateway_host="", media_worker=False):
     )
     text = text.replace("{{ .Values.agentGateway.publicHostname }}", gateway_host)
     text = re.sub(
-        r'\n?\{\{- if eq \(include "serviceradar\.mediaWorkerEnabled" \.\) "true" \}\}(.*?)\n?\{\{- end \}\}',
+        r'\n?\{\{- if eq \(include "serviceradar\.vantageEnabled" \.\) "true" \}\}(.*?)\n?\{\{- end \}\}',
         lambda m: m.group(1) if media_worker else "",
         text,
         flags=re.DOTALL,

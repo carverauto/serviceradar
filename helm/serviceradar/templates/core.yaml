@@ -3,12 +3,6 @@
      renders exactly as before, and only an explicit `core.enabled: false` removes
      this component. `default true` cannot be used here -- Helm treats false as empty,
      so it would resurrect anything explicitly disabled. */ -}}
-{{- /* Keep a conflicting dispatch override from being stored even while core is disabled. */ -}}
-{{- range $source := list "extraEnv" "extraEnvValueFrom" -}}
-{{- if hasKey (default (dict) (get (default (dict) $.Values.core) $source)) "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" -}}
-{{- fail (printf "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.%s: the chart derives it from mediaWorker.enabled" $source) -}}
-{{- end -}}
-{{- end -}}
 {{- $gate4 := default (dict) .Values.core -}}
 {{- if or (not (hasKey $gate4 "enabled")) $gate4.enabled }}
 {{- $nats := default (dict) .Values.nats -}}
@@ -213,9 +207,6 @@ spec:
         {{- include "serviceradar.validateNvrIngest" . -}}
         {{- include "serviceradar.nvrRecoveryEnv" . | nindent 8 }}
         {{- include "serviceradar.nvrClientEnv" . | nindent 8 }}
-        - name: SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED
-          value: {{ include "serviceradar.mediaWorkerEnabled" . | quote }}
-        {{- include "serviceradar.cameraVlmEnv" . | nindent 8 }}
         {{- if $edgeIssuerSeedMounted }}
         - name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
           value: /etc/serviceradar/edge-issuer/seed

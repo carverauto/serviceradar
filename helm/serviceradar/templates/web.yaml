@@ -62,8 +62,7 @@
 {{- end -}}
 {{- end -}}
 {{- /* web-ng's listener ports each have exactly one source, the chart values the
-     collision check below reads; the media worker's URL and both network policy
-     directions are rendered from the control-plane port. */ -}}
+     collision check below reads. */ -}}
 {{- range $key, $source := dict "SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT" "webNg.controlPlaneRuntime.port" "PORT" "the chart (web-ng's public listener is 4000)" "SERVICERADAR_METRICS_PORT" "webNg.metricsPort" -}}
 {{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
 {{- fail (printf "%s must be configured through %s" $key $source) -}}
@@ -375,7 +374,6 @@ spec:
         {{- include "serviceradar.nvrReadClientEnv" . | nindent 8 }}
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         {{- include "serviceradar.agentCertValidityEnv" . | nindent 8 }}
-        {{- include "serviceradar.cameraVlmEnv" . | nindent 8 }}
         - name: PORT
           value: "4000"
         {{- if $archiveReader.enabled }}
@@ -496,6 +494,10 @@ spec:
               key: {{ $controlPlaneMediaWorkerSecretKey | quote }}
         - name: SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_GENERATION
           value: {{ $controlPlaneMediaWorker.generation | quote }}
+        {{- end }}
+        {{- if eq (include "serviceradar.vantageEnabled" .) "true" }}
+        - name: SERVICERADAR_VANTAGE_RPC_ENABLED
+          value: "true"
         {{- end }}
         {{- if $agentReleasePublicKey }}
         - name: SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY
