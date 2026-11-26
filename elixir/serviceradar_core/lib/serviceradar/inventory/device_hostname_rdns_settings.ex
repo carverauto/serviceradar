@@ -238,7 +238,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       allow_nil? false
       default 0
       public? true
-      description "SRQL rows scanned in the last run"
+
+      description "Devices in the SRQL cohort that passed the due-for-lookup pre-filter in the last run"
     end
 
     attribute :last_candidates, :integer do
@@ -334,7 +335,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
         nil
 
       stats.cohort_rows == 0 ->
-        "SRQL matched 0 devices"
+        "No device in the SRQL cohort is due (already named, no IP, or recently looked up)"
 
       stats.candidates == 0 ->
         "SRQL matched #{stats.cohort_rows} device(s); none were eligible (already named, no IP, or recently looked up)"

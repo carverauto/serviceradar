@@ -137,97 +137,52 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
              )
   end
 
-  test "run selects the cohort from SRQL then loads matching devices" do
+  test "run scopes the pre-filtered uids with the SRQL query in chunks, most recently seen first" do
     settings = %{
-      srql_query: "in:devices ip:10.0.0.0/8",
-      batch_size: 10,
+      srql_query: "partition:lab",
+      batch_size: 150,
       timeout_ms: 250,
       overwrite_existing: false,
       retry_after_minutes: 1_440
     }
 
-    device = %{
-      uid: "sr:test-device",
-      ip: "10.0.0.8",
-      hostname: nil,
-      metadata: %{}
-    }
+    # The pre-filter returns most recently seen first. A fleet larger than one
+    # SRQL list filter takes three scoped queries, not a walk of every device.
+    eligible = for n <- 1..450, do: "sr:dev-#{n}"
+
+    eligible_uids = fn _settings, _now, false -> {:ok, eligible} end
 
     query_page = fn query, opts ->
-      assert query == "in:devices ip:10.0.0.0/8"
-      assert opts[:limit] == 500
-      assert opts[:direction] == "next"
+      [scope, list] = String.split(query, " uid:(", parts: 2)
+      assert scope == "in:devices partition:lab"
+      assert opts[:limit] == 200
 
-      {:ok,
-       %{
-         rows: [
-           %{"uid" => "sr:test-device", "ip" => "10.0.0.8", "hostname" => nil},
-           %{"uid" => "sr:named", "ip" => "10.0.0.9", "hostname" => "leaf-01"}
-         ]
-       }}
-    end
+      uids =
+        list
+        |> String.trim_trailing(")")
+        |> String.split(",")
+        |> Enum.map(&String.trim(&1, "\""))
 
-    load_devices = fn candidates, _actor ->
-      assert Enum.map(candidates, & &1.uid) == ["sr:test-device"]
-      {:ok, [device]}
-    end
+      assert length(uids) <= 200
+      send(self(), {:scoped_query, length(uids)})
 
-    lookup = fn "10.0.0.8", _opts -> {"core-sw.farm.lan", "ok", nil} end
-    persist = fn _device, _hostname, _status, _error, _now, _actor -> :updated end
+      # Odd devices are outside the operator's scope; sr:dev-2 is already
+      # named. Rows come back in the operator's sort, newest uid last.
+      rows =
+        uids
+        |> Enum.filter(fn "sr:dev-" <> n -> rem(String.to_integer(n), 2) == 0 end)
+        |> Enum.map(fn "sr:dev-" <> n = uid ->
+          hostname = if n == "2", do: "host02.example.com"
 
-    assert {:ok,
-            %{
-              looked_up: 1,
-              updated: 1,
-              skipped: 0,
-              errors: 0,
-              cohort_rows: 2,
-              candidates: 1,
-              loaded: 1
-            }} =
-             DeviceHostnameRdns.run(settings,
-               query_page: query_page,
-               load_devices: load_devices,
-               lookup: lookup,
-               persist: persist,
-               cache?: false
-             )
-  end
+          %{
+            "uid" => uid,
+            "ip" => "192.0.2.#{rem(String.to_integer(n), 250) + 1}",
+            "hostname" => hostname
+          }
+        end)
+        |> Enum.reverse()
 
-  test "run exhausts the SRQL cohort and processes every device in bounded batches" do
-    settings = %{
-      srql_query: "in:devices",
-      batch_size: 2,
-      timeout_ms: 250,
-      overwrite_existing: false,
-      retry_after_minutes: 1_440
-    }
-
-    query_page = fn "in:devices", opts ->
-      case opts[:cursor] do
-        nil ->
-          {:ok,
-           %{
-             rows: [
-               %{"uid" => "sr:a", "ip" => "10.0.0.1", "hostname" => nil},
-               %{"uid" => "sr:b", "ip" => "10.0.0.2", "hostname" => nil},
-               %{"uid" => "sr:c", "ip" => "10.0.0.3", "hostname" => nil}
-             ],
-             next_cursor: "page-2"
-           }}
-
-        "page-2" ->
-          assert_received {:loaded_batch, ["sr:a", "sr:b"]}
-
-          {:ok,
-           %{
-             rows: [
-               %{"uid" => "sr:d", "ip" => "10.0.0.4", "hostname" => nil},
-               %{"uid" => "sr:e", "ip" => "10.0.0.5", "hostname" => nil}
-             ],
-             next_cursor: nil
-           }}
-      end
+      {:ok, %{rows: rows, next_cursor: "ignored"}}
     end
 
     load_devices = fn candidates, _actor ->
@@ -235,73 +190,26 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
       {:ok, candidates}
     end
 
-    lookup = fn _ip, _opts -> {"host.lan", "ok", nil} end
-    persist = fn _device, _hostname, _status, _error, _now, _actor -> :updated end
-
-    assert {:ok, %{looked_up: 5, updated: 5, cohort_rows: 5, candidates: 5, loaded: 5}} =
+    assert {:ok, %{cohort_rows: 225, candidates: 224, loaded: 224, looked_up: 224}} =
              DeviceHostnameRdns.run(settings,
+               eligible_uids: eligible_uids,
                query_page: query_page,
                load_devices: load_devices,
-               lookup: lookup,
-               persist: persist,
-               cache?: false
-             )
-
-    assert_received {:loaded_batch, ["sr:c", "sr:d"]}
-    assert_received {:loaded_batch, ["sr:e"]}
-    refute_received {:loaded_batch, _batch}
-  end
-
-  test "run stops with a clear error when SRQL pagination exceeds its safety limit" do
-    query_page = fn _query, opts ->
-      page = opts[:cursor] || "page-1"
-
-      {:ok,
-       %{
-         rows: [%{"uid" => "sr:#{page}", "ip" => "10.0.0.1", "hostname" => nil}],
-         next_cursor: "#{page}-next"
-       }}
-    end
-
-    assert {:error, {:srql_page_limit_exceeded, %{max_pages: 2, scanned_rows: 2}}} =
-             DeviceHostnameRdns.run(
-               %{
-                 srql_query: "in:devices",
-                 batch_size: 1,
-                 timeout_ms: 250,
-                 overwrite_existing: false,
-                 retry_after_minutes: 1_440
-               },
-               query_page: query_page,
-               load_devices: fn candidates, _actor -> {:ok, candidates} end,
-               lookup: fn _ip, _opts -> {"host.lan", "ok", nil} end,
+               lookup: fn _ip, _opts -> {"host.example.com", "ok", nil} end,
                persist: fn _device, _hostname, _status, _error, _now, _actor -> :updated end,
-               max_srql_pages: 2,
                cache?: false
              )
-  end
 
-  test "run fails instead of silently returning a partial cohort when pagination stalls" do
-    query_page = fn _query, _opts ->
-      {:ok,
-       %{
-         rows: [%{"uid" => "sr:a", "ip" => "10.0.0.1", "hostname" => nil}],
-         next_cursor: "same-cursor"
-       }}
-    end
+    assert_received {:scoped_query, 200}
+    assert_received {:scoped_query, 200}
+    assert_received {:scoped_query, 50}
+    refute_received {:scoped_query, _}
 
-    assert {:error, {:srql_pagination_stalled, "same-cursor"}} =
-             DeviceHostnameRdns.run(
-               %{
-                 srql_query: "in:devices",
-                 batch_size: 2,
-                 timeout_ms: 250,
-                 overwrite_existing: false,
-                 retry_after_minutes: 1_440
-               },
-               query_page: query_page,
-               cache?: false
-             )
+    expected = for n <- 4..450//2, do: "sr:dev-#{n}"
+    {first, rest} = Enum.split(expected, 150)
+    assert_received {:loaded_batch, ^first}
+    assert_received {:loaded_batch, ^rest}
+    refute_received {:loaded_batch, _}
   end
 
   test "run accepts inet-shaped SRQL IP values" do
@@ -313,22 +221,23 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
       retry_after_minutes: 1_440
     }
 
-    inet = %Postgrex.INET{address: {10, 0, 0, 8}, netmask: 32}
+    inet = %Postgrex.INET{address: {192, 0, 2, 8}, netmask: 32}
 
     query_page = fn _query, _opts ->
       {:ok, %{rows: [%{"uid" => "sr:inet", "ip" => inet, "hostname" => nil}]}}
     end
 
     load_devices = fn candidates, _actor ->
-      assert hd(candidates).ip == "10.0.0.8"
+      assert hd(candidates).ip == "192.0.2.8"
       {:ok, candidates}
     end
 
-    lookup = fn "10.0.0.8", _opts -> {"core-sw.farm.lan", "ok", nil} end
+    lookup = fn "192.0.2.8", _opts -> {"host08.example.com", "ok", nil} end
     persist = fn _device, _hostname, _status, _error, _now, _actor -> :updated end
 
     assert {:ok, %{looked_up: 1, updated: 1, candidates: 1}} =
              DeviceHostnameRdns.run(settings,
+               eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, ["sr:inet"]} end,
                query_page: query_page,
                load_devices: load_devices,
                lookup: lookup,
@@ -343,6 +252,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
     assert {:error, {:srql_query_failed, :translate_failed}} =
              DeviceHostnameRdns.run(
                %{srql_query: "in:devices", batch_size: 10, timeout_ms: 250},
+               eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, ["sr:a"]} end,
                query_page: query_page,
                cache?: false
              )
