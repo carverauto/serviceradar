@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNG.Vantage.Client do
   @capabilities_subject "vantage.rpc.capabilities.v1"
   @semantic_search_subject "vantage.rpc.semantic_search.v1"
   @frame_overlay_subject "vantage.rpc.frame_overlay.v1"
+  @visual_frames_subject "vantage.rpc.visual_frames.v1"
 
   @capabilities_cache_table :serviceradar_web_ng_vantage_capabilities_cache
   @capabilities_cache_key :capabilities
@@ -216,6 +217,41 @@ defmodule ServiceRadarWebNG.Vantage.Client do
     end
   end
 
+  @doc """
+  Fetches visual detection and motion frames for a camera timeline window over
+  `vantage.rpc.visual_frames.v1`.
+
+  Expects a pre-authorized `camera_source_id`, `from_us` < `to_us`, and an
+  optional `stream_profile_id` and `limit`.
+  """
+  @spec visual_frames(map(), keyword()) :: {:ok, [map()]} | {:error, atom()}
+  def visual_frames(params, opts \\ []) when is_map(params) and is_list(opts) do
+    camera_source_id = fetch_val(params, :camera_source_id)
+    from_us = fetch_val(params, :from_us)
+    to_us = fetch_val(params, :to_us)
+
+    if is_binary(camera_source_id) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+      timeout_ms =
+        Keyword.get(
+          opts,
+          :timeout_ms,
+          Application.get_env(:serviceradar_web_ng, :vantage_rpc_timeout_ms, @default_rpc_timeout_ms)
+        )
+
+      payload =
+        %{"camera_source_id" => camera_source_id, "from_us" => from_us, "to_us" => to_us}
+        |> maybe_put_payload("stream_profile_id", fetch_val(params, :stream_profile_id))
+        |> maybe_put_payload("limit", fetch_val(params, :limit))
+
+      with {:ok, json} <- encode_payload(payload),
+           {:ok, decoded} <- rpc_request(@visual_frames_subject, json, timeout_ms, opts) do
+        parse_visual_frames_response(decoded)
+      end
+    else
+      {:error, :invalid_request}
+    end
+  end
+
   defp maybe_put_payload(payload, _key, nil), do: payload
   defp maybe_put_payload(payload, key, value), do: Map.put(payload, key, value)
 
@@ -362,6 +398,58 @@ defmodule ServiceRadarWebNG.Vantage.Client do
   end
 
   defp normalize_overlay_detection(_), do: %{}
+
+  defp parse_visual_frames_response(%{"status" => "ok"} = body) do
+    raw_frames =
+      cond do
+        is_list(body["frames"]) -> body["frames"]
+        is_map(body["data"]) and is_list(body["data"]["frames"]) -> body["data"]["frames"]
+        is_list(body["data"]) -> body["data"]
+        true -> []
+      end
+
+    {:ok, raw_frames |> Enum.filter(&is_map/1) |> Enum.map(&normalize_visual_frame/1)}
+  end
+
+  defp parse_visual_frames_response(%{"status" => "error"} = body) do
+    reason = Map.get(body, "error") || Map.get(body, "reason")
+    {:error, map_error_reason(reason)}
+  end
+
+  defp parse_visual_frames_response(_), do: {:error, :vantage_unavailable}
+
+  defp normalize_visual_frame(frame) when is_map(frame) do
+    raw_detections =
+      frame
+      |> fetch_val(:detections)
+      |> List.wrap()
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&normalize_visual_frame_detection/1)
+
+    base = %{
+      id: fetch_val(frame, :id),
+      catalog_entry_id: fetch_val(frame, :catalog_entry_id),
+      fragment_sequence: fetch_val(frame, :fragment_sequence),
+      timeline_ts_us: fetch_val(frame, :timeline_ts_us),
+      scene_suppressed: fetch_val(frame, :scene_suppressed) == true,
+      detections: raw_detections,
+      has_thumbnail: fetch_val(frame, :has_thumbnail) == true
+    }
+
+    case fetch_val(frame, :thumbnail_url) do
+      url when is_binary(url) and url != "" -> Map.put(base, :thumbnail_url, url)
+      _ -> base
+    end
+  end
+
+  defp normalize_visual_frame_detection(det) when is_map(det) do
+    %{
+      object_class: fetch_val(det, :object_class),
+      confidence: fetch_val(det, :confidence) || fetch_val(det, :score),
+      bbox: fetch_val(det, :bbox),
+      dominant_colors: det |> fetch_val(:dominant_colors) |> List.wrap() |> Enum.map(&to_string/1)
+    }
+  end
 
   defp map_error_reason(reason) when is_binary(reason) do
     normalized = reason |> String.trim() |> String.downcase()
