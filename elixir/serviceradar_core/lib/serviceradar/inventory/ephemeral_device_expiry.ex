@@ -396,6 +396,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
       query ->
         query
         |> SRQLQuery.ensure_target(:devices)
+        |> SRQLQuery.page_by_uid()
         |> collect_excluded(Keyword.get(opts, :query_page, &SRQLRunner.query_page/2))
     end
   end

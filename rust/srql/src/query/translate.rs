@@ -180,9 +180,37 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         }
     };
 
+    // A keyset page's cursor needs the page's last key, which only the
+    // executor sees: it reads `pagination.keyset.column` from the last row of a
+    // full page and has SRQL sign the next cursor. Keyset paging is
+    // forward-only, so there is no previous cursor either.
+    let (next_cursor, prev_cursor) = if plan.keyset.is_some() {
+        (None, None)
+    } else {
+        offset_cursors(config, &plan)?
+    };
+
+    Ok(TranslateResponse {
+        read_model,
+        sql,
+        params,
+        pagination: PaginationMeta {
+            next_cursor,
+            prev_cursor,
+            limit: Some(plan.limit),
+            keyset: plan.keyset.as_ref().map(|keyset| keyset.meta()),
+        },
+        viz,
+    })
+}
+
+fn offset_cursors(
+    config: &AppConfig,
+    plan: &super::QueryPlan,
+) -> Result<(Option<String>, Option<String>)> {
     let next_offset = plan.offset.saturating_add(plan.limit);
     let next_cursor =
-        if next_offset <= config.max_cursor_offset || is_exhaustive_profile_query(&plan) {
+        if next_offset <= config.max_cursor_offset || is_exhaustive_profile_query(plan) {
             Some(encode_cursor(next_offset, &config.cursor_secret)?)
         } else {
             None
@@ -195,16 +223,5 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     } else {
         None
     };
-
-    Ok(TranslateResponse {
-        read_model,
-        sql,
-        params,
-        pagination: PaginationMeta {
-            next_cursor,
-            prev_cursor,
-            limit: Some(plan.limit),
-        },
-        viz,
-    })
+    Ok((next_cursor, prev_cursor))
 }

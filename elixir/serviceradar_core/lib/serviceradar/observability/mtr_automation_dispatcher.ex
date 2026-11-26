@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   alias ServiceRadar.Observability.MtrVantageSelector
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
+  alias ServiceRadar.SRQLQuery
 
   require Ash.Query
   require Logger
@@ -1055,11 +1056,15 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
       |> String.trim()
       |> normalize_srql_entity_prefix()
 
-    if String.contains?(query, " limit:") or String.starts_with?(query, "limit:") do
-      query
-    else
-      "#{query} limit:#{page_size}"
-    end
+    query =
+      if String.contains?(query, " limit:") or String.starts_with?(query, "limit:") do
+        query
+      else
+        "#{query} limit:#{page_size}"
+      end
+
+    # Paged by uid, a device selection is read with keyset cursors.
+    SRQLQuery.page_by_uid(query)
   end
 
   defp maybe_put_cursor(opts, nil), do: opts

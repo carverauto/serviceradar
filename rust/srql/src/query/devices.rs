@@ -15,12 +15,14 @@ use self::{
     },
 };
 use super::{BindParam, QueryPlan};
+use crate::pagination::KeysetDirection;
 use crate::{
     error::{Result, ServiceError},
     models::DeviceRow,
     parser::Entity,
     schema::ocsf_devices::dsl::{
         deleted_at as col_deleted_at, last_seen_time as col_last_seen_time, ocsf_devices,
+        uid as col_uid,
     },
     time::TimeRange,
 };
@@ -87,11 +89,9 @@ pub(super) async fn execute(
         return Ok(vec![serde_json::json!({ spec.alias: count })]);
     }
 
-    let query = build_query(plan)?;
+    let query = page_window(build_query(plan)?, plan);
     let rows: Vec<DeviceRow> = query
         .select(DeviceRow::as_select())
-        .limit(plan.limit)
-        .offset(plan.offset)
         .load::<DeviceRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
@@ -148,7 +148,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
         return Ok((sql, params));
     }
 
-    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let query = page_window(build_query(plan)?, plan);
     let sql = super::diesel_sql(&query)?;
 
     let mut params = Vec::new();
@@ -160,6 +160,14 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
     for filter in &plan.filters {
         collect_filter_params(&mut params, filter)?;
+    }
+
+    if let Some(key) = plan
+        .keyset
+        .as_ref()
+        .and_then(|keyset| keyset.after.as_ref())
+    {
+        params.push(BindParam::Text(key.clone()));
     }
 
     super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
@@ -214,6 +222,29 @@ fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
         query = apply_filter(query, filter)?;
     }
 
+    // Keyset position: the next page starts strictly after the previous
+    // page's last uid, read through the unique uid index with no OFFSET.
+    if let Some(keyset) = &plan.keyset
+        && let Some(key) = &keyset.after
+    {
+        query = match keyset.direction {
+            KeysetDirection::Asc => query.filter(col_uid.gt(key.clone())),
+            KeysetDirection::Desc => query.filter(col_uid.lt(key.clone())),
+        };
+    }
+
     query = apply_ordering(query, &plan.order);
     Ok(query)
+}
+
+/// A keyset page has no OFFSET. A v2 offset cursor presented to a keyset
+/// query still positions its page by offset, so a walk that straddles an
+/// upgrade completes.
+fn page_window<'a>(query: DeviceQuery<'a>, plan: &QueryPlan) -> DeviceQuery<'a> {
+    let query = query.limit(plan.limit);
+    if plan.keyset.is_some() && plan.offset == 0 {
+        query
+    } else {
+        query.offset(plan.offset)
+    }
 }

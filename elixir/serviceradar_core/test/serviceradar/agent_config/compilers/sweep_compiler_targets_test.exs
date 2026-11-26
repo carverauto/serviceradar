@@ -9,6 +9,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
   @lab_query "in:devices tags.env:lab"
   @edge_query "in:devices tags.env:edge"
+  # The compiler pages every device target query by uid, so SRQL reads it with
+  # keyset cursors; these are the queries it sends for the two above.
+  @lab_page "in:devices tags.env:lab sort:uid:asc"
+  @edge_page "in:devices tags.env:edge sort:uid:asc"
 
   @static_id "sg-static"
   @lab_icmp_id "sg-lab-icmp"
@@ -82,7 +86,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       send(test_pid, {:srql_page, query, cursor})
 
       case {query, cursor} do
-        {@lab_query, nil} ->
+        {@lab_page, nil} ->
           {:ok,
            %{
              rows: [
@@ -101,7 +105,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
              next_cursor: "page-2"
            }}
 
-        {@lab_query, "page-2"} ->
+        {@lab_page, "page-2"} ->
           {:ok,
            %{
              rows: [
@@ -118,7 +122,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
              next_cursor: nil
            }}
 
-        {@edge_query, nil} ->
+        {@edge_page, nil} ->
           {:ok,
            %{
              rows: [
@@ -142,7 +146,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
     inventory = fake_inventory(test_pid)
 
     fn query, opts ->
-      if query == failing_query do
+      if query == failing_query <> " sort:uid:asc" do
         send(test_pid, {:srql_page, query, Keyword.get(opts, :cursor)})
         failure.(opts)
       else
@@ -202,11 +206,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
                device: [%{target: "198.51.100.20", device_uid: "sr:dev-0020"}]
              }
 
-      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-a"}
+      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-a sort:uid:asc"}
     end
 
     test "an explicit partition filter is left intact" do
       explicit = "in:devices partition:site-b tags.env:lab"
+      explicit_page = explicit <> " sort:uid:asc"
 
       query_page_fn = fn query, _opts ->
         send(self(), {:scoped_query, query})
@@ -226,7 +231,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
                device: []
              }
 
-      assert_received {:scoped_query, explicit}
+      assert_received {:scoped_query, ^explicit_page}
     end
 
     test "the same base query in two partitions resolves each group's own devices" do
@@ -263,8 +268,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       assert networks(compiled["sg-scope-a"]) == ["198.51.100.21"]
       assert networks(compiled["sg-scope-b"]) == ["198.51.100.22"]
 
-      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-a"}
-      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-b"}
+      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-a sort:uid:asc"}
+      assert_received {:scoped_query, "in:devices tags.env:lab partition:site-b sort:uid:asc"}
     end
 
     test "a query-target group resolves the device targets compile would deliver" do
@@ -297,7 +302,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
                ]
              }
 
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
 
       # Stored without the in:devices prefix; resolution normalizes it first.
       edge = group(%{id: @edge_id, name: "edge-tcp", target_query: "tags.env:edge"})
@@ -307,7 +312,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
                device: [%{target: "203.0.113.5", device_uid: "sr:dev-0010"}]
              }
 
-      assert query_executions() == [@edge_query]
+      assert query_executions() == [@edge_page]
     end
 
     test "a failed target query read returns the error and declares nothing" do
@@ -601,7 +606,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
     test "a query shared by several groups runs once per compile" do
       SweepCompiler.compile_groups(pinned_groups(), %{}, query_page_fn: fake_inventory(self()))
 
-      assert Enum.sort(query_executions()) == [@edge_query, @lab_query]
+      assert Enum.sort(query_executions()) == [@edge_page, @lab_page]
     end
 
     test "queries equal after normalization share one evaluation; other text does not" do
@@ -614,7 +619,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
       compiled = compile_by_id(groups, query_page_fn: fake_inventory(self()))
 
-      assert Enum.sort(query_executions()) == Enum.sort([@lab_query, "in:devices  tags.env:lab"])
+      assert Enum.sort(query_executions()) ==
+               Enum.sort([@lab_page, "in:devices  tags.env:lab sort:uid:asc"])
+
       assert networks(compiled["sg-a"]) == networks(compiled["sg-b"])
       assert networks(compiled["sg-c"]) == networks(compiled["sg-b"])
       assert networks(compiled["sg-d"]) == ["198.51.100.200"]
@@ -625,7 +632,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       groups = pinned_groups()
 
       first = SweepCompiler.compile_groups(groups, %{}, query_page_fn: query_page_fn)
-      assert Enum.sort(query_executions()) == [@edge_query, @lab_query]
+      assert Enum.sort(query_executions()) == [@edge_page, @lab_page]
 
       second = SweepCompiler.compile_groups(groups, %{}, query_page_fn: query_page_fn)
       assert query_executions() == []
@@ -634,7 +641,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       ConfigCache.invalidate(:sweep)
 
       SweepCompiler.compile_groups(groups, %{}, query_page_fn: query_page_fn)
-      assert Enum.sort(query_executions()) == [@edge_query, @lab_query]
+      assert Enum.sort(query_executions()) == [@edge_page, @lab_page]
     end
 
     test "shared query results expire after the configured TTL" do
@@ -656,12 +663,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
       SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
       SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
 
       Process.sleep(200)
 
       SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
     end
 
     test "changing a group's query takes effect on the next compile" do
@@ -670,14 +677,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
       [before] = SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
       assert networks(before) == ["198.51.100.10", "198.51.100.11", "198.51.100.12"]
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
 
       [after_edit] =
         SweepCompiler.compile_groups([%{lab | target_query: "tags.env:edge"}], %{},
           query_page_fn: query_page_fn
         )
 
-      assert query_executions() == [@edge_query]
+      assert query_executions() == [@edge_page]
       assert networks(after_edit) == ["203.0.113.5"]
     end
   end
@@ -698,7 +705,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
       assert log =~ "cannot be cast for group #{inspect(@lab_icmp_id)}"
       assert log =~ "cannot be cast for group #{inspect(@lab_tcp_id)}"
-      assert Enum.sort(query_executions()) == [@edge_query, @lab_query]
+      assert Enum.sort(query_executions()) == [@edge_page, @lab_page]
     end
 
     test "a postgres cast error matches nothing and still compiles the other groups" do
@@ -761,21 +768,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
       assert log =~ "SRQL query failed for group #{inspect(@lab_icmp_id)}"
       refute log =~ "SRQL query failed for group #{inspect(@lab_tcp_id)}"
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
 
       capture_log(fn ->
         assert {:error, {:target_query_failed, :srql_unavailable}} =
                  SweepCompiler.compile_groups(pinned_groups(), %{}, query_page_fn: query_page_fn)
       end)
 
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
     end
 
     test "a query that fails on a later page fails the compile and is retried" do
       inventory = fake_inventory(self())
 
       query_page_fn = fn query, opts ->
-        if query == @lab_query and Keyword.get(opts, :cursor) == "page-2" do
+        if query == @lab_page and Keyword.get(opts, :cursor) == "page-2" do
           {:error, :timeout}
         else
           inventory.(query, opts)
@@ -791,14 +798,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
         end)
 
       assert log =~ "SRQL query failed for group \"sg-partial\""
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
 
       capture_log(fn ->
         assert {:error, {:target_query_failed, :timeout}} =
                  SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
       end)
 
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
     end
 
     test "a raised read error fails the compile" do
@@ -818,7 +825,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
                  "(#{inspect(@lab_query)}): driver encoding failure"
 
       refute log =~ "SRQL target query raised for group #{inspect(@lab_tcp_id)}"
-      assert query_executions() == [@lab_query]
+      assert query_executions() == [@lab_page]
     end
 
     test "a missing table still fails the compile" do

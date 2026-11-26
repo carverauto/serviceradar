@@ -917,7 +917,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp fetch_target_query_rows(query, resolvers) do
-    with {:ok, rows} <- fetch_target_query_pages(query, nil, [], resolvers.query_page_fn) do
+    paged_query = SRQLQuery.page_by_uid(query)
+
+    with {:ok, rows} <- fetch_target_query_pages(paged_query, nil, [], resolvers.query_page_fn) do
       attach_alias_ips(rows, resolvers.alias_ips_fn)
     end
   rescue

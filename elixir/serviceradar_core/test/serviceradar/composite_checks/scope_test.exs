@@ -6,7 +6,8 @@ defmodule ServiceRadar.CompositeChecks.ScopeTest do
   defmodule StubRunner do
     @moduledoc false
 
-    def query_page(_query, opts) do
+    # Scopes are walked in uid order, which SRQL pages with keyset cursors.
+    def query_page("in:devices sort:uid:asc", opts) do
       case Keyword.get(opts, :cursor) do
         nil ->
           {:ok, %{rows: [%{"uid" => "device-1"}, %{"uid" => "device-2"}], next_cursor: "c1"}}
@@ -57,7 +58,7 @@ defmodule ServiceRadar.CompositeChecks.ScopeTest do
   end
 
   describe "stream_uids/2" do
-    test "pages until the cursor runs out" do
+    test "pages in uid order until the cursor runs out" do
       pages =
         "in:devices"
         |> Scope.stream_uids(runner: StubRunner, page_limit: 2)

@@ -54,6 +54,7 @@ pub(super) fn translate(plan: &QueryPlan, database: &str) -> Result<TranslateRes
             next_cursor: None,
             prev_cursor: None,
             limit: Some(plan.limit),
+            keyset: None,
         },
         viz: super::super::viz::meta_for_plan(plan),
     })

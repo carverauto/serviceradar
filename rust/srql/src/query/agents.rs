@@ -1,6 +1,7 @@
 //! Query execution for OCSF agents entity.
 
 use super::{BindParam, QueryPlan};
+use crate::pagination::KeysetDirection;
 use crate::{
     error::{Result, ServiceError},
     models::AgentRow,
@@ -36,11 +37,9 @@ type AgentsQuery<'a> =
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
-    let query = build_query(plan)?;
+    let query = page_window(build_query(plan)?, plan);
     let rows: Vec<AgentRow> = query
         .select(AgentRow::as_select())
-        .limit(plan.limit)
-        .offset(plan.offset)
         .load::<AgentRow>(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
@@ -51,9 +50,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
     let now = Utc::now();
-    let query = build_query_at(plan, now)?
-        .limit(plan.limit)
-        .offset(plan.offset);
+    let query = page_window(build_query_at(plan, now)?, plan);
     let sql = super::diesel_sql(&query)?;
 
     let mut params = Vec::new();
@@ -65,6 +62,14 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
     for filter in &plan.filters {
         collect_filter_params_at(&mut params, filter, now)?;
+    }
+
+    if let Some(key) = plan
+        .keyset
+        .as_ref()
+        .and_then(|keyset| keyset.after.as_ref())
+    {
+        params.push(BindParam::Text(key.clone()));
     }
 
     super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
@@ -81,6 +86,17 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     }
 
     Ok((sql, params))
+}
+
+/// A keyset page has no OFFSET; a v2 offset cursor on a keyset query still
+/// positions its page by offset.
+fn page_window<'a>(query: AgentsQuery<'a>, plan: &QueryPlan) -> AgentsQuery<'a> {
+    let query = query.limit(plan.limit);
+    if plan.keyset.is_some() && plan.offset == 0 {
+        query
+    } else {
+        query.offset(plan.offset)
+    }
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -116,6 +132,17 @@ fn build_query_at(plan: &QueryPlan, now: DateTime<Utc>) -> Result<AgentsQuery<'s
     // columns, is how a caller asks for it.
     if !includes_superseded(plan) {
         query = query.filter(col_superseded_at.is_null());
+    }
+
+    // Keyset position: strictly after the previous page's last uid, with no
+    // OFFSET.
+    if let Some(keyset) = &plan.keyset
+        && let Some(key) = &keyset.after
+    {
+        query = match keyset.direction {
+            KeysetDirection::Asc => query.filter(col_uid.gt(key.clone())),
+            KeysetDirection::Desc => query.filter(col_uid.lt(key.clone())),
+        };
     }
 
     query = apply_ordering(query, &plan.order);
@@ -660,6 +687,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_query(&plan);
@@ -694,6 +722,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_query(&plan);
@@ -720,6 +749,7 @@ mod tests {
                 other: false,
                 include_deleted: false,
                 exhaustive_window: false,
+                keyset: None,
             };
 
             let result = build_query(&plan);
@@ -746,6 +776,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_query(&plan);
@@ -771,6 +802,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_query(&plan);
@@ -799,6 +831,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_query(&plan);
@@ -827,6 +860,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_query(&plan);
@@ -850,6 +884,7 @@ mod tests {
             other: false,
             include_deleted,
             exhaustive_window: false,
+            keyset: None,
         }
     }
 

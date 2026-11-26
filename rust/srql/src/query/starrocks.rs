@@ -49,6 +49,7 @@ fn translate_inner(
                 next_cursor: None,
                 prev_cursor: None,
                 limit: Some(plan.limit),
+                keyset: None,
             },
             viz: super::viz::meta_for_plan(plan),
         });
@@ -381,6 +382,7 @@ fn dataset_sql(
                 next_cursor: None,
                 prev_cursor: None,
                 limit: Some(plan.limit),
+                keyset: None,
             },
             viz: None,
         });
@@ -411,6 +413,7 @@ fn dataset_sql(
             next_cursor: None,
             prev_cursor: None,
             limit: Some(plan.limit),
+            keyset: None,
         },
         viz: None,
     })
@@ -612,6 +615,7 @@ fn rollup_stats_sql(
             next_cursor: None,
             prev_cursor: None,
             limit: Some(plan.limit),
+            keyset: None,
         },
         viz: None,
     })
@@ -1940,6 +1944,7 @@ LIMIT {limit} OFFSET {offset}"#,
             next_cursor: None,
             prev_cursor: None,
             limit: Some(plan.limit),
+            keyset: None,
         },
         viz: None,
     })

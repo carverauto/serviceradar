@@ -67,12 +67,13 @@ defmodule ServiceRadarWebNG.SRQL do
              &translate(query, limit, cursor, direction, &1, permitted_signals)
            ),
          {:ok, result} <- execute_backend_raw(Map.put(translation, "_scope", scope), mode),
+         {:ok, pagination} <- build_pagination(translation, result),
          {:ok, payload} <- encode_result_arrow(result, warehouse_shape(query, mode)) do
       {:ok,
        %{
          payload: payload,
          schema: %{"columns" => result.columns},
-         pagination: build_pagination(translation, result.rows),
+         pagination: pagination,
          viz: extract_viz(translation)
        }}
     end
@@ -173,7 +174,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp execute_backend(%{"read_model" => plan} = translation, _mode) do
     with {:ok, result} <- FleetQuery.execute(plan, Map.get(translation, "_scope")) do
-      {:ok, build_response(translation, result)}
+      build_response(translation, result)
     end
   end
 
@@ -184,10 +185,9 @@ defmodule ServiceRadarWebNG.SRQL do
         {:ok, result} ->
           shape = warehouse_shape(Map.get(translation, "_query"), mode)
 
-          {:ok,
-           build_response(translation, result, fn columns, rows ->
-             columns |> build_arrow_rows(rows) |> shape.()
-           end)}
+          build_response(translation, result, fn columns, rows ->
+            columns |> build_arrow_rows(rows) |> shape.()
+          end)
 
         {:error, reason} ->
           {:error, reason}
@@ -243,7 +243,7 @@ defmodule ServiceRadarWebNG.SRQL do
     |> case do
       {:ok, params} ->
         with {:ok, result} <- run_sql(sql, params) do
-          {:ok, build_response(translation, result)}
+          build_response(translation, result)
         end
 
       {:error, reason} ->
@@ -391,22 +391,26 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}, row_builder \\ &build_results/2) do
+  defp build_response(
+         translation,
+         %Postgrex.Result{columns: columns, rows: rows} = result,
+         row_builder \\ &build_results/2
+       ) do
     results =
       columns
       |> row_builder.(rows)
       |> enrich_downsample_aliases(translation)
 
-    viz = extract_viz(translation)
-    pagination = build_pagination(translation, results)
-
-    %{
-      "results" => results,
-      "pagination" => pagination,
-      "schema" => %{"columns" => columns},
-      "viz" => viz,
-      "error" => nil
-    }
+    with {:ok, pagination} <- build_pagination(translation, result) do
+      {:ok,
+       %{
+         "results" => results,
+         "pagination" => pagination,
+         "schema" => %{"columns" => columns},
+         "viz" => extract_viz(translation),
+         "error" => nil
+       }}
+    end
   end
 
   # A warehouse event row carries its documents as JSON text; CNPG hands back
@@ -458,14 +462,17 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp build_pagination(translation, results) do
+  defp build_pagination(translation, %Postgrex.Result{} = result) do
     limit = pagination_limit(translation)
 
-    %{
-      "next_cursor" => next_cursor(translation, limit, results),
-      "prev_cursor" => get_in(translation, ["pagination", "prev_cursor"]),
-      "limit" => limit
-    }
+    with {:ok, next} <- next_cursor(translation, limit, result) do
+      {:ok,
+       %{
+         "next_cursor" => next,
+         "prev_cursor" => get_in(translation, ["pagination", "prev_cursor"]),
+         "limit" => limit
+       }}
+    end
   end
 
   defp pagination_limit(translation) do
@@ -475,13 +482,39 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp next_cursor(translation, limit, results) do
-    candidate = get_in(translation, ["pagination", "next_cursor"])
-
-    if is_integer(limit) and is_binary(candidate) and length(results) >= limit do
-      candidate
+  # A keyset-paged translation (`pagination.keyset`) carries no cursor: SRQL
+  # never sees the rows, so the next cursor is signed here from the last row's
+  # key. Failing to mint one for a full page is an error, never a short walk.
+  defp next_cursor(%{"pagination" => %{"keyset" => %{} = keyset}}, limit, %Postgrex.Result{} = result)
+       when is_integer(limit) do
+    if length(result.rows) >= limit do
+      mint_keyset_cursor(keyset, result.columns, List.last(result.rows))
+    else
+      {:ok, nil}
     end
   end
+
+  defp next_cursor(translation, limit, %Postgrex.Result{rows: rows}) do
+    candidate = get_in(translation, ["pagination", "next_cursor"])
+
+    if is_integer(limit) and is_binary(candidate) and length(rows) >= limit do
+      {:ok, candidate}
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp mint_keyset_cursor(%{"entity" => entity, "column" => column, "direction" => direction}, columns, last_row)
+       when is_list(last_row) do
+    with index when is_integer(index) <- Enum.find_index(columns, &(&1 == column)),
+         key when is_binary(key) and key != "" <- Enum.at(last_row, index) do
+      Native.keyset_cursor(entity, column, direction, key)
+    else
+      _ -> {:error, {:keyset_key_missing, column}}
+    end
+  end
+
+  defp mint_keyset_cursor(_keyset, _columns, _last_row), do: {:error, :invalid_srql_keyset}
 
   defp normalize_row_aliases(row) when is_map(row) do
     row

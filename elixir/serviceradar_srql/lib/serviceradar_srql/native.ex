@@ -46,6 +46,16 @@ defmodule ServiceRadarSRQL.Native do
   def translate(_query, _limit, _cursor, _direction, _mode, _permitted_signals), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Sign the next keyset cursor for a keyset-paged translation.
+
+  A translation whose order is a single declared keyset key (`uid` on devices
+  and agents) carries `pagination.keyset` (`entity`, `column`, `direction`)
+  instead of `next_cursor`. The executor that ran a full page passes the last
+  row's `column` value as `key`. Returns `{:ok, cursor}` or `{:error, reason}`.
+  """
+  def keyset_cursor(_entity, _column, _direction, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Compile a bounded JSON request of exact device/interface pairs to current
   IF-MIB rates. Backend mode comes from the trusted dataset reader routing.
   """

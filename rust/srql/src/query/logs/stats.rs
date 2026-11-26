@@ -320,6 +320,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         }
     }
 
@@ -454,6 +455,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let stats_sql = build_stats_query(&plan).expect("stats query should parse");
@@ -487,6 +489,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let stats_sql = build_stats_query(&plan).expect("stats query should parse");
@@ -529,6 +532,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_stats_query(&plan);

@@ -175,8 +175,8 @@ the 90-day cap. Hourly rollups serve the aggregates that have a stored column.
 - On `bucket:` queries `sort:` selects which end of the time window survives
   `limit:`, not the order rows come back in. See
   [Downsampling with `bucket`](#downsampling-with-bucket).
-- Pagination is cursor-based. Each response includes `next_cursor` / `prev_cursor`
-  values that callers pass back to page through results.
+- Pagination is cursor-based. Callers pass `next_cursor` back for the next page,
+  and `prev_cursor` back for the previous page when that response has one.
 - The configured cursor-offset cap applies to ordinary queries. Seasonal
   `stats:profile_hour_of_week(value)` and `stats:profile_hour_of_week_full(value)`
   queries are exempt so cohort discovery and baseline delivery can page to
@@ -186,6 +186,18 @@ the 90-day cap. Hourly rollups serve the aggregates that have a stored column.
   the ceiling. This exception applies to both query execution and SQL
   translation, including caller-supplied queries; it is not restricted to
   internal workers. Per-page row limits still apply.
+- A `devices` or `agents` query sorted by `uid` alone (`sort:uid:asc` or
+  `sort:uid:desc`; repeating the same `sort:uid` token changes nothing), and
+  with no `stats:`, `rollup_stats:`, or `bucket:`, is paged by key instead of
+  by row offset. Each page after the first reads only the rows after the
+  previous page's last `uid`, so a deep page costs the same as the first, and
+  the cursor-offset cap does not apply. These cursors only go forward:
+  `prev_cursor` is null, and `direction: "prev"` is rejected. A cursor issued
+  for one order is rejected by a query with a different order or entity. An
+  offset cursor for the same query is still read at that offset; when that
+  page is full, its `next_cursor` is a key cursor. Any other sort, including
+  `sort:uid:asc` after another `sort:` key, and any `stats:`, `rollup_stats:`,
+  or `bucket:` query, keeps offset cursors. Cursors stay opaque either way.
 
 ## Aggregation with `stats`
 
@@ -357,8 +369,13 @@ query. Saving a target query that contains one fails with an error naming it:
 | `stats:`, `rollup_stats:`, `other:` | They return aggregate rows, not records to target. |
 | `bucket:` / `downsample:` | They return time-bucketed series, not records to target. |
 
-`sort:` is allowed. It does not change which records match, and a paged read
-appends its own unique tie-break after it. `time:` is a filter and is allowed.
+`sort:` is allowed. It does not change which records match. A paged read of
+`devices` or `agents` appends `sort:uid:asc`. With no other sort, that is the
+uid order under [Sorting and pagination](#sorting-and-pagination), so the
+cursor-offset cap does not apply. An operator-supplied sort stays first and
+that read keeps offset cursors, including the cap. `time:` is a filter and is
+allowed.
+
 A target query saved before this rule keeps working and is still read whole;
 the rule applies when the query is next edited.
 

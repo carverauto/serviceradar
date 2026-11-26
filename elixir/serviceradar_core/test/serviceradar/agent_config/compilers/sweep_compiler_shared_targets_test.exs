@@ -6,6 +6,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerSharedTargetsTest do
   alias ServiceRadar.SweepJobs.SweepGroup
 
   @lab_query "in:devices tags.env:lab"
+  # The query the compiler sends for @lab_query: paged by uid for keyset cursors.
+  @lab_page "in:devices tags.env:lab sort:uid:asc"
 
   setup do
     case start_supervised(ConfigCache) do
@@ -47,7 +49,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerSharedTargetsTest do
       send(test_pid, {:srql_page, query, cursor})
 
       case {query, cursor} do
-        {@lab_query, nil} ->
+        {@lab_page, nil} ->
           {:ok,
            %{
              rows: [
@@ -57,7 +59,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerSharedTargetsTest do
              next_cursor: "page-2"
            }}
 
-        {@lab_query, "page-2"} ->
+        {@lab_page, "page-2"} ->
           {:ok,
            %{
              rows: [
@@ -150,8 +152,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerSharedTargetsTest do
     refute Map.has_key?(by_ref(table, "ip:198.51.100.20"), "device_uid")
 
     # The two pages were fetched once for all three groups.
-    assert_received {:srql_page, @lab_query, nil}
-    assert_received {:srql_page, @lab_query, "page-2"}
+    assert_received {:srql_page, @lab_page, nil}
+    assert_received {:srql_page, @lab_page, "page-2"}
     refute_received {:srql_page, _, _}
 
     for id <- ["sg-a", "sg-b", "sg-c"] do
@@ -235,7 +237,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerSharedTargetsTest do
   end
 
   defp single_page(rows_by_query) do
-    fn query, _opts -> {:ok, %{rows: Map.fetch!(rows_by_query, query), next_cursor: nil}} end
+    # Keyed by the group's target query; the compiler sends it paged by uid.
+    rows_by_sent_query =
+      Map.new(rows_by_query, fn {query, rows} -> {query <> " sort:uid:asc", rows} end)
+
+    fn query, _opts -> {:ok, %{rows: Map.fetch!(rows_by_sent_query, query), next_cursor: nil}} end
   end
 
   @db_query "in:devices tags.role:db"

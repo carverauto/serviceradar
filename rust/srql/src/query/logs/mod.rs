@@ -281,6 +281,7 @@ mod test_support {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         }
     }
 

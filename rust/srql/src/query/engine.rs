@@ -1,21 +1,22 @@
 use super::{
-    PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
-    addon_statuses, advisory_coordinates, agents, alerts, bmp_events, build_query_plan,
-    camera_sources, capacity_forecasts, composite_results, dashboard_service_views, dashboards,
-    declarative_check_results, device_availability_history, device_graph, device_sweep_overlap,
-    devices, downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
-    endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql, identity,
-    interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces, otel_metric_points,
-    otel_metrics, otel_services, public_endpoints, rum_beacons, security_events, services,
-    source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
-    sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
-    translate_request, virtualization, vulnerability_advisories, websites, wifi_map,
+    KeysetPlan, PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest,
+    TranslateResponse, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
+    build_query_plan, camera_sources, capacity_forecasts, composite_results,
+    dashboard_service_views, dashboards, declarative_check_results, device_availability_history,
+    device_graph, device_sweep_overlap, devices, downsample, endpoint_inventory_scans,
+    endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
+    field_survey, gateways, graph_dql, identity, interfaces, is_exhaustive_profile_query, logs,
+    mtr_hops, mtr_traces, otel_metric_points, otel_metrics, otel_services, public_endpoints,
+    rum_beacons, security_events, services, source_fact_disagreements, sweep_coverage,
+    sweep_executions, sweep_groups, sweep_profiles, sweep_results, threat_intel_matches,
+    timeseries_metrics, trace_summaries, traces, translate_request, virtualization,
+    vulnerability_advisories, websites, wifi_map,
 };
 use crate::{
     config::AppConfig,
     db::PgPool,
     error::{Result, ServiceError},
-    pagination::encode_cursor,
+    pagination::{encode_cursor, encode_keyset_cursor},
     parser::{self, Entity},
 };
 use std::sync::Arc;
@@ -244,7 +245,7 @@ impl QueryEngine {
             }
         };
 
-        let pagination = self.build_pagination(&plan, results.len() as i64)?;
+        let pagination = self.build_pagination(&plan, &results)?;
         Ok(QueryResponse {
             results,
             pagination,
@@ -256,7 +257,16 @@ impl QueryEngine {
         translate_request(self.config(), QueryRequest::from(request))
     }
 
-    fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> Result<PaginationMeta> {
+    fn build_pagination(
+        &self,
+        plan: &QueryPlan,
+        results: &[serde_json::Value],
+    ) -> Result<PaginationMeta> {
+        if let Some(keyset) = &plan.keyset {
+            return keyset_pagination(&self.config, plan, keyset, results);
+        }
+
+        let fetched = results.len() as i64;
         let next_offset = plan.offset.saturating_add(plan.limit);
         let next_cursor = if fetched >= plan.limit {
             // Share the profile classification with cursor decoding and translation;
@@ -284,8 +294,47 @@ impl QueryEngine {
             next_cursor,
             prev_cursor,
             limit: Some(plan.limit),
+            keyset: None,
         })
     }
+}
+
+/// Mints the next keyset cursor from the last row of a full page. A short page
+/// ends the walk. There is no offset ceiling and no previous cursor.
+pub(super) fn keyset_pagination(
+    config: &AppConfig,
+    plan: &QueryPlan,
+    keyset: &KeysetPlan,
+    results: &[serde_json::Value],
+) -> Result<PaginationMeta> {
+    let next_cursor = match results.last() {
+        Some(last) if results.len() as i64 >= plan.limit => {
+            let key = last
+                .get(keyset.column)
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    ServiceError::Internal(anyhow::anyhow!(
+                        "keyset page row has no {} value",
+                        keyset.column
+                    ))
+                })?;
+            Some(encode_keyset_cursor(
+                keyset.entity,
+                keyset.column,
+                keyset.direction,
+                key,
+                &config.cursor_secret,
+            )?)
+        }
+        _ => None,
+    };
+
+    Ok(PaginationMeta {
+        next_cursor,
+        prev_cursor: None,
+        limit: Some(plan.limit),
+        keyset: Some(keyset.meta()),
+    })
 }
 
 #[cfg(test)]
@@ -310,6 +359,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         }
     }
 

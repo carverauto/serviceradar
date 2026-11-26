@@ -37,6 +37,7 @@ defmodule ServiceRadar.CompositeChecks.Scope do
   def stream_uids(query, opts \\ []) do
     runner = Keyword.get(opts, :runner, SRQLRunner)
     page_limit = Keyword.get(opts, :page_limit, @default_page_limit)
+    query = SRQLQuery.page_by_uid(query)
 
     Stream.resource(
       fn -> {:start, nil} end,
