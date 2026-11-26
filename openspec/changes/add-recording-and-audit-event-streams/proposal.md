@@ -57,12 +57,12 @@ misses out-of-band changes.
   - Payloads over 32 KiB carry a digest of the full change instead of the change itself.
 - **NATS identity.** Add a static NATS user `CN=serviceradar-integrity-forwarder` that may only
   consume `CAMERA_RECORDING_EVENTS` and `AUDIT_CHANGE_EVENTS`, read the capture status, and serve
-  `vantage.rpc.evidence.>`. Core gains publish rights on `camera.recording.>` and `audit.>`.
+  `integrity.rpc.evidence.>`. Core gains publish rights on `camera.recording.>` and `audit.>`.
 - **web-ng export action.**
-  - **Gating:** when a provider answers `vantage.rpc.evidence.capabilities.v1` with
+  - **Gating:** when a provider answers `integrity.rpc.evidence.capabilities.v1` with
     `evidence_bundle_export`, web-ng shows an "Export evidence bundle" action on accepted holds.
   - **Audit and forwarding:** it records a new `RecordingAccessAudit` kind, `evidence_exported`,
-    then forwards the request over `vantage.rpc.evidence.bundle.v1`.
+    then forwards the request over `integrity.rpc.evidence.bundle.v1`.
   - **No provider:** without that answer, nothing is shown.
 
 ## Impact

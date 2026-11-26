@@ -149,16 +149,16 @@ metadata `serviceradar.owner = core-elx`.
 - **The new `CN=serviceradar-integrity-forwarder`** may:
   - create, read and ack consumers on the two streams, via
     `$JS.API.CONSUMER.*.<STREAM>.>` and `$JS.API.CONSUMER.MSG.NEXT.<STREAM>.>`;
-  - subscribe to `vantage.rpc.evidence.>`;
+  - subscribe to `integrity.rpc.evidence.>`;
   - publish `_INBOX.>`.
 
   It gets no other core subjects. Narrowing the broad `$JS.API.>` grant on the existing
   `serviceradar-vantage` identity is tracked separately.
 
 ### D9. Provider export action in web-ng
-- **Capability probe.** web-ng probes `vantage.rpc.evidence.capabilities.v1` and fails closed.
+- **Capability probe.** web-ng probes `integrity.rpc.evidence.capabilities.v1` and fails closed.
 - **Authorization and audit.** It checks `devices.cameras.recordings.hold` plus camera scope,
-  writes the `evidence_exported` access-audit row, then calls `vantage.rpc.evidence.bundle.v1`.
+  writes the `evidence_exported` access-audit row, then calls `integrity.rpc.evidence.bundle.v1`.
 - **No bundle storage.** web-ng never builds or stores the bundle itself.
 
 ## Risks / Trade-offs

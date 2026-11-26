@@ -22,7 +22,7 @@
 
 ## 4. web-ng provider export
 - [ ] 4.1 `evidence_exported` access-audit kind (resource and check constraint migration)
-- [ ] 4.2 Capability-gated export action on accepted holds via `vantage.rpc.evidence.capabilities.v1` and `vantage.rpc.evidence.bundle.v1`
+- [ ] 4.2 Capability-gated export action on accepted holds via `integrity.rpc.evidence.capabilities.v1` and `integrity.rpc.evidence.bundle.v1`
 - [ ] 4.3 LiveView tests: provider absent, unauthorized, authorized export
 
 ## 5. Docs and validation
