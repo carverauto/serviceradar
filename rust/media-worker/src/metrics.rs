@@ -30,6 +30,13 @@ pub struct WorkerMetrics {
     jobs_failed_total: IntCounter,
     inflight_index_jobs: IntGauge,
     inflight_text_embeds: IntGauge,
+    vantage_jobs_completed_total: IntCounter,
+    vantage_jobs_gone_total: IntCounter,
+    vantage_jobs_failed_total: IntCounter,
+    vantage_crops_skipped_total: IntCounterVec,
+    vantage_vlm_requests_total: IntCounterVec,
+    vantage_vlm_latency_seconds: Histogram,
+    inflight_vantage_jobs: IntGauge,
 }
 
 impl core::fmt::Debug for WorkerMetrics {
@@ -134,6 +141,57 @@ impl WorkerMetrics {
         ))
         .expect("valid inflight_text_embeds gauge");
 
+        let vantage_jobs_completed_total = IntCounter::with_opts(Opts::new(
+            "vantage_jobs_completed_total",
+            "Total Vantage VLM jobs completed and confirmed on media.results.vantage.v1",
+        ))
+        .expect("valid vantage_jobs_completed_total metric");
+
+        let vantage_jobs_gone_total = IntCounter::with_opts(Opts::new(
+            "vantage_jobs_gone_total",
+            "Total Vantage VLM jobs cleanly skipped due to 410 Gone",
+        ))
+        .expect("valid vantage_jobs_gone_total metric");
+
+        let vantage_jobs_failed_total = IntCounter::with_opts(Opts::new(
+            "vantage_jobs_failed_total",
+            "Total Vantage VLM jobs failed due to integrity, grant, container, or VLM errors",
+        ))
+        .expect("valid vantage_jobs_failed_total metric");
+
+        let vantage_crops_skipped_total = IntCounterVec::new(
+            Opts::new(
+                "vantage_crops_skipped_total",
+                "Vantage detection/ROI crops skipped before VLM inference, by bounded reason",
+            ),
+            &["reason"],
+        )
+        .expect("valid vantage_crops_skipped_total metric");
+
+        let vantage_vlm_requests_total = IntCounterVec::new(
+            Opts::new(
+                "vantage_vlm_requests_total",
+                "Vantage VLM HTTP/parse outcomes, by bounded outcome",
+            ),
+            &["outcome"],
+        )
+        .expect("valid vantage_vlm_requests_total metric");
+
+        let vantage_vlm_latency_seconds = Histogram::with_opts(
+            HistogramOpts::new(
+                "vantage_vlm_latency_seconds",
+                "Vantage OpenAI-compatible VLM request latency in seconds",
+            )
+            .buckets(vec![0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]),
+        )
+        .expect("valid vantage_vlm_latency_seconds histogram");
+
+        let inflight_vantage_jobs = IntGauge::with_opts(Opts::new(
+            "inflight_vantage_jobs",
+            "Number of currently executing Vantage VLM jobs",
+        ))
+        .expect("valid inflight_vantage_jobs gauge");
+
         let _ = registry.register(Box::new(keyframes_decoded_total.clone()));
         let _ = registry.register(Box::new(keyframes_undecodable_total.clone()));
         let _ = registry.register(Box::new(stage1_latency_seconds.clone()));
@@ -144,6 +202,13 @@ impl WorkerMetrics {
         let _ = registry.register(Box::new(jobs_failed_total.clone()));
         let _ = registry.register(Box::new(inflight_index_jobs.clone()));
         let _ = registry.register(Box::new(inflight_text_embeds.clone()));
+        let _ = registry.register(Box::new(vantage_jobs_completed_total.clone()));
+        let _ = registry.register(Box::new(vantage_jobs_gone_total.clone()));
+        let _ = registry.register(Box::new(vantage_jobs_failed_total.clone()));
+        let _ = registry.register(Box::new(vantage_crops_skipped_total.clone()));
+        let _ = registry.register(Box::new(vantage_vlm_requests_total.clone()));
+        let _ = registry.register(Box::new(vantage_vlm_latency_seconds.clone()));
+        let _ = registry.register(Box::new(inflight_vantage_jobs.clone()));
 
         Self {
             registry,
@@ -157,6 +222,13 @@ impl WorkerMetrics {
             jobs_failed_total,
             inflight_index_jobs,
             inflight_text_embeds,
+            vantage_jobs_completed_total,
+            vantage_jobs_gone_total,
+            vantage_jobs_failed_total,
+            vantage_crops_skipped_total,
+            vantage_vlm_requests_total,
+            vantage_vlm_latency_seconds,
+            inflight_vantage_jobs,
         }
     }
 
@@ -208,6 +280,61 @@ impl WorkerMetrics {
         InflightGuard {
             gauge: self.inflight_text_embeds.clone(),
         }
+    }
+
+    pub fn inc_vantage_jobs_completed(&self) {
+        self.vantage_jobs_completed_total.inc();
+    }
+
+    pub fn inc_vantage_jobs_gone(&self) {
+        self.vantage_jobs_gone_total.inc();
+    }
+
+    pub fn inc_vantage_jobs_failed(&self) {
+        self.vantage_jobs_failed_total.inc();
+    }
+
+    pub fn inc_vantage_crops_skipped(&self, reason: &str) {
+        self.vantage_crops_skipped_total
+            .with_label_values(&[reason])
+            .inc();
+    }
+
+    pub fn inc_vantage_vlm_request(&self, outcome: &str) {
+        self.vantage_vlm_requests_total
+            .with_label_values(&[outcome])
+            .inc();
+    }
+
+    pub fn observe_vantage_vlm_latency(&self, seconds: f64) {
+        self.vantage_vlm_latency_seconds.observe(seconds);
+    }
+
+    pub fn guard_inflight_vantage_job(self: &Arc<Self>) -> InflightGuard {
+        self.inflight_vantage_jobs.inc();
+        InflightGuard {
+            gauge: self.inflight_vantage_jobs.clone(),
+        }
+    }
+
+    pub fn vantage_jobs_completed_count(&self) -> u64 {
+        self.vantage_jobs_completed_total.get()
+    }
+
+    pub fn vantage_jobs_gone_count(&self) -> u64 {
+        self.vantage_jobs_gone_total.get()
+    }
+
+    pub fn vantage_jobs_failed_count(&self) -> u64 {
+        self.vantage_jobs_failed_total.get()
+    }
+
+    pub fn inflight_vantage_jobs_value(&self) -> i64 {
+        self.inflight_vantage_jobs.get()
+    }
+
+    pub fn vantage_vlm_sample_count(&self) -> u64 {
+        self.vantage_vlm_latency_seconds.get_sample_count()
     }
 
     pub fn keyframes_decoded_count(&self) -> u64 {
@@ -283,6 +410,12 @@ impl WorkerMetrics {
             stage2_sum_seconds: self.stage2_latency_seconds.get_sample_sum(),
             text_embed_sample_count: self.text_embed_sample_count(),
             text_embed_sum_seconds: self.text_embed_latency_seconds.get_sample_sum(),
+            vantage_jobs_completed_total: self.vantage_jobs_completed_count(),
+            vantage_jobs_gone_total: self.vantage_jobs_gone_count(),
+            vantage_jobs_failed_total: self.vantage_jobs_failed_count(),
+            inflight_vantage_jobs: self.inflight_vantage_jobs_value(),
+            vantage_vlm_sample_count: self.vantage_vlm_sample_count(),
+            vantage_vlm_sum_seconds: self.vantage_vlm_latency_seconds.get_sample_sum(),
         }
     }
 }
@@ -319,6 +452,18 @@ pub struct TelemetrySnapshot {
     stage2_sum_seconds: f64,
     text_embed_sample_count: u64,
     text_embed_sum_seconds: f64,
+    #[serde(default)]
+    vantage_jobs_completed_total: u64,
+    #[serde(default)]
+    vantage_jobs_gone_total: u64,
+    #[serde(default)]
+    vantage_jobs_failed_total: u64,
+    #[serde(default)]
+    inflight_vantage_jobs: i64,
+    #[serde(default)]
+    vantage_vlm_sample_count: u64,
+    #[serde(default)]
+    vantage_vlm_sum_seconds: f64,
 }
 
 impl TelemetrySnapshot {

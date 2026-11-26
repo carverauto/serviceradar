@@ -1,0 +1,57 @@
+{
+  "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+  "version": "1.0.0",
+  "name": "ALPR Vehicle Plate Reader",
+  "description": "Detects vehicles at Gate West 01 and extracts synthetic license plate reads (SR-0100, TEST-742) via Ramp 2 external_worker with automatic Ramp 1 camera_vlm fallback.",
+  "enabled": true,
+  "source_mode": "recorded_block",
+  "trigger_kind": "on_stage1_detection",
+  "camera_selector": {
+    "mode": "srql",
+    "srql": "tag:gate-entry"
+  },
+  "object_classes": [
+    "vehicle"
+  ],
+  "min_confidence": {
+    "$pack_param": "min_confidence"
+  },
+  "roi_polygons": [
+    {
+      "name": "gate-west-lane",
+      "points": [
+        [0.05, 0.2],
+        [0.95, 0.2],
+        [0.95, 0.95],
+        [0.05, 0.95]
+      ]
+    }
+  ],
+  "input_mode": "detection_crop",
+  "crop_policy": {
+    "padding_ratio": 0.15,
+    "min_bbox_width_px": 96,
+    "max_dimension": 640,
+    "max_bytes": 98304
+  },
+  "max_jobs_per_minute": {
+    "$pack_param": "max_jobs_per_minute"
+  },
+  "max_frames_per_track": 3,
+  "runner": "external_worker",
+  "capability": "vantage.alpr.v1",
+  "fallback_runner": "camera_vlm",
+  "vlm_config": {
+    "prompt": "Read the synthetic vehicle license plate at Gate West 01 and return strict JSON with plate_text, region, vehicle_color, vehicle_type, and confidence.",
+    "model_profile": "vantage-vlm-fast",
+    "max_tokens": 256,
+    "temperature": 0.0
+  },
+  "signal_schema_id": "alpr_plate_read",
+  "signal_schema_version": "1.0.0",
+  "display_contract_id": "alpr_plate_read",
+  "emit_ocsf_events": true,
+  "live_observation_retention_days": {
+    "$pack_param": "live_observation_retention_days"
+  }
+}

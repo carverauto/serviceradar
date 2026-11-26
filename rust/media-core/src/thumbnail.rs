@@ -113,11 +113,22 @@ pub fn encode_jpeg_thumbnail(
             continue;
         }
 
-        if cur.width() > 32 && cur.height() > 32 {
-            let next_w = ((cur.width() * 3) / 4).max(32);
-            let next_h = ((cur.height() * 3) / 4).max(32);
-            cur = downscale_rgb_fit(&cur, next_w, next_h);
-            continue;
+        if cur.width() > 32 || cur.height() > 32 {
+            let next_w = if cur.width() > 32 {
+                ((cur.width() * 3) / 4).max(32)
+            } else {
+                cur.width()
+            };
+            let next_h = if cur.height() > 32 {
+                ((cur.height() * 3) / 4).max(32)
+            } else {
+                cur.height()
+            };
+            let next = downscale_rgb_fit(&cur, next_w, next_h);
+            if next.width() < cur.width() || next.height() < cur.height() {
+                cur = next;
+                continue;
+            }
         }
 
         return Err(MediaCoreError::thumbnail(format!(
@@ -723,5 +734,52 @@ mod tests {
                 j += 1;
             }
         }
+    }
+
+    #[test]
+    fn downscales_thin_aspect_ratio_frames_under_tight_max_bytes() {
+        let mut state: u32 = 0x1357_9BDF;
+        let make_noisy_frame = |w: u32, h: u32, seed: &mut u32| {
+            let mut pixels = Vec::with_capacity((w as usize) * (h as usize) * 3);
+            for _ in 0..(w * h) {
+                *seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let r = ((*seed >> 24) & 0xFF) as u8;
+                let g = ((*seed >> 16) & 0xFF) as u8;
+                let b = ((*seed >> 8) & 0xFF) as u8;
+                pixels.extend_from_slice(&[r, g, b]);
+            }
+            RgbFrame::from_rgb8(w, h, pixels).unwrap()
+        };
+
+        // Wide thin strip (640x30) under 4096-byte cap
+        let wide_strip = make_noisy_frame(640, 30, &mut state);
+        let wide_cfg = ThumbnailConfig {
+            max_width: 640,
+            max_height: 640,
+            quality: 75,
+            min_quality: 30,
+            max_bytes: 4096,
+        };
+        let wide_thumb =
+            encode_jpeg_thumbnail(&wide_strip, &wide_cfg).expect("640x30 thin strip should fit");
+        assert!(wide_thumb.jpeg_bytes.len() <= 4096);
+        assert!(wide_thumb.width < 640);
+        let wide_dims = parse_sof0_dimensions(&wide_thumb.jpeg_bytes).expect("valid SOF0 JFIF");
+        assert_eq!(
+            wide_dims,
+            (wide_thumb.width as u16, wide_thumb.height as u16)
+        );
+
+        // Tall thin strip (30x640) under 4096-byte cap
+        let tall_strip = make_noisy_frame(30, 640, &mut state);
+        let tall_thumb =
+            encode_jpeg_thumbnail(&tall_strip, &wide_cfg).expect("30x640 thin strip should fit");
+        assert!(tall_thumb.jpeg_bytes.len() <= 4096);
+        assert!(tall_thumb.height < 640);
+        let tall_dims = parse_sof0_dimensions(&tall_thumb.jpeg_bytes).expect("valid SOF0 JFIF");
+        assert_eq!(
+            tall_dims,
+            (tall_thumb.width as u16, tall_thumb.height as u16)
+        );
     }
 }

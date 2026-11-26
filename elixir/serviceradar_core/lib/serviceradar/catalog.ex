@@ -177,6 +177,18 @@ defmodule ServiceRadar.Catalog do
     end
   end
 
+  @doc "Uninstalls a Solution Pack by `pack_id` or `slug`, preserving `managed: false` resources."
+  @spec uninstall_pack(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def uninstall_pack(id_or_slug, opts \\ []) when is_binary(id_or_slug) and is_list(opts) do
+    Reconciler.uninstall(id_or_slug, opts)
+  end
+
+  @doc "Detaches a Solution Pack by `pack_id` or `slug`, setting `managed: false` on its resources."
+  @spec detach_pack(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def detach_pack(id_or_slug, opts \\ []) when is_binary(id_or_slug) and is_list(opts) do
+    Reconciler.detach(id_or_slug, opts)
+  end
+
   @doc "Exports live resources into a secret-free `.srpack` archive (requires `catalog.packs.export`)."
   @spec export_pack_archive(map(), keyword()) :: {:ok, binary()} | {:error, term()}
   def export_pack_archive(spec, opts \\ []) do

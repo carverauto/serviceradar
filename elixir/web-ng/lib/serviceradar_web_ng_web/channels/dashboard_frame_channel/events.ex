@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
   merely returns nothing); reading the rows is what applies it.
   """
 
+  alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Identity.RBAC, as: CoreRBAC
   alias ServiceRadar.Monitoring.OcsfEvent
 
   require Ash.Query
@@ -27,6 +29,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
   @max_subscriptions 8
   @max_events_per_push 200
   @max_metadata_keys 8
+  @max_metadata_depth 6
+  @metadata_segment_regex ~r/\A[A-Za-z0-9_-]{1,64}\z/
+  @camera_observation_permissions ["devices.view", "devices.cameras.recordings.view"]
 
   def capability, do: @capability
   def max_subscriptions, do: @max_subscriptions
@@ -46,24 +51,179 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
 
   @doc """
   Returns the ids among `events` that the viewer's own read of `ocsf_events`
-  returns.
+  returns, enforcing fail-closed camera observation RBAC and `Source` scoping.
   """
-  def visible_ids(%{user: user}, events) when not is_nil(user) and is_list(events) do
+  def visible_ids(%{user: user} = scope, events) when not is_nil(user) and is_list(events) do
     ids = events |> Enum.map(& &1["id"]) |> Enum.filter(&is_binary/1) |> Enum.uniq()
-    since = DateTime.shift(DateTime.utc_now(), second: -@visibility_window_seconds)
 
-    OcsfEvent
-    |> Ash.Query.for_read(:read, %{}, actor: user)
-    |> Ash.Query.filter(id in ^ids and time >= ^since)
-    |> Ash.Query.select([:id])
-    |> Ash.read()
-    |> case do
-      {:ok, rows} -> MapSet.new(rows, &to_string(&1.id))
-      {:error, _reason} -> MapSet.new()
+    if ids == [] do
+      MapSet.new()
+    else
+      since = DateTime.shift(DateTime.utc_now(), second: -@visibility_window_seconds)
+
+      OcsfEvent
+      |> Ash.Query.for_read(:read, %{}, actor: user)
+      |> Ash.Query.filter(id in ^ids and time >= ^since)
+      |> Ash.Query.select([:id, :log_provider, :log_name, :metadata, :device])
+      |> Ash.read()
+      |> case do
+        {:ok, rows} -> filter_visible_rows(rows, scope, events)
+        {:error, _reason} -> MapSet.new()
+      end
     end
   end
 
   def visible_ids(_scope, _events), do: MapSet.new()
+
+  defp filter_visible_rows([], _scope, _events), do: MapSet.new()
+
+  defp filter_visible_rows(rows, scope, events) do
+    summaries_by_id =
+      Enum.reduce(events, %{}, fn event, acc ->
+        case event do
+          %{"id" => id} when is_binary(id) -> Map.put(acc, id, event)
+          _ -> acc
+        end
+      end)
+
+    has_camera_event? =
+      Enum.any?(rows, fn row ->
+        summary = Map.get(summaries_by_id, to_string(row.id), %{})
+        camera_observation_event?(row, summary)
+      end)
+
+    authorized_camera_ids =
+      if has_camera_event? do
+        resolve_authorized_camera_ids(scope)
+      end
+
+    Enum.reduce(rows, MapSet.new(), fn row, acc ->
+      row_id = to_string(row.id)
+      summary = Map.get(summaries_by_id, row_id, %{})
+
+      if camera_observation_event?(row, summary) do
+        if camera_event_authorized?(row, authorized_camera_ids) do
+          MapSet.put(acc, row_id)
+        else
+          acc
+        end
+      else
+        MapSet.put(acc, row_id)
+      end
+    end)
+  end
+
+  defp camera_observation_event?(row, summary) do
+    provider = row_or_summary_string(Map.get(row, :log_provider), summary["log_provider"])
+    log_name = row_or_summary_string(Map.get(row, :log_name), summary["log_name"])
+    row_sr = persisted_service_radar_meta(row)
+    sum_sr = summary_service_radar_meta(summary)
+
+    provider == "serviceradar.vantage" or
+      (is_binary(log_name) and
+         (String.starts_with?(log_name, "camera.vantage.") or
+            String.starts_with?(log_name, "camera.analysis."))) or
+      Map.get(row_sr, "source_type") == "camera_vantage" or
+      Map.get(sum_sr, "source_type") == "camera_vantage" or
+      present_string?(Map.get(row_sr, "camera_source_id")) or
+      present_string?(Map.get(sum_sr, "camera_source_id")) or
+      present_string?(summary["camera_source_id"])
+  end
+
+  defp camera_event_authorized?(_row, nil), do: false
+
+  defp camera_event_authorized?(row, %MapSet{} = authorized_camera_ids) do
+    case row |> persisted_service_radar_meta() |> Map.get("camera_source_id") do
+      cam_id when is_binary(cam_id) ->
+        case Ecto.UUID.cast(String.trim(cam_id)) do
+          {:ok, cam_uuid} -> MapSet.member?(authorized_camera_ids, cam_uuid)
+          :error -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp resolve_authorized_camera_ids(scope) do
+    permissions = scope_permissions(scope)
+
+    if Enum.all?(@camera_observation_permissions, &CoreRBAC.Catalog.holds?(permissions, &1)) do
+      Source
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> Ash.Query.select([:id])
+      |> Ash.read(scope: scope)
+      |> case do
+        {:ok, sources} ->
+          explicit_allow = extract_explicit_allowed_camera_ids(scope)
+
+          Enum.reduce(sources, MapSet.new(), fn source, acc ->
+            id = to_string(source.id)
+
+            if is_nil(explicit_allow) or MapSet.member?(explicit_allow, id) do
+              MapSet.put(acc, id)
+            else
+              acc
+            end
+          end)
+
+        {:error, _reason} ->
+          nil
+      end
+    end
+  end
+
+  defp scope_permissions(%{permissions: %MapSet{} = permissions}), do: permissions
+  defp scope_permissions(%{user: user}) when not is_nil(user), do: CoreRBAC.permissions_for_user(user)
+  defp scope_permissions(_), do: MapSet.new()
+
+  defp extract_explicit_allowed_camera_ids(scope) when is_map(scope) do
+    candidates = [
+      Map.get(scope, :authorized_camera_source_ids),
+      case Map.get(scope, :user) do
+        %{} = user -> Map.get(user, :authorized_camera_source_ids)
+        _ -> nil
+      end
+    ]
+
+    case Enum.find(candidates, &(is_list(&1) or match?(%MapSet{}, &1))) do
+      nil ->
+        nil
+
+      items ->
+        Enum.reduce(items, MapSet.new(), fn item, acc ->
+          case Ecto.UUID.cast(to_string(item)) do
+            {:ok, uuid} -> MapSet.put(acc, uuid)
+            :error -> acc
+          end
+        end)
+    end
+  end
+
+  defp extract_explicit_allowed_camera_ids(_scope), do: nil
+
+  defp persisted_service_radar_meta(row) do
+    case Map.get(row, :metadata) do
+      %{"service_radar" => %{} = sr} -> sr
+      _ -> %{}
+    end
+  end
+
+  defp summary_service_radar_meta(summary) when is_map(summary) do
+    case summary["metadata"] do
+      %{"service_radar" => %{} = sr} -> sr
+      _ -> %{}
+    end
+  end
+
+  defp summary_service_radar_meta(_), do: %{}
+
+  defp row_or_summary_string(row_val, _sum_val) when is_binary(row_val) and row_val != "", do: row_val
+  defp row_or_summary_string(_row_val, sum_val) when is_binary(sum_val) and sum_val != "", do: sum_val
+  defp row_or_summary_string(_, _), do: nil
+
+  defp present_string?(val) when is_binary(val), do: String.trim(val) != ""
+  defp present_string?(_), do: false
 
   @doc """
   Returns `[{subscription_id, events}]` for every subscription that matched at
@@ -122,27 +282,122 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
   def normalize_filter(nil), do: {:ok, %{}}
 
   def normalize_filter(%{} = filter) do
-    Enum.reduce_while(filter, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
-      case normalize_entry(to_string(key), value) do
-        {:ok, normalized} -> {:cont, {:ok, Map.put(acc, to_string(key), normalized)}}
-        :error -> {:halt, {:error, {:invalid_filter, key}}}
+    Enum.reduce_while(filter, {:ok, %{}}, fn {raw_key, value}, {:ok, acc} ->
+      key = to_string(raw_key)
+
+      cond do
+        key == "metadata" ->
+          merge_metadata_filter(acc, value, key)
+
+        String.starts_with?(key, "metadata.") ->
+          path_str = String.replace_prefix(key, "metadata.", "")
+          merge_dotted_metadata_filter(acc, path_str, value, raw_key)
+
+        true ->
+          case normalize_entry(key, value) do
+            {:ok, normalized} -> {:cont, {:ok, Map.put(acc, key, normalized)}}
+            :error -> {:halt, {:error, {:invalid_filter, raw_key}}}
+          end
       end
     end)
   end
 
   def normalize_filter(_filter), do: {:error, {:invalid_filter, "filter"}}
 
-  defp normalize_entry(key, value) when key in ["log_provider", "log_name", "device_uid"], do: string_set(value)
+  defp merge_metadata_filter(acc, %{} = value, err_key) when map_size(value) > 0 do
+    case flatten_metadata_entries(value, [], []) do
+      {:ok, predicates} ->
+        merged = Map.get(acc, "metadata", []) ++ predicates
+
+        if length(merged) <= @max_metadata_keys do
+          {:cont, {:ok, Map.put(acc, "metadata", merged)}}
+        else
+          {:halt, {:error, {:invalid_filter, err_key}}}
+        end
+
+      :error ->
+        {:halt, {:error, {:invalid_filter, err_key}}}
+    end
+  end
+
+  defp merge_metadata_filter(_acc, %{} = empty, err_key) when map_size(empty) == 0 do
+    {:halt, {:error, {:invalid_filter, err_key}}}
+  end
+
+  defp merge_metadata_filter(_acc, _value, err_key), do: {:halt, {:error, {:invalid_filter, err_key}}}
+
+  defp merge_dotted_metadata_filter(acc, path_str, value, err_key) do
+    with {:ok, segments} <- split_metadata_path(path_str, 0),
+         true <- scalar?(value),
+         merged = Map.get(acc, "metadata", []) ++ [{segments, to_string(value)}],
+         true <- length(merged) <= @max_metadata_keys do
+      {:cont, {:ok, Map.put(acc, "metadata", merged)}}
+    else
+      _ -> {:halt, {:error, {:invalid_filter, err_key}}}
+    end
+  end
+
+  defp flatten_metadata_entries(%{} = map, prefix, acc) when map_size(map) > 0 do
+    map
+    |> Enum.reduce_while({:ok, acc}, fn {raw_k, v}, {:ok, cur_acc} ->
+      k_str = to_string(raw_k)
+
+      case split_metadata_path(k_str, length(prefix)) do
+        {:ok, segs} ->
+          full_path = prefix ++ segs
+
+          cond do
+            scalar?(v) ->
+              next_acc = [{full_path, to_string(v)} | cur_acc]
+
+              if length(next_acc) <= @max_metadata_keys do
+                {:cont, {:ok, next_acc}}
+              else
+                {:halt, :error}
+              end
+
+            is_map(v) and map_size(v) > 0 ->
+              case flatten_metadata_entries(v, full_path, cur_acc) do
+                {:ok, nested_acc} -> {:cont, {:ok, nested_acc}}
+                :error -> {:halt, :error}
+              end
+
+            true ->
+              {:halt, :error}
+          end
+
+        _ ->
+          {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, list} -> {:ok, Enum.reverse(list)}
+      :error -> :error
+    end
+  end
+
+  defp flatten_metadata_entries(_map, _prefix, _acc), do: :error
+
+  defp split_metadata_path(path, base_depth) when is_binary(path) and path != "" do
+    segments = String.split(path, ".")
+
+    if segments != [] and
+         base_depth + length(segments) <= @max_metadata_depth and
+         Enum.all?(segments, &Regex.match?(@metadata_segment_regex, &1)) do
+      {:ok, segments}
+    else
+      :error
+    end
+  end
+
+  defp split_metadata_path(_, _), do: :error
+
+  defp normalize_entry(key, value) when key in ["log_provider", "log_name", "device_uid", "camera_source_id"],
+    do: string_set(value)
 
   defp normalize_entry("class_uid", value), do: integer_set(value)
 
   defp normalize_entry("min_severity_id", value) when is_integer(value), do: {:ok, value}
-
-  defp normalize_entry("metadata", %{} = value) when map_size(value) <= @max_metadata_keys do
-    if Enum.all?(value, fn {_key, expected} -> scalar?(expected) end),
-      do: {:ok, Map.new(value, fn {key, expected} -> {to_string(key), to_string(expected)} end)},
-      else: :error
-  end
 
   defp normalize_entry(_key, _value), do: :error
 
@@ -166,6 +421,17 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
 
   defp field_matches?("device_uid", expected, summary), do: MapSet.member?(expected, get_in(summary, ["device", "uid"]))
 
+  defp field_matches?("camera_source_id", %MapSet{} = expected, summary) do
+    cam_id =
+      summary["camera_source_id"] ||
+        case summary["metadata"] do
+          %{"service_radar" => %{"camera_source_id" => id}} -> id
+          _ -> nil
+        end
+
+    is_binary(cam_id) and MapSet.member?(expected, cam_id)
+  end
+
   defp field_matches?("min_severity_id", minimum, summary) do
     case summary["severity_id"] do
       severity when is_integer(severity) -> severity >= minimum
@@ -173,10 +439,36 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
     end
   end
 
-  defp field_matches?("metadata", expected, summary) do
-    metadata = summary["metadata"] || %{}
-    Enum.all?(expected, fn {key, value} -> to_string(Map.get(metadata, key)) == value end)
+  defp field_matches?("metadata", expected, summary) when is_list(expected) do
+    metadata = summary["metadata"]
+
+    is_map(metadata) and
+      Enum.all?(expected, fn {segments, expected_str} ->
+        case fetch_metadata_scalar(metadata, segments) do
+          {:ok, actual_str} -> actual_str == expected_str
+          :error -> false
+        end
+      end)
   end
 
   defp field_matches?(key, %MapSet{} = expected, summary), do: MapSet.member?(expected, summary[key])
+
+  defp fetch_metadata_scalar(%{} = map, [seg]) do
+    case Map.fetch(map, seg) do
+      {:ok, val} ->
+        if scalar?(val), do: {:ok, to_string(val)}, else: :error
+
+      :error ->
+        :error
+    end
+  end
+
+  defp fetch_metadata_scalar(%{} = map, [seg | rest]) do
+    case Map.fetch(map, seg) do
+      {:ok, %{} = nested} -> fetch_metadata_scalar(nested, rest)
+      _ -> :error
+    end
+  end
+
+  defp fetch_metadata_scalar(_other, _segments), do: :error
 end

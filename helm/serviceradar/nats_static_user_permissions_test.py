@@ -28,6 +28,7 @@ RENDERINGS = {
         "k8sInventory.enabled": True,
     },
     "media worker enabled": {"mediaWorker.enabled": True},
+    "vantage worker enabled": {"vantageWorker.enabled": True},
 }
 
 
@@ -105,6 +106,7 @@ DISABLED_BY_DEFAULT = (
     chart_subject("serviceradar-netflow-collector"),
     chart_subject("serviceradar-k8s-inventory"),
     chart_subject("serviceradar-media-worker"),
+    chart_subject("serviceradar-vantage-worker"),
 )
 
 
@@ -208,18 +210,29 @@ class RumBeaconAndPolicyPermissionsTest(unittest.TestCase):
 
 
 MEDIA_WORKER = chart_subject("serviceradar-media-worker")
+VANTAGE_WORKER = chart_subject("serviceradar-vantage-worker")
 CORE = chart_subject("serviceradar-core")
 WEB_NG = chart_subject("serviceradar-web-ng")
 JOBS_STREAM = "CAMERA_MEDIA_JOBS"
 LIVE_CONSUMER = "camera_visual_index_worker_v1_live"
 BACKFILL_CONSUMER = "camera_visual_index_worker_v1_backfill"
+VANTAGE_VLM_LIVE_CONSUMER = "camera_vantage_vlm_worker_v1_live"
+VANTAGE_VLM_BACKFILL_CONSUMER = "camera_vantage_vlm_worker_v1_backfill"
 LIVE_JOBS = "media.jobs.visual_index.v1"
 BACKFILL_JOBS = "media.jobs.visual_index.backfill.v1"
+VANTAGE_VLM_JOBS = "media.jobs.vantage.vlm.v1"
+VANTAGE_VLM_BACKFILL_JOBS = "media.jobs.vantage.vlm.backfill.v1"
+VANTAGE_CAP_JOBS = "media.jobs.vantage.vantage_alpr_v1.v1"
+VANTAGE_CAP_BACKFILL_JOBS = "media.jobs.vantage.vantage_alpr_v1.backfill.v1"
+VANTAGE_LIVE_TAP = "media.live.vantage.vantage_bay_guidance_v1.v1"
+VANTAGE_RESULTS = "media.results.vantage.v1"
+VANTAGE_HEARTBEAT = "media.workers.heartbeat.v1"
 # Camera.SemanticSearch requests on the embedder's id and version.
 TEXT_EMBED_REQUEST = "media.rpc.visual_text_embed.v1.siglip-b16-384.2026.1"
 # The worker's own inboxes (SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX), and an
 # inbox of the kind EventWriter pulls telemetry into.
 WORKER_INBOX = "_INBOX.media-worker.Zk3x9.1"
+VANTAGE_WORKER_INBOX = "_INBOX.vantage-worker.Zk3x9.1"
 OTHER_INBOX = "_INBOX.Qa71c.4"
 
 
@@ -249,8 +262,10 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
         publish = (
             f"$JS.API.STREAM.INFO.{JOBS_STREAM}",
             f"$JS.API.STREAM.CREATE.{JOBS_STREAM}",
+            f"$JS.API.STREAM.UPDATE.{JOBS_STREAM}",
             "$JS.API.STREAM.INFO.CAMERA_MEDIA_RESULTS",
             "$JS.API.STREAM.CREATE.CAMERA_MEDIA_RESULTS",
+            "$JS.API.STREAM.UPDATE.CAMERA_MEDIA_RESULTS",
             f"$JS.API.CONSUMER.INFO.{JOBS_STREAM}.{LIVE_CONSUMER}",
             f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.{LIVE_CONSUMER}.{LIVE_JOBS}",
             f"$JS.API.CONSUMER.MSG.NEXT.{JOBS_STREAM}.{LIVE_CONSUMER}",
@@ -259,7 +274,16 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.{BACKFILL_CONSUMER}.{BACKFILL_JOBS}",
             f"$JS.API.CONSUMER.MSG.NEXT.{JOBS_STREAM}.{BACKFILL_CONSUMER}",
             f"$JS.ACK.{JOBS_STREAM}.{BACKFILL_CONSUMER}.1.3.3.1700000000000000000.0",
+            f"$JS.API.CONSUMER.INFO.{JOBS_STREAM}.{VANTAGE_VLM_LIVE_CONSUMER}",
+            f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.{VANTAGE_VLM_LIVE_CONSUMER}.{VANTAGE_VLM_JOBS}",
+            f"$JS.API.CONSUMER.MSG.NEXT.{JOBS_STREAM}.{VANTAGE_VLM_LIVE_CONSUMER}",
+            f"$JS.ACK.{JOBS_STREAM}.{VANTAGE_VLM_LIVE_CONSUMER}.1.5.5.1700000000000000000.0",
+            f"$JS.API.CONSUMER.INFO.{JOBS_STREAM}.{VANTAGE_VLM_BACKFILL_CONSUMER}",
+            f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.{VANTAGE_VLM_BACKFILL_CONSUMER}.{VANTAGE_VLM_BACKFILL_JOBS}",
+            f"$JS.API.CONSUMER.MSG.NEXT.{JOBS_STREAM}.{VANTAGE_VLM_BACKFILL_CONSUMER}",
+            f"$JS.ACK.{JOBS_STREAM}.{VANTAGE_VLM_BACKFILL_CONSUMER}.1.6.6.1700000000000000000.0",
             "media.results.visual_index.v1",
+            VANTAGE_RESULTS,
             "telemetry.media_worker.metrics.v1",
             # The embedding reply goes to web-ng's reply subject.
             OTHER_INBOX,
@@ -281,10 +305,15 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
         worker = self.enabled[MEDIA_WORKER]
         for subject in (
             LIVE_JOBS,
+            VANTAGE_VLM_JOBS,
+            VANTAGE_CAP_JOBS,
             f"$JS.API.STREAM.DELETE.{JOBS_STREAM}",
             "$JS.API.STREAM.PURGE.CAMERA_MEDIA_RESULTS",
             "$JS.API.CONSUMER.CREATE.CAMERA_MEDIA_RESULTS.synthetic_projector.media.results.visual_index.v1",
+            "$JS.API.CONSUMER.CREATE.CAMERA_MEDIA_RESULTS.synthetic_projector.media.results.vantage.v1",
             f"$JS.API.CONSUMER.DELETE.{JOBS_STREAM}.{LIVE_CONSUMER}",
+            f"$JS.API.CONSUMER.DELETE.{JOBS_STREAM}.{VANTAGE_VLM_LIVE_CONSUMER}",
+            f"$JS.API.CONSUMER.DELETE.{JOBS_STREAM}.{VANTAGE_VLM_BACKFILL_CONSUMER}",
             "$JS.API.CONSUMER.MSG.NEXT.events.synthetic_consumer",
             "$JS.ACK.events.synthetic_consumer.1.1.1.1.0",
             "$KV.serviceradar-datasvc.synthetic-key",
@@ -295,7 +324,14 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
                 self.assertFalse(may_publish(worker, subject))
         # Deliveries for other services' inboxes (EventWriter pulls telemetry
         # into _INBOX.<id>) must not reach the worker.
-        for subject in (LIVE_JOBS, "media.results.visual_index.v1", "events.synthetic", OTHER_INBOX):
+        for subject in (
+            LIVE_JOBS,
+            VANTAGE_VLM_JOBS,
+            "media.results.visual_index.v1",
+            VANTAGE_RESULTS,
+            "events.synthetic",
+            OTHER_INBOX,
+        ):
             with self.subTest(subscribe=subject):
                 self.assertFalse(may(worker, "subscribe", subject))
 
@@ -306,12 +342,112 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
         ):
             core = users[CORE]
             web = users[WEB_NG]
-            for subject in (LIVE_JOBS, BACKFILL_JOBS):
+            for subject in (
+                LIVE_JOBS,
+                BACKFILL_JOBS,
+                VANTAGE_VLM_JOBS,
+                VANTAGE_CAP_JOBS,
+                VANTAGE_CAP_BACKFILL_JOBS,
+                VANTAGE_LIVE_TAP,
+            ):
                 with self.subTest(rendering=rendering, core=subject):
                     self.assertTrue(may_publish(core, subject))
+            self.assertTrue(may(core, "subscribe", VANTAGE_HEARTBEAT))
             with self.subTest(rendering=rendering, web=TEXT_EMBED_REQUEST):
                 self.assertEqual(may_publish(web, TEXT_EMBED_REQUEST), expected)
         self.assertFalse(may_publish(self.enabled[WEB_NG], LIVE_JOBS))
+        self.assertFalse(may_publish(self.enabled[WEB_NG], VANTAGE_VLM_JOBS))
+
+
+class VantageWorkerPermissionsTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.enabled_cm = render_static_users_configmap({"vantageWorker.enabled": True})
+        cls.disabled_cm = render_static_users_configmap()
+        cls.enabled = index_users_by_subject(yaml.safe_load(cls.enabled_cm["static-users.yaml"]))
+        cls.disabled = index_users_by_subject(yaml.safe_load(cls.disabled_cm["static-users.yaml"]))
+
+    def test_vantage_worker_chart_identity_is_gated(self):
+        enabled_identities = yaml.safe_load(self.enabled_cm["chart-identities.yaml"])
+        disabled_identities = yaml.safe_load(self.disabled_cm["chart-identities.yaml"])
+        self.assertIn(VANTAGE_WORKER, enabled_identities)
+        self.assertNotIn(VANTAGE_WORKER, disabled_identities)
+
+    def test_vantage_worker_least_privilege_permissions(self):
+        publish = (
+            VANTAGE_HEARTBEAT,
+            VANTAGE_RESULTS,
+            "telemetry.vantage_worker.metrics.v1",
+            f"$JS.API.STREAM.INFO.{JOBS_STREAM}",
+            "$JS.API.STREAM.INFO.CAMERA_MEDIA_RESULTS",
+            f"$JS.API.CONSUMER.INFO.{JOBS_STREAM}.vantage_alpr_v1_live",
+            f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.vantage_alpr_v1_live.{VANTAGE_CAP_JOBS}",
+            f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.vantage_alpr_v1_backfill.{VANTAGE_CAP_BACKFILL_JOBS}",
+            f"$JS.API.CONSUMER.MSG.NEXT.{JOBS_STREAM}.vantage_alpr_v1_live",
+            f"$JS.ACK.{JOBS_STREAM}.vantage_alpr_v1_live.1.2.3.1700000000000000000.0",
+            OTHER_INBOX,
+        )
+        subscribe = (VANTAGE_LIVE_TAP, VANTAGE_WORKER_INBOX)
+
+        for rendering, users, expected in (
+            ("enabled", self.enabled, True),
+            ("disabled", self.disabled, False),
+        ):
+            worker = users[VANTAGE_WORKER]
+            for subject in publish:
+                with self.subTest(rendering=rendering, publish=subject):
+                    self.assertEqual(may_publish(worker, subject), expected)
+            for subject in subscribe:
+                with self.subTest(rendering=rendering, subscribe=subject):
+                    self.assertEqual(may(worker, "subscribe", subject), expected)
+
+    def test_vantage_worker_cannot_touch_unrelated_streams_or_dispatches(self):
+        worker = self.enabled[VANTAGE_WORKER]
+        media_worker_consumers = (
+            (LIVE_CONSUMER, LIVE_JOBS),
+            (BACKFILL_CONSUMER, BACKFILL_JOBS),
+            (VANTAGE_VLM_LIVE_CONSUMER, VANTAGE_VLM_JOBS),
+            (VANTAGE_VLM_BACKFILL_CONSUMER, VANTAGE_VLM_BACKFILL_JOBS),
+        )
+        forbidden_publish = [
+            VANTAGE_CAP_JOBS,
+            LIVE_JOBS,
+            f"$JS.API.STREAM.CREATE.{JOBS_STREAM}",
+            f"$JS.API.STREAM.UPDATE.{JOBS_STREAM}",
+            f"$JS.API.STREAM.DELETE.{JOBS_STREAM}",
+            "$JS.API.STREAM.CREATE.CAMERA_MEDIA_RESULTS",
+            "$JS.API.STREAM.UPDATE.CAMERA_MEDIA_RESULTS",
+            "$JS.API.STREAM.PURGE.CAMERA_MEDIA_RESULTS",
+            f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.vantage_vlm_hijack.{VANTAGE_VLM_JOBS}",
+            f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.vantage_vlm_hijack.{VANTAGE_VLM_BACKFILL_JOBS}",
+            "$JS.API.CONSUMER.CREATE.CAMERA_MEDIA_RESULTS.proj.media.results.vantage.v1",
+            f"$JS.API.CONSUMER.DELETE.{JOBS_STREAM}.vantage_alpr_v1_live",
+            "$KV.serviceradar-datasvc.synthetic-key",
+            "events.synthetic",
+            "logs.normalized.synthetic",
+        ]
+        for consumer, filter_subject in media_worker_consumers:
+            forbidden_publish.extend(
+                [
+                    f"$JS.API.CONSUMER.INFO.{JOBS_STREAM}.{consumer}",
+                    f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.{consumer}.{filter_subject}",
+                    f"$JS.API.CONSUMER.MSG.NEXT.{JOBS_STREAM}.{consumer}",
+                    f"$JS.ACK.{JOBS_STREAM}.{consumer}.1.2.3.1700000000000000000.0",
+                ]
+            )
+        for subject in forbidden_publish:
+            with self.subTest(publish=subject):
+                self.assertFalse(may_publish(worker, subject))
+
+        for subject in (
+            VANTAGE_CAP_JOBS,
+            VANTAGE_RESULTS,
+            VANTAGE_HEARTBEAT,
+            "events.synthetic",
+            OTHER_INBOX,
+        ):
+            with self.subTest(subscribe=subject):
+                self.assertFalse(may(worker, "subscribe", subject))
 
 
 if __name__ == "__main__":

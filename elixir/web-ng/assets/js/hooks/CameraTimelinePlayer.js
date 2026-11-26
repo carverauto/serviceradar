@@ -9,6 +9,20 @@ const loadPolicy = () => ({
   },
 })
 
+export function sanitizeOverlayHexColor(raw) {
+  if (typeof raw !== "string") return null
+  const trimmed = raw.trim()
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : null
+}
+
+function hexToRgba(hex, alpha = 0.16) {
+  const clean = sanitizeOverlayHexColor(hex) || "#f59e0b"
+  const r = Number.parseInt(clean.slice(1, 3), 16)
+  const g = Number.parseInt(clean.slice(3, 5), 16)
+  const b = Number.parseInt(clean.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 export function escapeOverlayText(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -149,12 +163,27 @@ export function parseOverlayDetections(rawJson, {windowStartUs = null} = {}) {
 
     const rawScore = Number(item.score ?? item.confidence ?? item.similarity ?? parent.score ?? parent.similarity)
     const score = Number.isFinite(rawScore) ? Math.min(1, Math.max(0, rawScore)) : null
+    const source = String(item.source ?? parent.source ?? "stage1").trim().toLowerCase() === "vantage"
+      ? "vantage"
+      : "stage1"
+    const rawLabel = item.label ?? parent.label ?? null
+    const label = typeof rawLabel === "string" && rawLabel.trim() !== "" ? rawLabel.trim() : null
+    const category = String(item.category ?? parent.category ?? item.object_class ?? item.objectClass ?? item.class ?? "object")
+    const color = sanitizeOverlayHexColor(item.color ?? item.color_hex ?? parent.color ?? parent.color_hex)
+    const rawCropUrl = item.crop_url ?? item.cropUrl ?? parent.crop_url ?? parent.cropUrl
+    const cropUrl = isSafeThumbnailUrl(rawCropUrl) ? rawCropUrl.trim() : null
 
     normalized.push({
+      source,
       visualFrameId: String(item.visual_frame_id ?? item.visualFrameId ?? parent.visual_frame_id ?? parent.visualFrameId ?? ""),
+      vantageObservationId: String(item.vantage_observation_id ?? item.vantageObservationId ?? parent.vantage_observation_id ?? ""),
       offsetSeconds,
       timeBasis: String(item.time_basis ?? item.timeBasis ?? parent.time_basis ?? parent.timeBasis ?? "received"),
-      objectClass: String(item.object_class ?? item.objectClass ?? item.class ?? "object"),
+      objectClass: String(item.object_class ?? item.objectClass ?? item.class ?? category ?? "object"),
+      category,
+      label,
+      color,
+      cropUrl,
       score,
       bbox,
       highlighted: Boolean(item.highlighted ?? parent.highlighted),
@@ -185,7 +214,18 @@ export function selectActiveDetections(
 
   if (!metadataLoaded && highlightId !== "") {
     const highlighted = detections.filter(d => d.visualFrameId === highlightId)
-    if (highlighted.length > 0) return highlighted
+    if (highlighted.length > 0) {
+      const coOccurringVantage = detections.filter(
+        d =>
+          d.source === "vantage" &&
+          d.visualFrameId !== highlightId &&
+          Number.isFinite(d.offsetSeconds) &&
+          highlighted.some(
+            h => Number.isFinite(h.offsetSeconds) && Math.abs(d.offsetSeconds - h.offsetSeconds) <= toleranceSeconds
+          )
+      )
+      return [...highlighted, ...coOccurringVantage]
+    }
   }
 
   const nowSec = Number(currentTimeSeconds)
@@ -194,28 +234,59 @@ export function selectActiveDetections(
   const inWindow = detections.filter(d => Math.abs(d.offsetSeconds - nowSec) <= toleranceSeconds)
   if (inWindow.length === 0) return []
 
+  const stage1Window = inWindow.filter(d => d.source !== "vantage")
+  const vantageWindow = inWindow.filter(d => d.source === "vantage")
+
+  let selectedStage1 = []
   if (highlightId !== "") {
-    const exactFrame = inWindow.filter(d => d.visualFrameId === highlightId)
-    if (exactFrame.length > 0) return exactFrame
-  }
-
-  let bestGroupKey = null
-  let bestDistance = Number.POSITIVE_INFINITY
-  const groups = new Map()
-
-  for (const det of inWindow) {
-    const key = det.visualFrameId !== "" ? `frame:${det.visualFrameId}` : `ts:${det.offsetSeconds.toFixed(3)}`
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key).push(det)
-
-    const dist = Math.abs(det.offsetSeconds - nowSec)
-    if (dist < bestDistance) {
-      bestDistance = dist
-      bestGroupKey = key
+    const exactFrame = stage1Window.filter(d => d.visualFrameId === highlightId)
+    if (exactFrame.length > 0) {
+      selectedStage1 = exactFrame
     }
   }
 
-  return bestGroupKey ? groups.get(bestGroupKey) || [] : []
+  if (selectedStage1.length === 0 && stage1Window.length > 0) {
+    let bestGroupKey = null
+    let bestDistance = Number.POSITIVE_INFINITY
+    const groups = new Map()
+
+    for (const det of stage1Window) {
+      const key = det.visualFrameId !== "" ? `frame:${det.visualFrameId}` : `ts:${det.offsetSeconds.toFixed(3)}`
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(det)
+
+      const dist = Math.abs(det.offsetSeconds - nowSec)
+      if (dist < bestDistance) {
+        bestDistance = dist
+        bestGroupKey = key
+      }
+    }
+
+    selectedStage1 = bestGroupKey ? groups.get(bestGroupKey) || [] : []
+  }
+
+  let selectedVantage = []
+  if (vantageWindow.length > 0) {
+    let bestVantageKey = null
+    let bestVantageDist = Number.POSITIVE_INFINITY
+    const vGroups = new Map()
+
+    for (const det of vantageWindow) {
+      const key = `vts:${det.offsetSeconds.toFixed(3)}`
+      if (!vGroups.has(key)) vGroups.set(key, [])
+      vGroups.get(key).push(det)
+
+      const dist = Math.abs(det.offsetSeconds - nowSec)
+      if (dist < bestVantageDist) {
+        bestVantageDist = dist
+        bestVantageKey = key
+      }
+    }
+
+    selectedVantage = bestVantageKey ? vGroups.get(bestVantageKey) || [] : []
+  }
+
+  return [...selectedStage1, ...selectedVantage]
 }
 
 export function buildOverlaySvgMarkup(detections, contentRect) {
@@ -228,10 +299,17 @@ export function buildOverlaySvgMarkup(detections, contentRect) {
     const projected = projectDetectionBox(det.bbox, contentRect)
     if (!projected) continue
 
-    const classText = escapeOverlayText(det.objectClass || "object")
+    const isVantage = det.source === "vantage"
+    const classText = escapeOverlayText(det.category || det.objectClass || "object")
     const basisText = escapeOverlayText(det.timeBasis || "received")
     const scorePart = det.score !== null && Number.isFinite(det.score) ? ` ${Math.round(det.score * 100)}%` : ""
-    const label = `${classText}${scorePart} · ${basisText}`
+    const displayText = isVantage ? escapeOverlayText(det.label || det.category || det.objectClass || "observation") : classText
+    const label = `${displayText}${scorePart} · ${basisText}`
+
+    const strokeColor = isVantage ? sanitizeOverlayHexColor(det.color) || "#f59e0b" : "#10b981"
+    const fillColor = isVantage ? hexToRgba(strokeColor, 0.16) : "rgba(16, 185, 129, 0.14)"
+    const textFill = isVantage ? "#fef3c7" : "#ecfdf5"
+    const sourceAttr = isVantage ? ` data-source="vantage"` : ""
 
     const x = projected.left.toFixed(2)
     const y = projected.top.toFixed(2)
@@ -245,10 +323,10 @@ export function buildOverlaySvgMarkup(detections, contentRect) {
     const textY = (labelY + 14).toFixed(2)
 
     items.push(
-      `<g data-role="semantic-bbox-item" data-object-class="${classText}" data-time-basis="${basisText}">` +
-        `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="rgba(16, 185, 129, 0.14)" stroke="#10b981" stroke-width="2" />` +
+      `<g data-role="semantic-bbox-item"${sourceAttr} data-object-class="${classText}" data-time-basis="${basisText}">` +
+        `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" />` +
         `<rect x="${x}" y="${labelY.toFixed(2)}" width="${labelWidth.toFixed(2)}" height="${labelHeight}" rx="3" fill="rgba(9, 9, 11, 0.85)" />` +
-        `<text x="${textX}" y="${textY}" fill="#ecfdf5" font-size="11" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">${label}</text>` +
+        `<text x="${textX}" y="${textY}" fill="${textFill}" font-size="11" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">${label}</text>` +
         `</g>`
     )
   }
@@ -497,6 +575,7 @@ export function parseScrubberEvents(rawJson, {windowStartUs = null} = {}) {
       }
     }
 
+    const source = String(item.source ?? "").trim().toLowerCase() === "vantage" ? "vantage" : "stage1"
     const rawCategory = String(item.category ?? item.object_class ?? item.class ?? item.label ?? "")
       .trim()
       .toLowerCase()
@@ -509,14 +588,18 @@ export function parseScrubberEvents(rawJson, {windowStartUs = null} = {}) {
       ? Math.min(1, Math.max(0, rawScore > 1 ? rawScore / 100 : rawScore))
       : null
 
-    const rawThumb = item.thumbnail_url ?? item.thumbnailUrl
+    const rawThumb = item.thumbnail_url ?? item.thumbnailUrl ?? item.crop_url ?? item.cropUrl
     const thumbnailUrl = isSafeThumbnailUrl(rawThumb) ? rawThumb.trim() : null
+    const color = sanitizeOverlayHexColor(item.color ?? item.color_hex)
 
     out.push({
+      source,
       startSec: Math.max(0, startSec),
       endSec: Math.max(startSec, endSec),
       category,
+      rawCategory,
       label: String(item.label ?? item.object_class ?? item.category ?? "Event"),
+      color,
       score,
       thumbnailUrl,
     })
@@ -697,15 +780,24 @@ export function buildScrubberEventSegments(
     for (const det of detections) {
       if (!det || !Number.isFinite(det.offsetSeconds)) continue
       if (det.offsetSeconds < 0 || det.offsetSeconds > duration) continue
-      const category = normalizeEventCategory(det.objectClass)
+      const isVantage = det.source === "vantage"
+      const category = normalizeEventCategory(det.category || det.objectClass)
       if (!isScrubberEventCategory(category)) continue
+      const label = isVantage
+        ? det.label || det.category || det.objectClass || "Observation"
+        : SCRUBBER_CATEGORY_STYLES[category]?.label || det.objectClass || "Detection"
       rawPoints.push({
+        source: isVantage ? "vantage" : "stage1",
         startSec: det.offsetSeconds,
         endSec: det.offsetSeconds,
         category,
-        label: SCRUBBER_CATEGORY_STYLES[category]?.label || det.objectClass || "Detection",
+        rawCategory: det.category || det.objectClass || category,
+        label,
+        color: isVantage ? sanitizeOverlayHexColor(det.color) : null,
         score: Number.isFinite(det.score) ? det.score : null,
-        thumbnailUrl: isSafeThumbnailUrl(det.thumbnailUrl) ? det.thumbnailUrl.trim() : null,
+        thumbnailUrl: isSafeThumbnailUrl(det.cropUrl || det.thumbnailUrl)
+          ? String(det.cropUrl || det.thumbnailUrl).trim()
+          : null,
       })
     }
   }
@@ -716,13 +808,20 @@ export function buildScrubberEventSegments(
       const clampedStart = Math.min(duration, Math.max(0, evt.startSec))
       const clampedEnd = Math.min(duration, Math.max(clampedStart, evt.endSec ?? clampedStart))
       if (evt.endSec < 0 || evt.startSec > duration) continue
+      const isVantage = evt.source === "vantage"
       const category = normalizeEventCategory(evt.category)
       if (!isScrubberEventCategory(category)) continue
+      const label = isVantage
+        ? evt.label || evt.rawCategory || evt.category || "Observation"
+        : SCRUBBER_CATEGORY_STYLES[category]?.label || evt.label || "Event"
       rawPoints.push({
+        source: isVantage ? "vantage" : "stage1",
         startSec: clampedStart,
         endSec: clampedEnd,
         category,
-        label: SCRUBBER_CATEGORY_STYLES[category]?.label || evt.label || "Event",
+        rawCategory: evt.rawCategory || evt.category || category,
+        label,
+        color: isVantage ? sanitizeOverlayHexColor(evt.color) : null,
         score: Number.isFinite(evt.score) ? evt.score : null,
         thumbnailUrl: isSafeThumbnailUrl(evt.thumbnailUrl) ? evt.thumbnailUrl.trim() : null,
       })
@@ -731,23 +830,32 @@ export function buildScrubberEventSegments(
 
   if (rawPoints.length === 0) return []
 
-  // Group by category and merge adjacent points within mergeGapSeconds
-  const byCategory = new Map()
+  // Group Stage 1 by category and Vantage by rawCategory + label so plate/observation labels stay distinct
+  const byGroup = new Map()
   for (const pt of rawPoints) {
-    if (!byCategory.has(pt.category)) byCategory.set(pt.category, [])
-    byCategory.get(pt.category).push(pt)
+    const groupKey =
+      pt.source === "vantage" ? `vantage:${pt.rawCategory}:${pt.label}` : `stage1:${pt.category}`
+    if (!byGroup.has(groupKey)) byGroup.set(groupKey, [])
+    byGroup.get(groupKey).push(pt)
   }
 
   const segments = []
-  for (const [category, pts] of byCategory.entries()) {
+  for (const [_groupKey, pts] of byGroup.entries()) {
     pts.sort((a, b) => a.startSec - b.startSec)
     let current = null
 
     for (const pt of pts) {
+      const segLabel =
+        pt.source === "vantage"
+          ? pt.label
+          : SCRUBBER_CATEGORY_STYLES[pt.category]?.label || pt.label
       if (!current) {
         current = {
-          category,
-          label: SCRUBBER_CATEGORY_STYLES[category]?.label || pt.label,
+          source: pt.source,
+          category: pt.category,
+          rawCategory: pt.rawCategory,
+          label: segLabel,
+          color: pt.color || null,
           startSec: pt.startSec,
           endSec: pt.endSec,
           maxScore: pt.score,
@@ -766,8 +874,11 @@ export function buildScrubberEventSegments(
       } else {
         segments.push(current)
         current = {
-          category,
-          label: SCRUBBER_CATEGORY_STYLES[category]?.label || pt.label,
+          source: pt.source,
+          category: pt.category,
+          rawCategory: pt.rawCategory,
+          label: segLabel,
+          color: pt.color || null,
           startSec: pt.startSec,
           endSec: pt.endSec,
           maxScore: pt.score,
@@ -1242,11 +1353,13 @@ export default {
             tier === "motion"
               ? `absolute bottom-0 h-[2px] z-[3] cursor-pointer rounded-full ${style.bg} transition-colors`
               : `absolute bottom-0.5 h-1.5 z-[4] cursor-pointer rounded-full ${style.bg} shadow-sm ring-1 ${style.ring} transition-transform hover:scale-y-125`
+          const colorStyle = seg.color ? ` background-color: ${escapeOverlayText(seg.color)};` : ""
+          const sourceAttr = seg.source === "vantage" ? ` data-event-source="vantage"` : ""
           return (
             `<button type="button" data-role="scrubber-event-segment" ` +
-            `data-event-tier="${tier}" data-event-category="${cat}" data-seek-seconds="${seekSec}" ` +
+            `data-event-tier="${tier}" data-event-category="${cat}"${sourceAttr} data-seek-seconds="${seekSec}" ` +
             `title="${title}" aria-label="${title}" ` +
-            `style="left: ${seg.leftPct}%; width: ${seg.widthPct}%;" ` +
+            `style="left: ${seg.leftPct}%; width: ${seg.widthPct}%;${colorStyle}" ` +
             `class="${barClass}">` +
             `</button>`
           )

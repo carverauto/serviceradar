@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Camera.VantageJob
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.NativeDescriptors
@@ -36,9 +37,11 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
   @media_token "synthetic-worker-grants-media-token-more-than-32bytes"
   @entitlement_token "synthetic-worker-grants-entitlement-token-more-32b"
   @media_worker_token "synthetic-worker-grants-media-worker-token-more-32"
+  @vantage_worker_token "synthetic-worker-grants-vantage-worker-token-more-32b"
   @auth_header "x-serviceradar-control-plane-authorization"
   @deployment_header "x-serviceradar-deployment-ref"
   @worker_gen_header "x-serviceradar-media-worker-generation"
+  @vantage_gen_header "x-serviceradar-vantage-worker-generation"
   @storage_id "00000000-0000-4000-8000-000000000601"
   @base_dt ~U[2026-11-17 10:00:00.000000Z]
 
@@ -54,7 +57,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
       token: @account_token,
       media: [token: @media_token, deployment_ref: deployment_ref, generation: "1"],
       entitlements: [token: @entitlement_token, deployment_ref: deployment_ref, generation: "1"],
-      media_worker: [token: @media_worker_token, deployment_ref: deployment_ref, generation: "1"]
+      media_worker: [token: @media_worker_token, deployment_ref: deployment_ref, generation: "1"],
+      vantage_worker: [token: @vantage_worker_token, deployment_ref: deployment_ref, generation: "1"]
     )
 
     on_exit(fn ->
@@ -188,6 +192,204 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
 
     {:ok, refreshed_job} = VisualIndexJob.get_by_id(ctx.local_job.id, actor: actor)
     assert refreshed_job.state == :cancelled
+  end
+
+  test "issues read grant for VantageJob via :vantage_worker auth and cancels VantageJob on 410 recording_gone", %{
+    actor: actor,
+    deployment_ref: deployment_ref
+  } do
+    ctx = seed_grant_fixtures(actor)
+
+    {:ok, vantage_job} =
+      VantageJob
+      |> Ash.Changeset.for_create(
+        :enqueue,
+        %{
+          pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+          pipeline_version: "1.0.0",
+          catalog_entry_id: ctx.archive_entry.id,
+          camera_source_id: ctx.archive_entry.camera_source_id,
+          stream_profile_id: ctx.archive_entry.stream_profile_id,
+          target_key: "track:vantage-db-1",
+          target_runner: "vantage.alpr.v1",
+          subject: "media.jobs.vantage.vantage_alpr_v1.v1",
+          descriptor_sha256: ctx.archive_entry.descriptor_sha256,
+          sampled_targets: [%{"target_key" => "track:vantage-db-1", "fragment_sequence" => 0}]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    ok_conn =
+      post_vantage_grant(deployment_ref, %{
+        "schema_version" => 1,
+        "job_id" => vantage_job.id,
+        "catalog_entry_id" => ctx.archive_entry.id,
+        "descriptor_sha256" => ctx.archive_entry.descriptor_sha256
+      })
+
+    assert ok_conn.status == 200
+    body = Jason.decode!(ok_conn.resp_body)
+    assert body["backing"] == "archive"
+    assert Enum.map(body["fragments"], & &1["sequence"]) == [0]
+    refute ok_conn.resp_body =~ ctx.secret_access_key
+
+    {:ok, local_vantage_job} =
+      VantageJob
+      |> Ash.Changeset.for_create(
+        :enqueue,
+        %{
+          pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+          pipeline_version: "1.0.0",
+          catalog_entry_id: ctx.local_entry.id,
+          camera_source_id: ctx.local_entry.camera_source_id,
+          stream_profile_id: ctx.local_entry.stream_profile_id,
+          target_key: "track:vantage-db-gone",
+          target_runner: "vantage.alpr.v1",
+          subject: "media.jobs.vantage.vantage_alpr_v1.v1",
+          descriptor_sha256: ctx.local_entry.descriptor_sha256,
+          sampled_targets: [%{"target_key" => "track:vantage-db-gone", "fragment_sequence" => 0}]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    now = DateTime.utc_now()
+
+    ctx.local_entry
+    |> Ash.Changeset.for_update(:transition_local_state, %{local_state: :reclaimed, local_state_at: now}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    gone_conn =
+      post_vantage_grant(deployment_ref, %{
+        "schema_version" => 1,
+        "job_id" => local_vantage_job.id,
+        "catalog_entry_id" => ctx.local_entry.id,
+        "descriptor_sha256" => ctx.local_entry.descriptor_sha256
+      })
+
+    assert gone_conn.status == 410
+    assert Jason.decode!(gone_conn.resp_body) == %{"status" => "recording_gone"}
+    assert %{state: :cancelled} = VantageJob.get_by_id!(local_vantage_job.id, actor: actor)
+  end
+
+  test "isolates :vantage_worker from VisualIndexJob while supporting SDK header carrier and Ramp 1 :media_worker VantageJob",
+       %{
+         actor: actor,
+         deployment_ref: deployment_ref
+       } do
+    ctx = seed_grant_fixtures(actor)
+
+    {:ok, vantage_job} =
+      VantageJob
+      |> Ash.Changeset.for_create(
+        :enqueue,
+        %{
+          pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+          pipeline_version: "1.0.0",
+          catalog_entry_id: ctx.archive_entry.id,
+          camera_source_id: ctx.archive_entry.camera_source_id,
+          stream_profile_id: ctx.archive_entry.stream_profile_id,
+          target_key: "track:vantage-sdk-header",
+          target_runner: "vantage.alpr.v1",
+          subject: "media.jobs.vantage.vantage_alpr_v1.v1",
+          descriptor_sha256: ctx.archive_entry.descriptor_sha256,
+          sampled_targets: [%{"target_key" => "track:vantage-sdk-header", "fragment_sequence" => 0}]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    # SDK wire format: @vantage_worker_token + x-serviceradar-media-worker-generation -> 200 on VantageJob
+    sdk_ok_conn =
+      post_grant(
+        deployment_ref,
+        %{
+          "schema_version" => 1,
+          "job_id" => vantage_job.id,
+          "catalog_entry_id" => ctx.archive_entry.id,
+          "descriptor_sha256" => ctx.archive_entry.descriptor_sha256
+        },
+        @vantage_worker_token
+      )
+
+    assert sdk_ok_conn.status == 200
+    assert Jason.decode!(sdk_ok_conn.resp_body)["backing"] == "archive"
+
+    # Ramp 1 media-worker retains access to VantageJob
+    ramp1_ok_conn =
+      post_grant(
+        deployment_ref,
+        %{
+          "schema_version" => 1,
+          "job_id" => vantage_job.id,
+          "catalog_entry_id" => ctx.archive_entry.id,
+          "descriptor_sha256" => ctx.archive_entry.descriptor_sha256
+        },
+        @media_worker_token
+      )
+
+    assert ramp1_ok_conn.status == 200
+
+    # :vantage_worker cannot read VisualIndexJob via either generation header
+    for conn <- [
+          post_vantage_grant(
+            deployment_ref,
+            %{
+              "schema_version" => 1,
+              "job_id" => ctx.archive_job.id,
+              "catalog_entry_id" => ctx.archive_entry.id,
+              "descriptor_sha256" => ctx.archive_entry.descriptor_sha256
+            },
+            @vantage_worker_token
+          ),
+          post_grant(
+            deployment_ref,
+            %{
+              "schema_version" => 1,
+              "job_id" => ctx.archive_job.id,
+              "catalog_entry_id" => ctx.archive_entry.id,
+              "descriptor_sha256" => ctx.archive_entry.descriptor_sha256
+            },
+            @vantage_worker_token
+          )
+        ] do
+      assert conn.status == 409
+      assert Jason.decode!(conn.resp_body) == %{"status" => "job_not_found"}
+    end
+
+    # :vantage_worker cannot cancel a reclaimed VisualIndexJob
+    now = DateTime.utc_now()
+
+    ctx.local_entry
+    |> Ash.Changeset.for_update(:transition_local_state, %{local_state: :reclaimed, local_state_at: now}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    blocked_cancel_conn =
+      post_vantage_grant(
+        deployment_ref,
+        %{
+          "schema_version" => 1,
+          "job_id" => ctx.local_job.id,
+          "catalog_entry_id" => ctx.local_entry.id,
+          "descriptor_sha256" => ctx.local_entry.descriptor_sha256
+        },
+        @vantage_worker_token
+      )
+
+    assert blocked_cancel_conn.status == 409
+    assert Jason.decode!(blocked_cancel_conn.resp_body) == %{"status" => "job_not_found"}
+    assert %{state: :pending} = VisualIndexJob.get_by_id!(ctx.local_job.id, actor: actor)
+  end
+
+  defp post_vantage_grant(deployment_ref, payload, token \\ @vantage_worker_token) do
+    :post
+    |> conn("/v1/media/workers/read-grants", Jason.encode!(payload))
+    |> put_req_header("content-type", "application/json")
+    |> put_req_header(@auth_header, "Bearer " <> token)
+    |> put_req_header(@deployment_header, deployment_ref)
+    |> put_req_header(@vantage_gen_header, "1")
+    |> ControlPlaneRuntimeRouter.call([])
   end
 
   defp post_grant(deployment_ref, payload, token \\ @media_worker_token) do

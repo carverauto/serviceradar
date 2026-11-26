@@ -95,9 +95,22 @@ js_test(
     entry_point = "tests/pack.test.mjs",
     data = [
         ":edge_cli_dist",
+        "//elixir/serviceradar_core:vantage_alpr_pack_js",
         "bin/serviceradar-cli.js",
         "package.json",
     ],
+)
+
+js_test(
+    name = "vantage_test",
+    size = "medium",
+    entry_point = "tests/vantage.test.mjs",
+    data = [
+        ":edge_cli_dist",
+        "//elixir/serviceradar_core:vantage_alpr_pack_js",
+        "bin/serviceradar-cli.js",
+        "package.json",
+    ] + glob(["templates/vantage-*/**"]),
 )
 
 js_run_binary(

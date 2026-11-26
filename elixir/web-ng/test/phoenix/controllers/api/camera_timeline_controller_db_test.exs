@@ -613,6 +613,106 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
     assert json_response(bad_id, 400) == %{"error" => "invalid_request"}
   end
 
+  test "serves authenticated Vantage observation crop JPEG and fails closed on nil crop, quarantine, or missing permission",
+       %{
+         conn: conn,
+         actor: actor
+       } do
+    alias ServiceRadar.Camera.VantageObservation
+
+    ctx = create_timeline_fixture(actor)
+
+    valid_jfif =
+      <<0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, "JFIF", 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01>> <>
+        <<0x00, 0x00, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x10, 0x00, 0x10, 0x01, 0x01, 0x11>> <>
+        <<0x00, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0xFF, 0xD9>>
+
+    base_attrs = %{
+      pack_id: "io.serviceradar.vantage-alpr",
+      pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+      pipeline_version: "1.0.0",
+      worker_kind: "camera_vlm",
+      model_id: "qwen3.5-4b",
+      model_version: "1.0",
+      camera_source_id: ctx.source.id,
+      stream_profile_id: ctx.profile.id,
+      source_mode: :recorded_block,
+      timeline_ts_us: @base_us + 5_500_000,
+      time_basis: :received,
+      category: "license_plate",
+      label: "SR-0100",
+      confidence: 0.94,
+      signal_schema_id: "alpr_plate_read",
+      signal_schema_version: "1.0.0",
+      display_contract_id: "alpr_plate_read"
+    }
+
+    playable_obs =
+      VantageObservation
+      |> Ash.Changeset.for_create(
+        :upsert_observation,
+        Map.merge(base_attrs, %{
+          observation_key: "crop-ok-#{System.unique_integer([:positive])}",
+          catalog_entry_id: ctx.local_entry.id,
+          crop_jpeg: valid_jfif
+        }),
+        actor: actor
+      )
+      |> Ash.create!()
+
+    nil_crop_obs =
+      VantageObservation
+      |> Ash.Changeset.for_create(
+        :upsert_observation,
+        Map.merge(base_attrs, %{
+          observation_key: "crop-nil-#{System.unique_integer([:positive])}",
+          catalog_entry_id: ctx.local_entry.id,
+          crop_jpeg: nil
+        }),
+        actor: actor
+      )
+      |> Ash.create!()
+
+    quarantined_obs =
+      VantageObservation
+      |> Ash.Changeset.for_create(
+        :upsert_observation,
+        Map.merge(base_attrs, %{
+          observation_key: "crop-quar-#{System.unique_integer([:positive])}",
+          catalog_entry_id: ctx.quarantined_entry.id,
+          crop_jpeg: valid_jfif
+        }),
+        actor: actor
+      )
+      |> Ash.create!()
+
+    ok_resp =
+      get(conn, "/api/cameras/#{ctx.source.id}/timeline/thumbnails/vantage/#{playable_obs.id}.jpg")
+
+    assert ok_resp.status == 200
+    assert ok_resp.resp_body == valid_jfif
+    assert get_resp_header(ok_resp, "content-type") == ["image/jpeg"]
+
+    nil_resp =
+      get(conn, "/api/cameras/#{ctx.source.id}/timeline/thumbnails/vantage/#{nil_crop_obs.id}.jpg")
+
+    assert json_response(nil_resp, 404) == %{"error" => "thumbnail_not_found"}
+
+    quar_resp =
+      get(conn, "/api/cameras/#{ctx.source.id}/timeline/thumbnails/vantage/#{quarantined_obs.id}.jpg")
+
+    assert json_response(quar_resp, 404) == %{"error" => "thumbnail_not_found"}
+
+    {no_rec_user, _profile} = user_with_permissions(["devices.view"], actor)
+
+    denied_resp =
+      no_rec_user
+      |> authed_conn()
+      |> get("/api/cameras/#{ctx.source.id}/timeline/thumbnails/vantage/#{playable_obs.id}.jpg")
+
+    assert denied_resp.status == 403
+  end
+
   defp authed_conn(user), do: log_in_user(build_conn(), user)
 
   defp create_timeline_fixture(actor) do

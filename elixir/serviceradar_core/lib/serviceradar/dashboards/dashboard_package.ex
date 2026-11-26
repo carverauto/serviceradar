@@ -35,7 +35,11 @@ defmodule ServiceRadar.Dashboards.DashboardPackage do
     :source_metadata,
     :imported_at,
     :verification_status,
-    :verification_error
+    :verification_error,
+    :pack_id,
+    :pack_version,
+    :managed,
+    :template_fingerprint
   ]
 
   postgres do
@@ -225,6 +229,27 @@ defmodule ServiceRadar.Dashboards.DashboardPackage do
       public? true
       default :staged
       constraints one_of: [:staged, :enabled, :disabled, :revoked]
+    end
+
+    attribute :pack_id, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :pack_version, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :managed, :boolean do
+      allow_nil? false
+      default false
+      public? true
+    end
+
+    attribute :template_fingerprint, :string do
+      allow_nil? true
+      public? true
     end
 
     create_timestamp :inserted_at

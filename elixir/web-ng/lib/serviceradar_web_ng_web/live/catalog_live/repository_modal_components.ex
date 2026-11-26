@@ -631,7 +631,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.RepositoryModalComponents do
             <p class="mt-2 text-xs text-sr-muted">
               Accepts deterministic <code class="font-mono">.srpack</code>
               (tar.zst), <code class="font-mono">.zip</code>, or <code class="font-mono">.json</code>
-              pack bundles (max 25 MB).
+              pack bundles (max 25 MB, or 32 MB with bundled dashboard modules).
             </p>
           </div>
 

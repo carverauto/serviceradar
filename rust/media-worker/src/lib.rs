@@ -17,6 +17,7 @@ mod ort_loader;
 mod range_reader;
 mod tokenizer;
 mod tracking;
+mod vantage_vlm;
 mod vision;
 mod worker;
 mod yolox;
@@ -44,7 +45,11 @@ pub use cmaf::{
     SyntheticFragmentSpec, SyntheticObjectSpec, VideoCodec, generate_synthetic_cmaf_block,
     parse_init_segment, parse_media_fragment, render_synthetic_pattern_frame,
 };
-pub use config::{CliArgs, ExecutionProvider, GpuSharingMode, ModelPinConfig, WorkerConfig};
+pub use config::{
+    CliArgs, DEFAULT_VANTAGE_CONSUMER_NAME, DEFAULT_VANTAGE_VLM_MODEL, DEFAULT_VANTAGE_VLM_URL,
+    DEFAULT_VANTAGE_WORKER_ID, ExecutionProvider, GpuSharingMode, ModelPinConfig,
+    RedactedVlmApiKey, WorkerConfig, normalize_vlm_url,
+};
 pub use credentials::{EphemeralS3Credentials, RedactedPresignedUrl, WorkerAuthCredentials};
 pub use errors::{
     CapabilityError, CapabilityErrorKind, IntegrityError, IntegrityErrorKind, MediaWorkerError,
@@ -73,16 +78,26 @@ pub use range_reader::{
 };
 pub use serviceradar_media_core as media_core;
 pub use serviceradar_media_core::{
-    ColorName, CompressedFrameGate, CompressedFrameGateConfig, Detection, DetectionEvent,
-    DetectionEventKind, EncodedThumbnail, GateAdmitReason, GateDecision, LetterboxTransform,
-    LumaPlane, LumaPlaneView, MediaCoreError, MediaPipeline, MediaPipelineConfig, MotionGridMap,
-    MultiObjectTracker, ObjectCategory, ObjectDetector, PipelineFrameOutput, PixelMotionGate,
-    PixelMotionGateConfig, PixelMotionMetrics, RoiGridMask, RoiMask, SyntheticDetector,
-    ThumbnailConfig, TrackState, TrackerConfig, TwoTierFrameGate, VisualAttributes, YoloxConfig,
-    YoloxPostProcessor, encode_jpeg_thumbnail, extract_visual_attributes,
+    ColorName, CompressedFrameGate, CompressedFrameGateConfig, CropConfig, CropOutcome, CropPolicy,
+    CropSkipReason, Detection, DetectionEvent, DetectionEventKind, EncodedCrop, EncodedThumbnail,
+    GateAdmitReason, GateDecision, InputMode, LetterboxTransform, LiveFramePayloadFormat,
+    LumaPlane, LumaPlaneView, MAX_VLM_MAX_TOKENS, MediaCoreError, MediaPipeline,
+    MediaPipelineConfig, MotionGridMap, MultiObjectTracker, ObjectCategory, ObjectDetector,
+    PipelineFrameOutput, PixelMotionGate, PixelMotionGateConfig, PixelMotionMetrics,
+    RgbCropOutcome, RoiGridMask, RoiMask, RoiPolygon, SampledTarget, SourceMode, SyntheticDetector,
+    ThumbnailConfig, TimeBasis, TrackState, TrackerConfig, TwoTierFrameGate, VantageFrameContext,
+    VantageJobEnvelope, VantageLiveFrameEnvelope, VantageObservationInput, VantageResultEnvelope,
+    VantageUpstreamDetection, VantageWorkerHeartbeat, VisualAttributes, VlmJobConfig, WorkerHealth,
+    WorkerKind, YoloxConfig, YoloxPostProcessor, crop_detection_in_rois_jpeg, crop_detection_jpeg,
+    crop_detection_rgb, crop_roi_polygon_jpeg, crop_roi_polygon_rgb, crop_roi_polygons_jpeg,
+    encode_jpeg_thumbnail, expand_bbox_padded, extract_visual_attributes,
 };
 pub use tokenizer::PureRustTokenizer;
 pub use tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score};
+pub use vantage_vlm::{
+    HttpVlmClient, ParsedVlmReading, VantageJobOutcome, VantageVlmProcessor, VlmCallError,
+    VlmChatRequest, VlmClient, VlmParseFailure, parse_vlm_json_response,
+};
 pub use vision::{
     BackendObjectDetector, ClipAnalysis, ClipKeyframe, DetectedSubject, GeneratedEmbedding,
     KeyframeAnalysis, MAX_ENVELOPE_THUMBNAIL_B64_BYTES, MAX_THUMBNAIL_JPEG_BYTES, ObjectClass,
@@ -92,7 +107,8 @@ pub use worker::{
     AdmittedWorker, DetectionPayload, EmbeddingPayload, FrameResultPayload, JetStreamJobDelivery,
     JetStreamResultPublisher, JobDelivery, JobOutcome, MAX_RESULT_ENVELOPE_JSON_BYTES,
     ResultPublisher, TextEmbedRpcRequest, TextEmbedRpcResponse, TrackSummaryPayload,
-    UndecodableKeyframePayload, VISUAL_INDEX_BACKFILL_SUBJECT, VISUAL_INDEX_LIVE_SUBJECT,
+    UndecodableKeyframePayload, VANTAGE_RESULTS_SUBJECT, VANTAGE_VLM_BACKFILL_SUBJECT,
+    VANTAGE_VLM_LIVE_SUBJECT, VISUAL_INDEX_BACKFILL_SUBJECT, VISUAL_INDEX_LIVE_SUBJECT,
     VISUAL_INDEX_RESULTS_SUBJECT, VISUAL_TEXT_EMBED_QUEUE_GROUP, VISUAL_TEXT_EMBED_RPC_PREFIX,
     VisualIndexJobEnvelope, VisualIndexProcessor, VisualIndexResultEnvelope, load_and_admit_worker,
     run_admitted_nats_worker, run_admitted_nats_worker_with_readiness, run_nats_worker_loops,

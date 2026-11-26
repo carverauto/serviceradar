@@ -1,0 +1,88 @@
+{
+  "default_time_range": "last_24h",
+  "description": "Overview of Gate West 01 ALPR observation events, open alerts, and Vantage service posture.",
+  "metadata": {
+    "category": "Camera & Vantage ML"
+  },
+  "panels": [
+    {
+      "data_binding": {
+        "value": "total"
+      },
+      "display_config": {
+        "unit": "events"
+      },
+      "layout": {
+        "h": 3,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "position": 0,
+      "srql_query": "in:events log_name:\"camera.vantage.observation\" stats:\"count() as total\"",
+      "title": "ALPR Plate Read Events",
+      "visual_config": {},
+      "visual_type": "stat"
+    },
+    {
+      "data_binding": {
+        "value": "open_alerts"
+      },
+      "display_config": {
+        "unit": "alerts"
+      },
+      "layout": {
+        "h": 3,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "position": 1,
+      "srql_query": "in:alerts status:open stats:\"count() as open_alerts\"",
+      "title": "Open ALPR Alerts",
+      "visual_config": {},
+      "visual_type": "stat"
+    },
+    {
+      "data_binding": {
+        "value": "failing"
+      },
+      "display_config": {
+        "unit": "services"
+      },
+      "layout": {
+        "h": 3,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "position": 2,
+      "srql_query": "in:services available:false stats:\"count() as failing\"",
+      "title": "Unhealthy Services",
+      "visual_config": {},
+      "visual_type": "stat"
+    },
+    {
+      "data_binding": {
+        "category": "severity",
+        "value": "total"
+      },
+      "display_config": {},
+      "layout": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 3
+      },
+      "position": 3,
+      "srql_query": "in:events log_name:\"camera.vantage.observation\" stats:\"count() as total by severity\"",
+      "title": "ALPR Observation Events by Severity",
+      "visual_config": {},
+      "visual_type": "category"
+    }
+  ],
+  "slug": "alpr-overview",
+  "title": "ALPR Synthetic Overview",
+  "variables": {},
+  "version": 1
+}

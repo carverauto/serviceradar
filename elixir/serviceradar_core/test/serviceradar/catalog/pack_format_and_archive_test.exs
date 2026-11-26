@@ -674,4 +674,491 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
     do: {:healthy, "no_paused_guests"}
 
   defp expected_paused_guest_verdict(_guests), do: {:unknown, "paused_guest_state_unknown"}
+
+  describe "pack_format_version: 2, Dashboard SDK bundling, and SecretFreeValidator JS rules" do
+    test "validates and round-trips v2 pack with VantagePipeline, .schema/.display pair, combined schema, worker deps, and bundled dashboard module" do
+      renderer_js =
+        ~s|const password = "field-label-only"; export default function mount(){return {api_key:"slot_ref"}}|
+
+      renderer_sha = PackManifest.sha256_hex(renderer_js)
+
+      dash_manifest = %{
+        "schema_version" => 1,
+        "id" => "com.serviceradar.test-vantage-console",
+        "name" => "Synthetic Vantage Console",
+        "version" => "1.0.0",
+        "renderer" => %{
+          "kind" => "browser_module",
+          "interface_version" => "dashboard-browser-module-v1",
+          "artifact" => "renderer.js",
+          "sha256" => renderer_sha,
+          "trust" => "trusted",
+          "exports" => ["default"]
+        },
+        "data_frames" => [
+          %{"id" => "reads", "query" => "in:camera_observations", "encoding" => "json_rows"}
+        ],
+        "capabilities" => ["srql.execute"],
+        "settings_schema" => %{}
+      }
+
+      pipeline_doc = %{
+        "pipeline_id" => "io.serviceradar.synthetic-vantage.plate-read",
+        "version" => "1.0.0",
+        "name" => "Synthetic Gate Plate Pipeline",
+        "source_mode" => "recorded_block",
+        "trigger_kind" => "on_stage1_detection",
+        "camera_selector" => %{"site" => %{"$pack_param" => "site_code"}},
+        "object_classes" => ["vehicle"],
+        "min_confidence" => 0.6,
+        "input_mode" => "detection_crop",
+        "runner" => "camera_vlm",
+        "capability" => "vantage.alpr.v1",
+        "fallback_runner" => "camera_vlm",
+        "signal_schema_id" => "plate_read_pair",
+        "signal_schema_version" => "1.0.0",
+        "display_contract_id" => "plate_read_pair"
+      }
+
+      schema_pair_doc = %{
+        "type" => "object",
+        "required" => ["plate_text"],
+        "properties" => %{"plate_text" => %{"type" => "string", "minLength" => 2}}
+      }
+
+      display_pair_doc = %{
+        "id" => "plate_read_pair",
+        "title" => "Gate Plate Reads",
+        "primary_field" => "plate_text",
+        "fields" => [%{"key" => "plate_text", "label" => "Plate"}]
+      }
+
+      combined_schema_doc = %{
+        "schema_id" => "bay_occupancy_combined",
+        "version" => "1.0.0",
+        "display_contract_id" => "bay_occupancy_combined",
+        "schema" => %{
+          "type" => "object",
+          "properties" => %{"occupied" => %{"type" => "boolean"}}
+        },
+        "display_contract" => %{"title" => "Bay 04 Approach Occupancy"}
+      }
+
+      manifest = %{
+        "pack_format_version" => 2,
+        "id" => "io.serviceradar.synthetic-vantage",
+        "slug" => "synthetic-vantage",
+        "name" => "Synthetic Vantage Pack",
+        "version" => "1.0.0",
+        "author" => "ServiceRadar",
+        "license" => "Apache-2.0",
+        "description" => "Synthetic v2 test pack",
+        "categories" => ["Camera & Vantage"],
+        "config" => [%{"key" => "site_code", "type" => "string", "default" => "Gate West 01"}],
+        "worker_dependencies" => [
+          %{
+            "capability" => "vantage.alpr.v1",
+            "min_protocol_version" => "vantage.worker.v1",
+            "optional" => true,
+            "fallback_runner" => "camera_vlm"
+          }
+        ],
+        "dashboard_package_dependencies" => [
+          %{
+            "dashboard_id" => "com.serviceradar.shared-grid",
+            "version_constraint" => ">= 1.0.0",
+            "optional" => true
+          }
+        ],
+        "resources" => %{
+          "checks" => [],
+          "rules" => [],
+          "dashboards" => [],
+          "vantage_pipelines" => [
+            %{
+              "file" => "vantage_pipelines/plate-read.json",
+              "pipeline_id" => "io.serviceradar.synthetic-vantage.plate-read"
+            }
+          ],
+          "signal_schemas" => [
+            %{
+              "schema_id" => "plate_read_pair",
+              "version" => "1.0.0",
+              "schema_file" => "signal_schemas/plate_read.schema.json",
+              "display_file" => "signal_schemas/plate_read.display.json"
+            },
+            %{
+              "schema_id" => "bay_occupancy_combined",
+              "version" => "1.0.0",
+              "file" => "signal_schemas/bay_occupancy.json"
+            }
+          ],
+          "dashboard_packages" => [
+            %{"slug" => "vantage-console", "route_slug" => "vantage-console"}
+          ]
+        },
+        "files" => %{}
+      }
+
+      raw_files = %{
+        "manifest.json" => Jason.encode!(manifest),
+        "README.md" => "# Synthetic Vantage\n",
+        "vantage_pipelines/plate-read.json" => Jason.encode!(pipeline_doc),
+        "signal_schemas/plate_read.schema.json" => Jason.encode!(schema_pair_doc),
+        "signal_schemas/plate_read.display.json" => Jason.encode!(display_pair_doc),
+        "signal_schemas/bay_occupancy.json" => Jason.encode!(combined_schema_doc),
+        "dashboard_packages/vantage-console/manifest.json" => Jason.encode!(dash_manifest),
+        "dashboard_packages/vantage-console/renderer.js" => renderer_js
+      }
+
+      assert {:ok, archive} = PackArchive.build(raw_files, refresh_digests: true)
+      assert {:ok, extracted} = PackArchive.extract(archive)
+
+      assert extracted.manifest["pack_format_version"] == 2
+      assert length(extracted.vantage_pipelines) == 1
+      assert length(extracted.signal_schemas) == 2
+      assert length(extracted.dashboard_packages) == 1
+
+      assert hd(extracted.vantage_pipelines).normalized["signal_schema"]["required"] == [
+               "plate_text"
+             ]
+
+      assert hd(extracted.dashboard_packages).renderer_sha256 == renderer_sha
+    end
+
+    test "forbids v2 fields in v1 packs and fails closed on renderer SHA-256 mismatch or invalid JS" do
+      v1_with_v2 = %{
+        "pack_format_version" => 1,
+        "id" => "io.serviceradar.v1-bad",
+        "slug" => "v1-bad",
+        "name" => "V1 Bad",
+        "version" => "1.0.0",
+        "worker_dependencies" => [],
+        "resources" => %{
+          "checks" => [],
+          "rules" => [],
+          "dashboards" => [],
+          "vantage_pipelines" => []
+        },
+        "files" => %{}
+      }
+
+      assert {:error, diags} = PackManifest.validate_manifest(v1_with_v2)
+      assert Enum.any?(diags, &(&1.code == "v2_field_in_v1_pack"))
+
+      # Non-UTF-8 JS fails SecretFreeValidator
+      assert {:error, js_errs} =
+               SecretFreeValidator.validate_pack_tree(%{
+                 "dashboard_packages/app/renderer.js" => <<0xFF, 0xFE, 0x00>>
+               })
+
+      assert Enum.any?(js_errs, &(&1.code == "invalid_utf8"))
+
+      # Secret token literal in JS fails SecretFreeValidator
+      token = "ghp_" <> String.duplicate("A", 20)
+
+      assert {:error, tok_errs} =
+               SecretFreeValidator.validate_pack_tree(%{
+                 "dashboard_packages/app/renderer.js" => ~s|export const t = "#{token}";|
+               })
+
+      assert Enum.any?(tok_errs, &(&1.code == "github_pat"))
+
+      # Renderer SHA-256 mismatch fails closed
+      renderer_js = "export default function ok(){}"
+      wrong_sha = String.duplicate("0", 64)
+
+      dash_manifest = %{
+        "id" => "com.serviceradar.mismatch",
+        "name" => "Mismatch",
+        "version" => "1.0.0",
+        "renderer" => %{
+          "kind" => "browser_module",
+          "interface_version" => "dashboard-browser-module-v1",
+          "artifact" => "renderer.js",
+          "sha256" => wrong_sha,
+          "trust" => "trusted"
+        },
+        "data_frames" => [%{"id" => "x", "query" => "in:devices", "encoding" => "json_rows"}],
+        "capabilities" => ["srql.execute"],
+        "settings_schema" => %{}
+      }
+
+      manifest = %{
+        "pack_format_version" => 2,
+        "id" => "io.serviceradar.sha-mismatch",
+        "slug" => "sha-mismatch",
+        "name" => "SHA Mismatch",
+        "version" => "1.0.0",
+        "resources" => %{
+          "checks" => [],
+          "rules" => [],
+          "dashboards" => [],
+          "dashboard_packages" => [%{"slug" => "app"}]
+        },
+        "files" => %{}
+      }
+
+      {:ok, _, files} =
+        PackManifest.refresh_manifest_digests(manifest, %{
+          "dashboard_packages/app/manifest.json" => Jason.encode!(dash_manifest),
+          "dashboard_packages/app/renderer.js" => renderer_js
+        })
+
+      assert {:error, mismatch_diags} = PackManifest.validate_pack_tree(files)
+      assert Enum.any?(mismatch_diags, &(&1.code == "renderer_sha256_mismatch"))
+    end
+
+    test "enforces 64 MiB uncompressed ceiling without dashboard_packages and allows >64 MiB with dashboard_packages" do
+      big_payload = :binary.copy("x", 65 * 1024 * 1024)
+
+      no_dash_manifest = %{
+        "pack_format_version" => 1,
+        "id" => "io.serviceradar.big-v1",
+        "slug" => "big-v1",
+        "name" => "Big V1",
+        "version" => "1.0.0",
+        "resources" => %{"checks" => [], "rules" => [], "dashboards" => []},
+        "files" => %{}
+      }
+
+      assert {:error, :uncompressed_archive_too_large} =
+               PackArchive.build(
+                 %{
+                   "manifest.json" => Jason.encode!(no_dash_manifest),
+                   "README.md" => big_payload
+                 },
+                 refresh_digests: true
+               )
+
+      renderer_js = "export default function m(){}\n//" <> :binary.copy("a", 7_500_000)
+      renderer_sha = PackManifest.sha256_hex(renderer_js)
+
+      pkg_entries =
+        for idx <- 1..9, do: %{"slug" => "app-#{idx}"}
+
+      with_dash_manifest = %{
+        "pack_format_version" => 2,
+        "id" => "io.serviceradar.big-v2",
+        "slug" => "big-v2",
+        "name" => "Big V2",
+        "version" => "1.0.0",
+        "resources" => %{
+          "checks" => [],
+          "rules" => [],
+          "dashboards" => [],
+          "dashboard_packages" => pkg_entries
+        },
+        "files" => %{}
+      }
+
+      pkg_files =
+        Enum.reduce(1..9, %{}, fn idx, acc ->
+          slug = "app-#{idx}"
+
+          dash_manifest = %{
+            "id" => "com.serviceradar.big-ok-#{idx}",
+            "name" => "Big OK #{idx}",
+            "version" => "1.0.0",
+            "renderer" => %{
+              "kind" => "browser_module",
+              "interface_version" => "dashboard-browser-module-v1",
+              "artifact" => "renderer.js",
+              "sha256" => renderer_sha,
+              "trust" => "trusted"
+            },
+            "data_frames" => [%{"id" => "x", "query" => "in:devices", "encoding" => "json_rows"}],
+            "capabilities" => ["srql.execute"],
+            "settings_schema" => %{}
+          }
+
+          acc
+          |> Map.put("dashboard_packages/#{slug}/manifest.json", Jason.encode!(dash_manifest))
+          |> Map.put("dashboard_packages/#{slug}/renderer.js", renderer_js)
+        end)
+
+      assert {:ok, archive} =
+               PackArchive.build(
+                 Map.merge(
+                   %{
+                     "manifest.json" => Jason.encode!(with_dash_manifest),
+                     "README.md" => "# Big V2"
+                   },
+                   pkg_files
+                 ),
+                 refresh_digests: true
+               )
+
+      assert {:ok, extracted} = PackArchive.extract(archive)
+      assert extracted.manifest["pack_format_version"] == 2
+    end
+
+    test "PackExporter emits v1 by default and v2 when v2 resources or dependencies are supplied" do
+      assert {:ok, v1_tree} =
+               PackExporter.export_tree(%{id: "io.serviceradar.exp-v1", name: "Exp V1"})
+
+      v1_manifest = Jason.decode!(v1_tree["manifest.json"])
+      assert v1_manifest["pack_format_version"] == 1
+      refute Map.has_key?(v1_manifest, "worker_dependencies")
+
+      renderer_js = "export default function mount(){}"
+
+      assert {:ok, v2_tree} =
+               PackExporter.export_tree(%{
+                 id: "io.serviceradar.exp-v2",
+                 name: "Exp V2",
+                 worker_dependencies: [
+                   %{
+                     "capability" => "vantage.alpr.v1",
+                     "optional" => true,
+                     "fallback_runner" => "camera_vlm"
+                   }
+                 ],
+                 signal_schemas: [
+                   %{
+                     schema_id: "plate_read",
+                     version: "1.0.0",
+                     signal_schema: %{
+                       "type" => "object",
+                       "properties" => %{"plate" => %{"type" => "string"}}
+                     },
+                     display_contract: %{"title" => "Plates"}
+                   }
+                 ],
+                 vantage_pipelines: [
+                   %{
+                     pipeline_id: "io.serviceradar.exp-v2.alpr",
+                     version: "1.0.0",
+                     name: "ALPR",
+                     signal_schema_id: "plate_read",
+                     signal_schema_version: "1.0.0",
+                     display_contract_id: "plate_read"
+                   }
+                 ],
+                 dashboard_packages: [
+                   %{
+                     slug: "alpr-ui",
+                     dashboard_id: "com.serviceradar.alpr-ui",
+                     version: "1.0.0",
+                     route_slug: "alpr-ui",
+                     renderer_bytes: renderer_js,
+                     manifest: %{
+                       "id" => "com.serviceradar.alpr-ui",
+                       "name" => "ALPR UI",
+                       "version" => "1.0.0",
+                       "renderer" => %{
+                         "kind" => "browser_module",
+                         "interface_version" => "dashboard-browser-module-v1"
+                       },
+                       "data_frames" => [
+                         %{
+                           "id" => "f",
+                           "query" => "in:camera_observations",
+                           "encoding" => "json_rows"
+                         }
+                       ],
+                       "capabilities" => ["srql.execute"],
+                       "settings_schema" => %{}
+                     }
+                   }
+                 ]
+               })
+
+      v2_manifest = Jason.decode!(v2_tree["manifest.json"])
+      assert v2_manifest["pack_format_version"] == 2
+      assert length(v2_manifest["resources"]["vantage_pipelines"]) == 1
+      assert length(v2_manifest["resources"]["signal_schemas"]) == 1
+      assert length(v2_manifest["resources"]["dashboard_packages"]) == 1
+    end
+
+    test "rejects case-variant .JSON/.JS violations, oversized RENDERER.JS, and v1 >64 MiB archives" do
+      # Case-insensitive SecretFreeValidator checks for .JSON and .JS/.MJS
+      assert {:error, json_errs} =
+               SecretFreeValidator.validate_pack_tree(%{
+                 "checks/secret.JSON" => ~s|{"password":"synthetic-password"}|
+               })
+
+      assert Enum.any?(json_errs, &(&1.code == "forbidden_secret_key"))
+
+      assert {:error, evil_errs} =
+               SecretFreeValidator.validate_pack_tree(%{
+                 "vantage_pipelines/evil.JSON" =>
+                   ~s|{"vlm_config":{"password":"synthetic-password"}}|
+               })
+
+      assert Enum.any?(evil_errs, &(&1.code == "forbidden_secret_key"))
+
+      assert {:error, js_errs} =
+               SecretFreeValidator.validate_pack_tree(%{
+                 "dashboard_packages/app/RENDERER.JS" => <<0xFF, 0xFE, 0x00>>
+               })
+
+      assert Enum.any?(js_errs, &(&1.code == "invalid_utf8"))
+
+      # PackManifest.validate_pack_tree blocks uppercase .JSON with forbidden keys
+      v2_manifest = %{
+        "pack_format_version" => 2,
+        "id" => "io.serviceradar.case-secret",
+        "slug" => "case-secret",
+        "name" => "Case Secret",
+        "version" => "1.0.0",
+        "resources" => %{"checks" => [], "rules" => [], "dashboards" => []},
+        "files" => %{}
+      }
+
+      {:ok, _, secret_tree} =
+        PackManifest.refresh_manifest_digests(v2_manifest, %{
+          "vantage_pipelines/evil.JSON" => ~s|{"vlm_config":{"password":"synthetic-password"}}|
+        })
+
+      assert {:error, tree_errs} = PackManifest.validate_pack_tree(secret_tree)
+      assert Enum.any?(tree_errs, &(&1.code == "forbidden_secret_key"))
+
+      # PackArchive.extract_raw rejects oversized RENDERER.JS (> 8 MiB)
+      oversized_js = "export default function big(){}\n//" <> :binary.copy("a", 8 * 1024 * 1024)
+
+      raw_oversized_files = %{
+        "manifest.json" => Jason.encode!(v2_manifest),
+        "dashboard_packages/app/RENDERER.JS" => oversized_js
+      }
+
+      {:ok, _, refreshed_oversized} =
+        PackManifest.refresh_manifest_digests(v2_manifest, raw_oversized_files)
+
+      {:ok, tar_oversized} = PackArchive.encode_ustar(refreshed_oversized)
+
+      zst_oversized =
+        tar_oversized |> :zstd.compress(%{compressionLevel: 3}) |> IO.iodata_to_binary()
+
+      assert {:error, {:renderer_too_large, "dashboard_packages/app/RENDERER.JS"}} =
+               PackArchive.extract_raw(zst_oversized)
+
+      # PackArchive.extract_raw rejects pack_format_version: 1 > 64 MiB even if dashboard_packages key is present
+      v1_sneaky_manifest = %{
+        "pack_format_version" => 1,
+        "id" => "io.serviceradar.v1-sneaky",
+        "slug" => "v1-sneaky",
+        "name" => "V1 Sneaky",
+        "version" => "1.0.0",
+        "resources" => %{
+          "checks" => [],
+          "rules" => [],
+          "dashboards" => [],
+          "dashboard_packages" => [%{"slug" => "app"}]
+        },
+        "files" => %{}
+      }
+
+      {:ok, _, sneaky_files} =
+        PackManifest.refresh_manifest_digests(v1_sneaky_manifest, %{
+          "README.md" => :binary.copy("x", 65 * 1024 * 1024)
+        })
+
+      {:ok, tar_sneaky} = PackArchive.encode_ustar(sneaky_files)
+      zst_sneaky = tar_sneaky |> :zstd.compress(%{compressionLevel: 3}) |> IO.iodata_to_binary()
+
+      assert {:error, :uncompressed_archive_too_large} =
+               PackArchive.extract_raw(zst_sneaky)
+    end
+  end
 end

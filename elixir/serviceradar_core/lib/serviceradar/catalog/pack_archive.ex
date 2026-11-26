@@ -23,6 +23,9 @@ defmodule ServiceRadar.Catalog.PackArchive do
 
   @max_compressed_bytes 25 * 1024 * 1024
   @max_uncompressed_bytes 64 * 1024 * 1024
+  @max_compressed_bytes_with_dashboards 32 * 1024 * 1024
+  @max_uncompressed_bytes_with_dashboards 96 * 1024 * 1024
+  @max_renderer_bytes 8 * 1024 * 1024
   @max_entries 256
   @tar_block_size 512
   @zstd_level 3
@@ -31,13 +34,25 @@ defmodule ServiceRadar.Catalog.PackArchive do
   @s_ifreg 0o100000
   @s_ifdir 0o040000
 
-  @doc "Maximum compressed archive size in bytes (25 MB)."
+  @doc "Maximum compressed archive size in bytes without bundled dashboards (25 MB)."
   @spec max_compressed_bytes() :: pos_integer()
   def max_compressed_bytes, do: @max_compressed_bytes
 
-  @doc "Maximum total uncompressed archive size in bytes (64 MB)."
+  @doc "Maximum total uncompressed archive size in bytes without bundled dashboards (64 MB)."
   @spec max_uncompressed_bytes() :: pos_integer()
   def max_uncompressed_bytes, do: @max_uncompressed_bytes
+
+  @doc "Maximum compressed archive size in bytes when bundled dashboards are present (32 MB)."
+  @spec max_compressed_bytes_with_dashboards() :: pos_integer()
+  def max_compressed_bytes_with_dashboards, do: @max_compressed_bytes_with_dashboards
+
+  @doc "Maximum total uncompressed archive size in bytes when bundled dashboards are present (96 MB)."
+  @spec max_uncompressed_bytes_with_dashboards() :: pos_integer()
+  def max_uncompressed_bytes_with_dashboards, do: @max_uncompressed_bytes_with_dashboards
+
+  @doc "Maximum single bundled dashboard `renderer.js` byte size (8 MB)."
+  @spec max_renderer_bytes() :: pos_integer()
+  def max_renderer_bytes, do: @max_renderer_bytes
 
   @doc "Maximum number of file entries in a Solution Pack archive (256)."
   @spec max_entries() :: pos_integer()
@@ -52,11 +67,14 @@ defmodule ServiceRadar.Catalog.PackArchive do
   """
   @spec build(map(), keyword()) :: {:ok, binary()} | {:error, term()}
   def build(raw_file_map, opts \\ []) when is_map(raw_file_map) and is_list(opts) do
-    max_uncompressed = Keyword.get(opts, :max_uncompressed_bytes, @max_uncompressed_bytes)
     max_entries = Keyword.get(opts, :max_entries, @max_entries)
 
     with {:ok, file_map} <- maybe_refresh_digests(raw_file_map, opts),
+         {default_compressed, default_uncompressed} = effective_limits(file_map),
+         max_uncompressed = Keyword.get(opts, :max_uncompressed_bytes, default_uncompressed),
+         max_compressed = Keyword.get(opts, :max_compressed_bytes, default_compressed),
          :ok <- check_build_bounds(file_map, max_entries, max_uncompressed),
+         :ok <- check_renderer_sizes(file_map),
          {:ok, _validated} <- PackManifest.validate_pack_tree(file_map, opts),
          {:ok, tar_bytes} <- encode_ustar(file_map) do
       compressed =
@@ -64,7 +82,7 @@ defmodule ServiceRadar.Catalog.PackArchive do
         |> :zstd.compress(%{compressionLevel: @zstd_level})
         |> IO.iodata_to_binary()
 
-      if byte_size(compressed) > Keyword.get(opts, :max_compressed_bytes, @max_compressed_bytes) do
+      if byte_size(compressed) > max_compressed do
         {:error, :compressed_archive_too_large}
       else
         {:ok, compressed}
@@ -74,7 +92,7 @@ defmodule ServiceRadar.Catalog.PackArchive do
 
   @doc """
   Extracts and validates a `.srpack` (`tar.zst`, `tar.gz`, raw `.tar`) or `.zip`
-  archive into a validated pack map (`%{manifest, files, checks, rules, dashboards}`).
+  archive into a validated pack map (`%{manifest, files, checks, rules, dashboards, ...}`).
   """
   @spec extract(binary(), keyword()) :: {:ok, map()} | {:error, term()}
   def extract(archive_bytes, opts \\ []) when is_binary(archive_bytes) and is_list(opts) do
@@ -91,14 +109,20 @@ defmodule ServiceRadar.Catalog.PackArchive do
   """
   @spec extract_raw(binary(), keyword()) :: {:ok, %{String.t() => binary()}} | {:error, term()}
   def extract_raw(archive_bytes, opts \\ []) when is_binary(archive_bytes) and is_list(opts) do
-    max_compressed = Keyword.get(opts, :max_compressed_bytes, @max_compressed_bytes)
-    max_uncompressed = Keyword.get(opts, :max_uncompressed_bytes, @max_uncompressed_bytes)
+    initial_max_compressed =
+      Keyword.get(opts, :max_compressed_bytes, @max_compressed_bytes_with_dashboards)
+
+    initial_max_uncompressed =
+      Keyword.get(opts, :max_uncompressed_bytes, @max_uncompressed_bytes_with_dashboards)
+
     max_entries = Keyword.get(opts, :max_entries, @max_entries)
 
-    if byte_size(archive_bytes) > max_compressed do
+    if byte_size(archive_bytes) > initial_max_compressed do
       {:error, :compressed_archive_too_large}
     else
-      with {:ok, files} <- unpack_by_magic(archive_bytes, max_uncompressed, max_entries),
+      with {:ok, files} <- unpack_by_magic(archive_bytes, initial_max_uncompressed, max_entries),
+           :ok <- enforce_post_manifest_limits(archive_bytes, files, opts),
+           :ok <- check_renderer_sizes(files),
            :ok <- maybe_verify_manifest_files(files, opts) do
         {:ok, files}
       end
@@ -151,6 +175,76 @@ defmodule ServiceRadar.Catalog.PackArchive do
       total > max_uncompressed -> {:error, :uncompressed_archive_too_large}
       true -> :ok
     end
+  end
+
+  defp effective_limits(files) do
+    if has_dashboard_packages?(files) do
+      {@max_compressed_bytes_with_dashboards, @max_uncompressed_bytes_with_dashboards}
+    else
+      {@max_compressed_bytes, @max_uncompressed_bytes}
+    end
+  end
+
+  defp enforce_post_manifest_limits(archive_bytes, files, opts) do
+    {default_compressed, default_uncompressed} = effective_limits(files)
+    max_compressed = Keyword.get(opts, :max_compressed_bytes, default_compressed)
+    max_uncompressed = Keyword.get(opts, :max_uncompressed_bytes, default_uncompressed)
+
+    total_uncompressed =
+      Enum.reduce(files, 0, fn {_k, v}, acc ->
+        acc + if(is_binary(v), do: byte_size(v), else: 0)
+      end)
+
+    cond do
+      byte_size(archive_bytes) > max_compressed -> {:error, :compressed_archive_too_large}
+      total_uncompressed > max_uncompressed -> {:error, :uncompressed_archive_too_large}
+      true -> :ok
+    end
+  end
+
+  defp check_renderer_sizes(files) do
+    oversized =
+      Enum.find(files, fn {path, bytes} ->
+        lower_path = String.downcase(path)
+
+        is_binary(bytes) and
+          String.starts_with?(path, "dashboard_packages/") and
+          (String.ends_with?(lower_path, ".js") or String.ends_with?(lower_path, ".mjs")) and
+          byte_size(bytes) > @max_renderer_bytes
+      end)
+
+    case oversized do
+      nil -> :ok
+      {path, _bytes} -> {:error, {:renderer_too_large, path}}
+    end
+  end
+
+  defp has_dashboard_packages?(files) do
+    case Map.fetch(files, "manifest.json") do
+      {:ok, manifest_bytes} when is_binary(manifest_bytes) ->
+        case Jason.decode(manifest_bytes) do
+          {:ok, manifest} when is_map(manifest) ->
+            manifest_has_dashboard_packages?(manifest)
+
+          _ ->
+            false
+        end
+
+      {:ok, manifest} when is_map(manifest) ->
+        manifest_has_dashboard_packages?(manifest)
+
+      _ ->
+        Enum.any?(Map.keys(files), &String.starts_with?(&1, "dashboard_packages/"))
+    end
+  end
+
+  defp manifest_has_dashboard_packages?(manifest) do
+    Map.get(manifest, "pack_format_version") == 2 and
+      manifest
+      |> get_in(["resources", "dashboard_packages"])
+      |> List.wrap()
+      |> Enum.empty?()
+      |> Kernel.not()
   end
 
   @doc false

@@ -1,4 +1,5 @@
 load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
@@ -861,6 +862,34 @@ write_source_files(
 )
 
 ash_schema(
+    name = "vantage_ml_pipelines_schema",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_vantage_ml_pipelines/pipeline.json",
+        "generated_vantage_ml_pipelines/job.json",
+        "generated_vantage_ml_pipelines/observation.json",
+        "generated_vantage_ml_pipelines/worker_reg.json",
+        "generated_vantage_ml_pipelines/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:vantage_ml_pipelines_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_vantage_ml_pipelines_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_vantage_pipelines/20261124214934.json": ":generated_vantage_ml_pipelines/pipeline.json",
+        "priv/resource_snapshots/repo/platform.camera_vantage_jobs/20261124214934.json": ":generated_vantage_ml_pipelines/job.json",
+        "priv/resource_snapshots/repo/platform.camera_vantage_observations/20261124214934.json": ":generated_vantage_ml_pipelines/observation.json",
+        "priv/resource_snapshots/repo/platform.vantage_worker_registrations/20261124214934.json": ":generated_vantage_ml_pipelines/worker_reg.json",
+        "priv/repo/migrations/20261124214934_add_vantage_ml_pipelines_and_observations.exs": ":generated_vantage_ml_pipelines/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
     name = "declarative_checks_schema",
     # do not sort: generator arguments are positional.
     outs = [
@@ -1298,6 +1327,24 @@ filegroup(
 filegroup(
     name = "camera_model_identity_src",
     srcs = ["lib/serviceradar/camera/visual_index_dispatcher.ex"],
+)
+
+filegroup(
+    name = "vantage_alpr_pack",
+    srcs = glob(
+        ["priv/solution_packs/vantage-alpr/**"],
+        allow_empty = False,
+    ),
+    visibility = [
+        "//integration_tests/vantage_ml:__pkg__",
+        "//js/cli:__pkg__",
+    ],
+)
+
+js_library(
+    name = "vantage_alpr_pack_js",
+    srcs = [":vantage_alpr_pack"],
+    visibility = ["//js/cli:__pkg__"],
 )
 
 # Schema-template identity inputs. Keep these separate from the migration execution

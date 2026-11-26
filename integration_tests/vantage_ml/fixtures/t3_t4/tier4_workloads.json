@@ -1,0 +1,159 @@
+{
+  "schema_version": "1.0.0",
+  "milestone": "E2E-M5",
+  "description": "Synthetic Tier 4 real-world operational workload scenarios (W1-W7).",
+  "workloads": [
+    {
+      "test_id": "E2E-T4-W1",
+      "workload": "W1",
+      "title": "Ramp 1 ALPR Gate Entry Lifecycle (Gate West 01, SR-0100, TEST-742)",
+      "feature": "F1+F3+F4+F5+F8+F9+F10+F11",
+      "camera_name": "Gate West 01",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+      "pack_id": "io.serviceradar.vantage-alpr",
+      "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+      "detections": [
+        {"target_key": "track-sr-0100", "track_id": "1", "category": "vehicle", "confidence": 0.87, "bbox": [0.3, 0.45, 0.55, 0.8], "in_roi": true, "plate": "SR-0100"},
+        {"target_key": "track-test-742", "track_id": "2", "category": "vehicle", "confidence": 0.91, "bbox": [0.35, 0.48, 0.62, 0.82], "in_roi": true, "plate": "TEST-742"},
+        {"target_key": "track-distant", "track_id": "3", "category": "vehicle", "confidence": 0.85, "bbox": [0.4, 0.4, 0.44, 0.5], "in_roi": true, "plate": null},
+        {"target_key": "track-person", "track_id": "4", "category": "person", "confidence": 0.93, "bbox": [0.1, 0.2, 0.25, 0.7], "in_roi": true, "plate": null}
+      ],
+      "expected_admitted_jobs": 2,
+      "expected_persisted_plates": ["SR-0100", "TEST-742"],
+      "expected_skipped_reasons": ["crop_below_min_dimension", "unmatched_object_class"],
+      "srql_query": "in:camera_observations category:license_plate label:SR-0100 sort:timeline_ts_us:desc limit:25",
+      "semantic_search_query": "TEST-742"
+    },
+    {
+      "test_id": "E2E-T4-W2",
+      "workload": "W2",
+      "title": "Recording Hold Preservation vs Quarantine & Terminal Reclaim Purge",
+      "feature": "F1+F2+F3+F9+F11",
+      "camera_name": "Gate West 01",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "held_block": {
+        "catalog_entry_id": "44444444-4444-4444-8444-444444444411",
+        "plate_text": "SR-0100",
+        "local_state": "present",
+        "archive_state": "not_required",
+        "timeline_start_us": 1760000100000000,
+        "timeline_end_us": 1760000110000000
+      },
+      "unheld_block": {
+        "catalog_entry_id": "44444444-4444-4444-8444-444444444412",
+        "plate_text": "TEST-742",
+        "local_state": "present",
+        "archive_state": "not_required",
+        "timeline_start_us": 1760000110000000,
+        "timeline_end_us": 1760000120000000
+      },
+      "hold": {
+        "state": "accepted",
+        "start_us": 1760000100000000,
+        "end_us": 1760000110000000
+      }
+    },
+    {
+      "test_id": "E2E-T4-W3",
+      "workload": "W3",
+      "title": "Multi-Tenant Dual-Permission RBAC, Source Scoping & Audit Trail",
+      "feature": "F1+F3+F6+F9+F10",
+      "gate_west_id": "22222222-2222-4222-8222-222222222201",
+      "bay_04_id": "22222222-2222-4222-8222-222222222204",
+      "actors": [
+        {
+          "name": "full_camera_admin",
+          "permissions": ["devices.view", "devices.cameras.recordings.view", "catalog.packs.install", "dashboards.packages.manage"],
+          "authorized_sources": ["22222222-2222-4222-8222-222222222201", "22222222-2222-4222-8222-222222222204"],
+          "expected_srql_allowed": true,
+          "expected_visible_cameras": ["22222222-2222-4222-8222-222222222201", "22222222-2222-4222-8222-222222222204"]
+        },
+        {
+          "name": "bay04_scoped_operator",
+          "permissions": ["devices.view", "devices.cameras.recordings.view"],
+          "authorized_sources": ["22222222-2222-4222-8222-222222222204"],
+          "expected_srql_allowed": true,
+          "expected_visible_cameras": ["22222222-2222-4222-8222-222222222204"]
+        },
+        {
+          "name": "devices_only_viewer",
+          "permissions": ["devices.view"],
+          "authorized_sources": ["22222222-2222-4222-8222-222222222201", "22222222-2222-4222-8222-222222222204"],
+          "expected_srql_allowed": false,
+          "expected_visible_cameras": []
+        }
+      ],
+      "bypass_query": "in:devices in:camera_observations label:SR-0100",
+      "expected_audit_event_kind": "semantic_search"
+    },
+    {
+      "test_id": "E2E-T4-W4",
+      "workload": "W4",
+      "title": "Solution Pack v2 CLI Authoring, Signing, Staged Approval, Upgrade & Uninstall",
+      "feature": "F1+F6+F7+F8+F10",
+      "pack_name": "bay-monitor-e2e",
+      "pack_id": "io.serviceradar.bay-monitor-e2e",
+      "template": "python-worker",
+      "with_dashboard": true,
+      "versions": ["1.0.0", "1.1.0"],
+      "operator_overrides": {
+        "max_jobs_per_minute": 24,
+        "min_confidence": 0.7
+      },
+      "base_url": "https://packages.example.com/"
+    },
+    {
+      "test_id": "E2E-T4-W5",
+      "workload": "W5",
+      "title": "External Rust SDK Worker Ramp 1 -> Ramp 2 Upgrade & Heartbeat-TTL Failback",
+      "feature": "F3+F5+F8+F11+F12",
+      "capability": "vantage.alpr.v1",
+      "pipeline": {
+        "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+        "runner": "external_worker",
+        "capability": "vantage.alpr.v1",
+        "optional": true,
+        "fallback_runner": "camera_vlm"
+      },
+      "ttl_us": 30000000,
+      "expected_ramp1_subject": "media.jobs.vantage.vlm.v1",
+      "expected_ramp2_subject": "media.jobs.vantage.vantage_alpr_v1.v1",
+      "expected_signal_schema_id": "alpr_plate_read",
+      "plate_text": "SR-0100"
+    },
+    {
+      "test_id": "E2E-T4-W6",
+      "workload": "W6",
+      "title": "External Python PyO3 Zero-Copy NumPy Worker & Offline vantage dev Harness",
+      "feature": "F4+F7+F11+F12",
+      "capability": "vantage.alpr.v1",
+      "frame_width": 320,
+      "frame_height": 240,
+      "expected_dtype": "uint8",
+      "expected_shape": [240, 320, 3],
+      "expected_c_contiguous": true,
+      "plate_text": "TEST-742",
+      "camera_name": "Gate West 01"
+    },
+    {
+      "test_id": "E2E-T4-W7",
+      "workload": "W7",
+      "title": "Phase 3 vantage.bay_guidance.v1 (Bay 04 Approach) Live-Tap Benchmark & Crash/Overflow Isolation",
+      "feature": "F1+F2+F3+F12+F13+F14",
+      "camera_name": "Bay 04 Approach",
+      "camera_source_id": "22222222-2222-4222-8222-222222222204",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333304",
+      "capability": "vantage.bay_guidance.v1",
+      "live_subject": "media.live.vantage.vantage_bay_guidance_v1.v1",
+      "live_observation_retention_days": 7,
+      "mailbox_cap": 8,
+      "overflow_burst_frames": 20,
+      "expected_dropped_frames": 12,
+      "cmaf_block_sequences": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+      "steady_state_latencies_ms": [5.1, 6.3, 7.0, 7.8, 8.4, 9.2, 10.1, 11.4, 12.6, 14.0, 15.2, 16.8, 18.1, 20.5, 22.9, 25.0, 27.4, 31.2, 35.8, 42.1],
+      "guidance_states": ["approach", "aligning", "stop", "docked", "clear"]
+    }
+  ]
+}

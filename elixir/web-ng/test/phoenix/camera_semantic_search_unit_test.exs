@@ -126,6 +126,47 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
                "/api/cameras/#{@camera_id}/timeline/thumbnails/frame/#{@frame_id}.jpg"
     end
 
+    test "format_response/2 preserves Vantage observation fields and authenticated crop_url" do
+      obs_id = "00000000-0000-7000-8000-000000000799"
+
+      formatted =
+        CameraSemanticSearch.format_response("SR-0100", [
+          %{
+            catalog_entry_id: @entry_id,
+            vantage_observation_id: obs_id,
+            camera_source_id: @camera_id,
+            camera_display_name: "Gate West 01",
+            clip_start_us: 1_700_000_010_000_000,
+            clip_end_us: 1_700_000_016_000_000,
+            best_timeline_ts_us: 1_700_000_012_000_000,
+            time_basis: :received,
+            time_uncertainty: :unmeasured,
+            score: 0.91,
+            region_kind: "vantage_observation",
+            object_class: "license_plate",
+            observation_category: "license_plate",
+            observation_label: "SR-0100",
+            signal_schema_id: "alpr_plate_read",
+            display_contract_id: "alpr_plate_read",
+            attributes: %{"plate_text" => "SR-0100", "region" => "US-CO"},
+            has_crop: true,
+            bbox: [0.32, 0.58, 0.48, 0.66],
+            match_sources: ["observation_fts"]
+          }
+        ])
+
+      assert [hit] = formatted.results
+      assert hit.vantage_observation_id == obs_id
+      assert hit.observation_category == "license_plate"
+      assert hit.observation_label == "SR-0100"
+      assert hit.signal_schema_id == "alpr_plate_read"
+      assert hit.display_contract_id == "alpr_plate_read"
+      assert hit.attributes == %{"plate_text" => "SR-0100", "region" => "US-CO"}
+      assert hit.has_crop == true
+      assert hit.crop_url == "/api/cameras/#{@camera_id}/timeline/thumbnails/vantage/#{obs_id}.jpg"
+      assert hit.thumbnail_url == hit.crop_url
+    end
+
     test "normalize_hit/1 resolves frame, block fallback, legacy fallback, and nil thumbnail_url" do
       base = %{
         catalog_entry_id: @entry_id,

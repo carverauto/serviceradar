@@ -164,6 +164,11 @@ config :serviceradar_web_ng, :control_plane_runtime,
     token: System.get_env("SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN"),
     deployment_ref: System.get_env("SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF"),
     generation: System.get_env("SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_GENERATION")
+  ],
+  vantage_worker: [
+    token: System.get_env("SERVICERADAR_CONTROL_PLANE_VANTAGE_WORKER_TOKEN"),
+    deployment_ref: System.get_env("SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF"),
+    generation: System.get_env("SERVICERADAR_CONTROL_PLANE_VANTAGE_WORKER_GENERATION")
   ]
 
 case System.get_env("SERVICERADAR_HOSTED_RUNTIME_CONTRACT_VERSION") do

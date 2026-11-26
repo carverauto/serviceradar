@@ -1,0 +1,22 @@
+{
+  "frames": [
+    {
+      "id": "recent_observations",
+      "encoding": "json_rows",
+      "results": [
+        {
+          "camera_name": "Gate West 01",
+          "camera_ip": "192.0.2.10",
+          "plate_text": "SR-0100",
+          "confidence": 0.94
+        },
+        {
+          "camera_name": "Gate West 01",
+          "camera_ip": "192.0.2.10",
+          "plate_text": "TEST-742",
+          "confidence": 0.91
+        }
+      ]
+    }
+  ]
+}

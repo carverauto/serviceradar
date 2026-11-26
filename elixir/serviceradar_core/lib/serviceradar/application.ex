@@ -137,6 +137,7 @@ defmodule ServiceRadar.Application do
         # NATS JetStream connection supervisor (fault-tolerant with auto-reconnect)
         nats_connection_child(),
         managed_certificate_nats_child(),
+        vantage_worker_heartbeat_child(),
 
         # Evaluation workers run on every core, so each node needs its own
         # bounded JetStream metric accumulator rather than a coordinator ETS.
@@ -525,6 +526,14 @@ defmodule ServiceRadar.Application do
     if repo_enabled?() and nats_enabled?() and
          Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.NATS.ManagedCertificateSupervisor
+    end
+  end
+
+  defp vantage_worker_heartbeat_child do
+    if repo_enabled?() and nats_enabled?() and
+         Application.get_env(:serviceradar_core, :cluster_coordinator, false) and
+         ServiceRadar.Camera.VantagePipelineDispatcher.deployment_enabled?() do
+      ServiceRadar.Camera.VantageWorkerHeartbeat
     end
   end
 

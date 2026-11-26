@@ -1,0 +1,92 @@
+{
+  "description": "Contract vectors for @carverauto/serviceradar-cli pack v2 and vantage developer commands.",
+  "pack_validate_json_contract": {
+    "required_keys": ["valid", "source_kind", "path", "id", "slug", "version", "resource_counts", "file_count"],
+    "expected_resource_count_keys_v2": [
+      "checks",
+      "rules",
+      "dashboards",
+      "vantage_pipelines",
+      "signal_schemas",
+      "dashboard_packages"
+    ]
+  },
+  "pack_build_json_contract": {
+    "required_keys": ["id", "slug", "version", "output", "sha256", "size_bytes", "resource_counts"]
+  },
+  "pack_sign_json_contract": {
+    "required_keys": ["signature_file", "algorithm", "key_id", "signer", "content_hash", "signature"],
+    "expected_algorithm": "ed25519"
+  },
+  "pack_index_json_contract": {
+    "required_keys": ["output", "pack_count", "packs"],
+    "pack_entry_required_keys": ["id", "version", "bundle_url", "sha256", "signed"]
+  },
+  "vantage_init_templates": [
+    {
+      "name": "vlm_with_dashboard",
+      "args": ["vantage", "init", "demo-alpr", "--template", "vlm", "--with-dashboard"],
+      "expected_files": [
+        "manifest.json",
+        "vantage_pipelines/",
+        "signal_schemas/",
+        "dashboard_packages/"
+      ]
+    },
+    {
+      "name": "python_worker_template",
+      "args": ["vantage", "init", "demo-py-alpr", "--template", "python-worker"],
+      "expected_files": [
+        "manifest.json",
+        "vantage_pipelines/",
+        "signal_schemas/",
+        "worker/"
+      ]
+    },
+    {
+      "name": "rust_worker_template",
+      "args": ["vantage", "init", "demo-rs-alpr", "--template", "rust-worker"],
+      "expected_files": [
+        "manifest.json",
+        "vantage_pipelines/",
+        "signal_schemas/",
+        "Cargo.toml"
+      ]
+    }
+  ],
+  "vantage_dev_contract": {
+    "command": ["vantage", "dev", "--fixture", "synthetic_gate_west_01.mp4", "--json"],
+    "requires_cluster": false,
+    "expected_exit_code": 0
+  },
+  "negative_cli_cases": [
+    {
+      "name": "tampered_renderer_digest_fails_validate_and_build",
+      "command": ["pack", "validate"],
+      "expected_exit_nonzero": true,
+      "must_not_emit_archive": true
+    },
+    {
+      "name": "oversized_renderer_over_8mib_fails",
+      "command": ["pack", "build"],
+      "renderer_bytes": 8388609,
+      "expected_exit_nonzero": true,
+      "must_not_emit_archive": true
+    },
+    {
+      "name": "minified_js_secret_token_fails",
+      "command": ["pack", "validate"],
+      "expected_exit_nonzero": true
+    },
+    {
+      "name": "invalid_vantage_template_fails",
+      "args": ["vantage", "init", "bad-pack", "--template", "unknown-template"],
+      "expected_exit_nonzero": true
+    },
+    {
+      "name": "missing_vantage_dev_fixture_fails",
+      "args": ["vantage", "dev", "--fixture", "/nonexistent/synthetic-missing.mp4"],
+      "expected_exit_nonzero": true
+    }
+  ]
+}

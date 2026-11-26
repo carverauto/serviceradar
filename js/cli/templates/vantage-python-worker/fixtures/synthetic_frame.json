@@ -1,0 +1,47 @@
+{
+  "schema_version": "vantage.frame.v1",
+  "source_mode": "recorded_block",
+  "camera_source_id": "00000000-0000-4000-8000-000000000101",
+  "stream_profile_id": "00000000-0000-4000-8000-000000000102",
+  "catalog_entry_id": "00000000-0000-4000-8000-000000000103",
+  "camera_name": "Gate West 01",
+  "camera_ip": "192.0.2.10",
+  "fragment_sequence": 1,
+  "frame_sequence": 1,
+  "media_pts_ns": 1000000000,
+  "timeline_ts_us": 1700000000000000,
+  "time_basis": "received",
+  "upstream_detections": [
+    {
+      "track_id": "track-1",
+      "category": "vehicle",
+      "confidence": 0.91,
+      "bbox": [0.28, 0.42, 0.62, 0.84]
+    }
+  ],
+  "expected_observations": [
+    {
+      "observation_key": "obs-0000-0742",
+      "fragment_sequence": 1,
+      "frame_sequence": 1,
+      "media_pts_ns": 1000000000,
+      "timeline_ts_us": 1700000000000000,
+      "time_basis": "received",
+      "track_id": "track-1",
+      "category": "license_plate",
+      "label": "TEST-742",
+      "confidence": 0.95,
+      "bbox": [0.32, 0.58, 0.48, 0.66],
+      "attributes": {
+        "plate_text": "TEST-742",
+        "region": "US-CO",
+        "camera_label": "Gate West 01",
+        "confidence": 0.95
+      },
+      "signal_schema_id": "__SCHEMA_ID__",
+      "signal_schema_version": "1.0.0",
+      "display_contract_id": "__SCHEMA_ID__",
+      "search_text": "TEST-742 Gate West 01 license_plate"
+    }
+  ]
+}

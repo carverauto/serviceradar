@@ -1393,7 +1393,14 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       icon: "hero-squares-2x2",
       route: "/settings/dashboards/packages",
       live_view: ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index,
-      permission: "plugins.view",
+      permission: [
+        "plugins.view",
+        "dashboards.packages.view_all",
+        "dashboards.packages.manage",
+        "dashboards.packages.publish",
+        "dashboards.packages.enable",
+        "dashboards.packages.disable"
+      ],
       order: 410,
       has_own_stats: false,
       feature_flag: nil,

@@ -1929,9 +1929,10 @@ if config_env() == :prod do
         Config.edge_record_security_quarantine_stream(),
         Config.edge_record_recovery_stream(),
         Config.edge_record_dead_letter_stream()
-        # Media worker visual index results, only where visual indexing is
+        # Media worker visual index and Vantage observation results, only where
         # enabled; the media worker owns their stream.
-        | Config.camera_visual_index_results_streams()
+        | Config.camera_visual_index_results_streams() ++
+            Config.camera_vantage_observations_streams()
         # No ATTRIBUTED_FLOW registration: flow.attributed.> is a retired
         # demo-canary route with no production publisher (see
         # remove-flow-events-drain-consumers). Do not re-add an

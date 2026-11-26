@@ -3174,6 +3174,14 @@ impl ResultPublisher for RecordingPublisher {
         Ok(())
     }
 
+    async fn publish_vantage_result(
+        &self,
+        _msg_id: &str,
+        _envelope: &serviceradar_media_core::VantageResultEnvelope,
+    ) -> Result<(), MediaWorkerError> {
+        Ok(())
+    }
+
     async fn publish_telemetry_snapshot(
         &self,
         _payload_json: &[u8],

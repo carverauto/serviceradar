@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineThumbnailRouteTest do
   end
 
   test "GET /api/cameras/:id/timeline/thumbnails/:kind/:record.jpg negotiates image/jpeg on archive_media_api and refuses unauthenticated requests with 401" do
-    for kind <- ["frame", "block"] do
+    for kind <- ["frame", "block", "vantage"] do
       conn =
         build_conn()
         |> put_req_header("accept", "image/jpeg")

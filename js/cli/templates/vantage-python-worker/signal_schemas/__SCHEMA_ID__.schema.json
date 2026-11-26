@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "__SCHEMA_ID__",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [
+    "plate_text"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "plate_text": {
+      "type": "string",
+      "pattern": "^[A-Z0-9-]{2,12}$"
+    },
+    "region": {
+      "type": "string",
+      "maxLength": 32
+    },
+    "camera_label": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  }
+}

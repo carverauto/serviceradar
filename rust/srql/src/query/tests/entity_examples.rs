@@ -1424,3 +1424,86 @@ fn sweep_entities_never_expose_compiled_config_or_credentials() {
         }
     }
 }
+
+#[test]
+fn camera_observations_aliases_compile_scoped_read_model_plans() {
+    for alias in [
+        "camera_observations",
+        "camera_observation",
+        "vantage_observations",
+        "vantage_observation",
+    ] {
+        let translated = translate_fleet(&format!(
+            "in:{alias} category:license_plate label:SR-0100 confidence:>=0.85 has_crop:true timeline_ts_us:>1700000000000000 search:\"SR-0100\" limit:25"
+        ))
+        .unwrap_or_else(|err| panic!("should translate {alias}: {err}"));
+
+        assert!(translated.sql.is_empty());
+        assert!(translated.params.is_empty());
+        let plan = translated.read_model.expect("read_model plan");
+        assert_eq!(plan["entity"], "camera_observations");
+        assert_eq!(plan["limit"], 25);
+        assert_eq!(plan["offset"], 0);
+        assert_eq!(plan["filters"][0]["field"], "category");
+        assert_eq!(plan["filters"][1]["value"], "SR-0100");
+        assert_eq!(plan["filters"][2]["field"], "confidence");
+        assert_eq!(plan["filters"][2]["op"], "gte");
+        assert_eq!(plan["filters"][2]["value"], 0.85);
+        assert_eq!(plan["filters"][3]["field"], "has_crop");
+        assert_eq!(plan["filters"][3]["value"], true);
+        assert_eq!(plan["filters"][4]["field"], "timeline_ts_us");
+        assert_eq!(plan["filters"][4]["value"], 1_700_000_000_000_000_i64);
+        assert_eq!(plan["filters"][5]["field"], "search");
+
+        assert_eq!(plan["order"][0]["field"], "timeline_ts_us");
+        assert_eq!(plan["order"][0]["direction"], "desc");
+        assert_eq!(plan["order"][1]["field"], "id");
+        assert_eq!(plan["order"][1]["direction"], "desc");
+
+        let fields = plan["fields"].as_array().unwrap();
+        for forbidden in ["crop_jpeg", "search"] {
+            assert!(
+                !fields.iter().any(|field| field == forbidden),
+                "fields must not include {forbidden}"
+            );
+        }
+        assert!(fields.iter().any(|field| field == "camera_display_name"));
+        assert!(fields.iter().any(|field| field == "has_crop"));
+
+        let viz = serde_json::to_value(translated.viz.unwrap()).unwrap();
+        let cols = viz["columns"].as_array().unwrap();
+        let conf_col = cols.iter().find(|c| c["name"] == "confidence").unwrap();
+        assert_eq!(conf_col["type"], "float");
+        assert_eq!(conf_col["semantic"], "value");
+        let bbox_col = cols.iter().find(|c| c["name"] == "bbox").unwrap();
+        assert_eq!(bbox_col["type"], "jsonb");
+    }
+}
+
+#[test]
+fn camera_observations_appends_id_tiebreaker_and_rejects_invalid_queries() {
+    let custom_sort = translate_fleet("in:camera_observations sort:confidence:desc")
+        .unwrap()
+        .read_model
+        .unwrap();
+    assert_eq!(custom_sort["order"][0]["field"], "confidence");
+    assert_eq!(custom_sort["order"][1]["field"], "id");
+
+    for invalid_query in [
+        "in:camera_observations crop_jpeg:abc",
+        "in:camera_observations sort:crop_jpeg:asc",
+        "in:camera_observations sort:search:desc",
+        "in:camera_observations confidence:NaN",
+        "in:camera_observations confidence:not_a_float",
+        "in:camera_observations has_crop:maybe",
+        "in:camera_observations timeline_ts_us:not_an_int",
+        "in:camera_observations stats:count()",
+        "in:camera_observations bucket:1h agg:avg",
+        "in:camera_observations sort:timestamp:desc",
+    ] {
+        assert!(
+            translate_fleet(invalid_query).is_err(),
+            "unexpectedly accepted {invalid_query}"
+        );
+    }
+}

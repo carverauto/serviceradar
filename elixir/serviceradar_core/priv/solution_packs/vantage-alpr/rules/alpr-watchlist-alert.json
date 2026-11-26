@@ -1,0 +1,34 @@
+{
+  "alert": {
+    "severity": "warning",
+    "title": "ALPR synthetic watchlist plate observed at Gate West 01"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 300,
+  "description": "Alerts when synthetic watchlist plates (SR-0100, TEST-742) are observed by the Vantage ALPR pipeline. Installed paused until an operator enables it.",
+  "event": {
+    "log_name": "camera.vantage.watchlist_match"
+  },
+  "group_by": [
+    "log_name"
+  ],
+  "install_state": "paused",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "resource_attribute_equals": {
+      "service_radar.attributes.plate_text": [
+        "SR-0100",
+        "TEST-742"
+      ],
+      "service_radar.signal_schema.schema_id": "alpr_plate_read"
+    },
+    "service_name": "serviceradar.vantage",
+    "subject_prefix": "camera.vantage.observation"
+  },
+  "name": "ALPR Synthetic Watchlist Alert",
+  "priority": 25,
+  "renotify_seconds": 21600,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

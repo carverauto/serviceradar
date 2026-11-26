@@ -612,4 +612,45 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
                EntityAccess.authorize("in:horizon_paths limit:1 in:horizon_bgp", traces_only)
     end
   end
+
+  describe "camera_observations all-of RBAC and catalog parity" do
+    test "all camera_observations aliases require both devices.view and devices.cameras.recordings.view" do
+      devices_only = %Scope{user: nil, permissions: MapSet.new(["devices.view"])}
+      recordings_only = %Scope{user: nil, permissions: MapSet.new(["devices.cameras.recordings.view"])}
+
+      both = %Scope{
+        user: nil,
+        permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"])
+      }
+
+      for entity <- ~w(camera_observations camera_observation vantage_observations vantage_observation) do
+        assert {:all_of, ["devices.view", "devices.cameras.recordings.view"]} =
+                 EntityAccess.permission_for_entity(entity)
+
+        assert {:ok, _ast} = Native.parse_ast("in:#{entity} limit:1")
+        assert Catalog.entity(entity).id == "camera_observations"
+        assert "search" in Catalog.entity(entity).exact_fields
+        assert Catalog.entity(entity).downsample == false
+        assert :ok = EntityAccess.authorize("in:#{entity} category:license_plate", both)
+        assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", devices_only)
+        assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", recordings_only)
+        assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", nil)
+      end
+    end
+
+    test "camera_observations builder state translates to read_model without crop_jpeg" do
+      query =
+        "camera_observations"
+        |> Builder.default_state()
+        |> Map.put("filters", [%{"field" => "search", "op" => "equals", "value" => "SR-0100"}])
+        |> Builder.build()
+
+      assert {:ok, json} = Native.translate(query, nil, nil, nil, "legacy")
+      %{"read_model" => plan} = Jason.decode!(json)
+      assert plan["entity"] == "camera_observations"
+      assert [%{"field" => "search", "op" => "eq", "value" => "SR-0100"}] = plan["filters"]
+      refute "crop_jpeg" in plan["fields"]
+      refute "search" in plan["fields"]
+    end
+  end
 end

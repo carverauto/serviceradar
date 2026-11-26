@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "__PACK_SLUG__-worker"
+version = "0.1.0"
+description = "Apache-2.0 external Python Vantage worker for __PACK_ID__"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "serviceradar-vantage>=0.1.0",
+]

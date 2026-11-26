@@ -30,6 +30,10 @@ Add or change a built-in identity's subjects only here.
 _INBOX.media-worker
 {{- end -}}
 
+{{- define "serviceradar.vantageWorkerNatsInboxPrefix" -}}
+_INBOX.vantage-worker
+{{- end -}}
+
 {{- define "serviceradar.natsStaticUsers" -}}
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
 {{- /* ServiceRadar.Observability.Zen.RuleBucket.bucket/0 and the collector's
@@ -61,11 +65,15 @@ _INBOX.media-worker
 {{- /* Camera semantic search (serviceradar-media-worker). The stream and durable
      consumer names are fixed in the worker binary (rust/media-worker/src/config.rs). */}}
 {{- $mediaWorkerEnabled := eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+{{- $vantageWorkerEnabled := eq (include "serviceradar.vantageWorkerEnabled" .) "true" }}
 {{- $mediaJobsStream := "CAMERA_MEDIA_JOBS" }}
 {{- $mediaResultsStream := "CAMERA_MEDIA_RESULTS" }}
 {{- $mediaLiveConsumer := "camera_visual_index_worker_v1_live" }}
 {{- $mediaBackfillConsumer := "camera_visual_index_worker_v1_backfill" }}
+{{- $mediaVantageVlmLiveConsumer := "camera_vantage_vlm_worker_v1_live" }}
+{{- $mediaVantageVlmBackfillConsumer := "camera_vantage_vlm_worker_v1_backfill" }}
 {{- $mediaWorkerInbox := include "serviceradar.mediaWorkerNatsInboxPrefix" . }}
+{{- $vantageWorkerInbox := include "serviceradar.vantageWorkerNatsInboxPrefix" . }}
 {{- /* logs.normalized.> carries log batches the log collector has already
      normalized, which EventWriter stores without running Zen rules. Only the
      log collector may publish there, so every identity whose allow list would
@@ -250,6 +258,8 @@ _INBOX.media-worker
            which the API, ACK and inbox grants below already cover. */}}
       - "media.jobs.visual_index.v1"
       - "media.jobs.visual_index.backfill.v1"
+      - "media.jobs.vantage.>"
+      - "media.live.vantage.>"
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
            the bucket through the JetStream API and writes each bundle here. */}}
       - "$KV.{{ $zenRuleBucket }}.>"
@@ -282,6 +292,7 @@ _INBOX.media-worker
       - "exposure.dimensions.cve"
       - "exposure.dimensions.package"
       - "falco.>"
+      - "media.workers.heartbeat.v1"
       - "$JS.API.>"
       - "$JS.ACK.>"
       - "_INBOX.>"
@@ -493,19 +504,30 @@ _INBOX.media-worker
     {{- if $mediaWorkerEnabled }}
     allow:
       - "media.results.visual_index.v1"
+      - "media.results.vantage.v1"
       - "telemetry.media_worker.metrics.v1"
       - "$JS.API.STREAM.INFO.{{ $mediaJobsStream }}"
       - "$JS.API.STREAM.CREATE.{{ $mediaJobsStream }}"
+      - "$JS.API.STREAM.UPDATE.{{ $mediaJobsStream }}"
       - "$JS.API.STREAM.INFO.{{ $mediaResultsStream }}"
       - "$JS.API.STREAM.CREATE.{{ $mediaResultsStream }}"
+      - "$JS.API.STREAM.UPDATE.{{ $mediaResultsStream }}"
       - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}"
       - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaVantageVlmLiveConsumer }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaVantageVlmBackfillConsumer }}"
       - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}.media.jobs.visual_index.v1"
       - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}.media.jobs.visual_index.backfill.v1"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaVantageVlmLiveConsumer }}.media.jobs.vantage.vlm.v1"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaVantageVlmBackfillConsumer }}.media.jobs.vantage.vlm.backfill.v1"
       - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}"
       - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaVantageVlmLiveConsumer }}"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaVantageVlmBackfillConsumer }}"
       - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}.>"
       - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}.>"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaVantageVlmLiveConsumer }}.>"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaVantageVlmBackfillConsumer }}.>"
       - "_INBOX.>"
     {{- else }}
     allow: []
@@ -514,6 +536,49 @@ _INBOX.media-worker
   subscribe:
     {{- if $mediaWorkerEnabled }}
     allow: ["media.rpc.visual_text_embed.v1.>", "{{ $mediaWorkerInbox }}.>"]
+    {{- else }}
+    allow: []
+    deny: [">"]
+    {{- end }}
+- user: "CN=serviceradar-vantage-worker,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+  publish:
+    {{- if $vantageWorkerEnabled }}
+    allow:
+      - "media.workers.heartbeat.v1"
+      - "media.results.vantage.v1"
+      - "telemetry.vantage_worker.metrics.v1"
+      - "$JS.API.STREAM.INFO.{{ $mediaJobsStream }}"
+      - "$JS.API.STREAM.INFO.{{ $mediaResultsStream }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.*"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.*.media.jobs.vantage.>"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.*"
+      - "$JS.ACK.{{ $mediaJobsStream }}.>"
+      - "_INBOX.>"
+    deny:
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaVantageVlmLiveConsumer }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaVantageVlmBackfillConsumer }}"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}.>"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}.>"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaVantageVlmLiveConsumer }}.>"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaVantageVlmBackfillConsumer }}.>"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.*.media.jobs.vantage.vlm.>"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaVantageVlmLiveConsumer }}"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaVantageVlmBackfillConsumer }}"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}.>"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}.>"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaVantageVlmLiveConsumer }}.>"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaVantageVlmBackfillConsumer }}.>"
+    {{- else }}
+    allow: []
+    deny: [">"]
+    {{- end }}
+  subscribe:
+    {{- if $vantageWorkerEnabled }}
+    allow: ["media.live.vantage.>", "{{ $vantageWorkerInbox }}.>"]
     {{- else }}
     allow: []
     deny: [">"]

@@ -1,0 +1,117 @@
+{
+  "positive": {
+    "schema_version": "vantage.job.v1",
+    "job_id": "11111111-1111-4111-8111-111111111101",
+    "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+    "pipeline_version": "1.0.0",
+    "capability": "vantage.alpr.v1",
+    "source_mode": "recorded_block",
+    "camera_source_id": "22222222-2222-4222-8222-222222222201",
+    "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+    "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+    "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input_mode": "detection_crop",
+    "roi_polygons": [
+      [[0.1, 0.2], [0.9, 0.2], [0.9, 0.9], [0.1, 0.9]]
+    ],
+    "crop_policy": {
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640,
+      "max_bytes": 98304
+    },
+    "sampled_targets": [
+      {
+        "target_key": "track-1",
+        "track_id": "1",
+        "fragment_sequence": 1,
+        "media_pts_ns": 1000000000,
+        "timeline_ts_us": 1700000000000000,
+        "time_basis": "received",
+        "category": "vehicle",
+        "confidence": 0.91,
+        "bbox": [0.3, 0.45, 0.55, 0.8]
+      }
+    ],
+    "signal_schema_id": "alpr_plate_read",
+    "signal_schema_version": "1.0.0",
+    "display_contract_id": "alpr_plate_read",
+    "vlm_config": {
+      "prompt": "Read the license plate at Gate West 01 and return strict JSON.",
+      "model_profile": "vantage-vlm-fast",
+      "max_tokens": 256,
+      "temperature": 0.0
+    }
+  },
+  "negative": [
+    {
+      "name": "wrong_schema_version",
+      "expected_error": "schema_version",
+      "payload": {
+        "schema_version": "vantage.job.v2",
+        "job_id": "11111111-1111-4111-8111-111111111101",
+        "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+        "pipeline_version": "1.0.0",
+        "capability": "vantage.alpr.v1",
+        "source_mode": "recorded_block",
+        "camera_source_id": "22222222-2222-4222-8222-222222222201",
+        "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+        "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+        "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "input_mode": "detection_crop",
+        "roi_polygons": [],
+        "crop_policy": {"padding_ratio": 0.15, "min_bbox_width_px": 96, "max_dimension": 640, "max_bytes": 98304},
+        "sampled_targets": [],
+        "signal_schema_id": "alpr_plate_read",
+        "signal_schema_version": "1.0.0",
+        "display_contract_id": "alpr_plate_read"
+      }
+    },
+    {
+      "name": "crop_dimension_exceeds_640",
+      "expected_error": "crop_policy.max_dimension",
+      "payload": {
+        "schema_version": "vantage.job.v1",
+        "job_id": "11111111-1111-4111-8111-111111111101",
+        "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+        "pipeline_version": "1.0.0",
+        "capability": "vantage.alpr.v1",
+        "source_mode": "recorded_block",
+        "camera_source_id": "22222222-2222-4222-8222-222222222201",
+        "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+        "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+        "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "input_mode": "detection_crop",
+        "roi_polygons": [],
+        "crop_policy": {"padding_ratio": 0.15, "min_bbox_width_px": 96, "max_dimension": 641, "max_bytes": 98304},
+        "sampled_targets": [],
+        "signal_schema_id": "alpr_plate_read",
+        "signal_schema_version": "1.0.0",
+        "display_contract_id": "alpr_plate_read"
+      }
+    },
+    {
+      "name": "missing_catalog_entry_for_recorded_block",
+      "expected_error": "catalog_entry_id",
+      "payload": {
+        "schema_version": "vantage.job.v1",
+        "job_id": "11111111-1111-4111-8111-111111111101",
+        "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+        "pipeline_version": "1.0.0",
+        "capability": "vantage.alpr.v1",
+        "source_mode": "recorded_block",
+        "camera_source_id": "22222222-2222-4222-8222-222222222201",
+        "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+        "catalog_entry_id": null,
+        "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "input_mode": "detection_crop",
+        "roi_polygons": [],
+        "crop_policy": {"padding_ratio": 0.15, "min_bbox_width_px": 96, "max_dimension": 640, "max_bytes": 98304},
+        "sampled_targets": [],
+        "signal_schema_id": "alpr_plate_read",
+        "signal_schema_version": "1.0.0",
+        "display_contract_id": "alpr_plate_read"
+      }
+    }
+  ]
+}

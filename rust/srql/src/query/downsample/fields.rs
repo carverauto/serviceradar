@@ -14,7 +14,8 @@ pub(super) fn resolve_value_column(
 
     if use_hourly_cagg {
         return match entity {
-            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics => match field {
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics => match field
+            {
                 None | Some("value") => Ok("avg_value".to_string()),
                 Some(other) => Err(ServiceError::InvalidRequest(format!(
                     "unsupported value_field '{other}' for timeseries_metrics_hourly"

@@ -1,0 +1,42 @@
+{
+  "schema_id": "bay_guidance",
+  "schema_version": "1.0.0",
+  "positive": [
+    {
+      "bay_id": "bay-04",
+      "guidance_state": "approach",
+      "distance_m": 4.25,
+      "lateral_offset_m": -0.18,
+      "confidence": 0.92
+    },
+    {
+      "bay_id": "bay-04",
+      "guidance_state": "docked",
+      "distance_m": 0.0,
+      "lateral_offset_m": 0.02,
+      "confidence": 0.98
+    }
+  ],
+  "negative": [
+    {
+      "name": "invalid_guidance_state",
+      "expected_error": "guidance_state",
+      "attributes": {
+        "bay_id": "bay-04",
+        "guidance_state": "reversing_fast",
+        "distance_m": 1.5,
+        "lateral_offset_m": 0.0
+      }
+    },
+    {
+      "name": "negative_distance",
+      "expected_error": "distance_m",
+      "attributes": {
+        "bay_id": "bay-04",
+        "guidance_state": "stop",
+        "distance_m": -0.1,
+        "lateral_offset_m": 0.0
+      }
+    }
+  ]
+}

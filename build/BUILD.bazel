@@ -149,6 +149,7 @@ exports_files([
     "storage_entitlement_and_cloud_archive_credentials_schema.exs",
     "camera_semantic_clip_search_schema.exs",
     "camera_clip_thumbnails_snapshots.exs",
+    "vantage_ml_pipelines_schema.exs",
     "netperf_schema.exs",
     "alert_evaluation_schema.exs",
     "world_snapshots.exs",

@@ -1,0 +1,157 @@
+{
+  "description": "F10 OCSF class 1008 camera observation events, DashboardFrameChannel frames, display_contract, and XSS escaping vectors.",
+  "ocsf_events": [
+    {
+      "name": "gate_west_01_sr_0100",
+      "id": "66666666-6666-4666-8666-666666666601",
+      "class_uid": 1008,
+      "category_uid": 1,
+      "activity_id": 1,
+      "severity_id": 1,
+      "status_id": 1,
+      "log_name": "camera.vantage.observation",
+      "log_provider": "serviceradar.vantage",
+      "metadata": {
+        "service_radar": {
+          "signal_schema": {
+            "producer_id": "io.serviceradar.vantage-alpr",
+            "producer_version": "1.0.0",
+            "schema_id": "alpr_plate_read",
+            "schema_version": "1.0.0"
+          },
+          "source_type": "camera_vantage",
+          "camera_source_id": "22222222-2222-4222-8222-222222222201",
+          "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+          "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+          "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+          "pipeline_version": "1.0.0",
+          "observation_id": "77777777-7777-4777-8777-777777777701",
+          "observation_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_mode": "recorded_block",
+          "timeline_ts_us": 1700000000000000,
+          "time_basis": "received",
+          "category": "license_plate",
+          "label": "SR-0100",
+          "confidence": 0.94,
+          "bbox": {"x1": 0.32, "y1": 0.58, "x2": 0.48, "y2": 0.66},
+          "attributes": {"plate_text": "SR-0100", "region": "US-CO"}
+        }
+      }
+    },
+    {
+      "name": "bay_04_approach_guidance",
+      "id": "66666666-6666-4666-8666-666666666604",
+      "class_uid": 1008,
+      "category_uid": 1,
+      "activity_id": 1,
+      "severity_id": 1,
+      "status_id": 1,
+      "log_name": "camera.vantage.observation",
+      "log_provider": "serviceradar.vantage",
+      "metadata": {
+        "service_radar": {
+          "signal_schema": {
+            "producer_id": "io.serviceradar.vantage-bay-guidance",
+            "producer_version": "1.0.0",
+            "schema_id": "bay_guidance",
+            "schema_version": "1.0.0"
+          },
+          "source_type": "camera_vantage",
+          "camera_source_id": "22222222-2222-4222-8222-222222222204",
+          "stream_profile_id": "33333333-3333-4333-8333-333333333304",
+          "catalog_entry_id": null,
+          "pipeline_id": "io.serviceradar.vantage-bay-guidance.dock",
+          "pipeline_version": "1.0.0",
+          "observation_id": "77777777-7777-4777-8777-777777777704",
+          "observation_key": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_mode": "live_keyframe_tap",
+          "timeline_ts_us": 1700000005000000,
+          "time_basis": "received",
+          "category": "vehicle",
+          "label": "Bay 04 Approach",
+          "confidence": 0.93,
+          "bbox": {"x1": 0.25, "y1": 0.3, "x2": 0.75, "y2": 0.85},
+          "attributes": {
+            "bay_id": "bay-04",
+            "guidance_state": "approach",
+            "distance_m": 2.4,
+            "lateral_offset_m": -0.15
+          }
+        }
+      }
+    }
+  ],
+  "channel_subscriptions": [
+    {
+      "name": "alpr_signal_schema_and_camera_filter",
+      "id": "sub-alpr-gate-west-01",
+      "filter": {
+        "class_uid": 1008,
+        "camera_source_id": "22222222-2222-4222-8222-222222222201",
+        "metadata": {
+          "service_radar": {
+            "signal_schema": {
+              "schema_id": "alpr_plate_read"
+            }
+          }
+        }
+      },
+      "expected_matching_event_names": ["gate_west_01_sr_0100"]
+    },
+    {
+      "name": "alpr_signal_schema_unscoped_camera_respects_viewer_sources",
+      "id": "sub-alpr-all-authorized",
+      "filter": {
+        "class_uid": 1008,
+        "metadata": {
+          "service_radar": {
+            "signal_schema": "alpr_plate_read"
+          }
+        }
+      },
+      "viewer_authorized_sources": ["22222222-2222-4222-8222-222222222201"],
+      "expected_matching_event_names": ["gate_west_01_sr_0100"]
+    }
+  ],
+  "display_and_overlay_cases": {
+    "crop_nil_observation": {
+      "observation_key": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "category": "license_plate",
+      "label": "TEST-742",
+      "confidence": 0.96,
+      "bbox": [0.4, 0.5, 0.6, 0.65],
+      "timeline_ts_us": 1700000001000000,
+      "time_basis": "received",
+      "crop_jpeg": null,
+      "thumbnail_url": null
+    },
+    "xss_hostile_inputs": [
+      {
+        "name": "script_tag_in_label",
+        "raw": "<script>alert(1)</script>SR-0100",
+        "must_escape": ["<", ">"]
+      },
+      {
+        "name": "svg_onload_in_display_title",
+        "raw": "\" onload=\"alert(1)\"><img src=x onerror=alert(1)>",
+        "must_escape": ["\"", "<", ">"]
+      },
+      {
+        "name": "javascript_uri_thumbnail_rejected",
+        "url": "javascript:alert(1)",
+        "expected_safe_url": false
+      },
+      {
+        "name": "protocol_relative_thumbnail_rejected",
+        "url": "//evil.example.com/payload.jpg",
+        "expected_safe_url": false
+      },
+      {
+        "name": "relative_api_thumbnail_allowed",
+        "url": "/api/cameras/22222222-2222-4222-8222-222222222201/timeline/thumbnails/vantage/obs-1.jpg",
+        "expected_safe_url": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "feature": "F4",
+  "positive_cases": [
+    {
+      "name": "native_1080p_vehicle_crop",
+      "frame_w": 1920,
+      "frame_h": 1080,
+      "bbox": [0.30, 0.45, 0.55, 0.80],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640,
+      "max_bytes": 98304,
+      "expected_status": "ok",
+      "expected_crop_w": 625,
+      "expected_crop_h": 492,
+      "expected_out_w": 625,
+      "expected_out_h": 492
+    },
+    {
+      "name": "4k_large_detection_downscales_to_640",
+      "frame_w": 3840,
+      "frame_h": 2160,
+      "bbox": [0.25, 0.25, 0.6666666667, 0.8055555556],
+      "padding_ratio": 0.0,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640,
+      "max_bytes": 98304,
+      "expected_status": "ok",
+      "expected_out_w": 640,
+      "expected_out_h": 480
+    },
+    {
+      "name": "border_touching_clamps_to_origin",
+      "frame_w": 1920,
+      "frame_h": 1080,
+      "bbox": [0.0, 0.0, 0.25, 0.30],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640,
+      "max_bytes": 98304,
+      "expected_status": "ok",
+      "expected_px1": 0,
+      "expected_py1": 0,
+      "expected_out_w": 552,
+      "expected_out_h": 373
+    },
+    {
+      "name": "exact_96px_boundary_accepted",
+      "frame_w": 1920,
+      "frame_h": 1080,
+      "bbox": [0.20, 0.25, 0.25, 0.55],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640,
+      "max_bytes": 98304,
+      "expected_status": "ok"
+    }
+  ],
+  "skip_cases": [
+    {
+      "name": "distant_vehicle_76_8px_skipped",
+      "frame_w": 1920,
+      "frame_h": 1080,
+      "bbox": [0.40, 0.40, 0.44, 0.50],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640,
+      "expected_status": "skipped",
+      "expected_reason": "crop_below_min_dimension"
+    },
+    {
+      "name": "exact_95px_below_min_skipped",
+      "frame_w": 1920,
+      "frame_h": 1080,
+      "bbox": [0.0, 0.25, 0.0494791667, 0.50],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640,
+      "expected_status": "skipped",
+      "expected_reason": "crop_below_min_dimension"
+    }
+  ],
+  "invalid_cases": [
+    {
+      "name": "zero_area_bbox",
+      "frame_w": 1920,
+      "frame_h": 1080,
+      "bbox": [0.5, 0.5, 0.5, 0.8],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640
+    },
+    {
+      "name": "inverted_bbox",
+      "frame_w": 1920,
+      "frame_h": 1080,
+      "bbox": [0.6, 0.5, 0.4, 0.8],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640
+    },
+    {
+      "name": "empty_0x0_frame",
+      "frame_w": 0,
+      "frame_h": 0,
+      "bbox": [0.1, 0.1, 0.5, 0.5],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 640
+    },
+    {
+      "name": "zero_max_dimension",
+      "frame_w": 1920,
+      "frame_h": 1080,
+      "bbox": [0.1, 0.1, 0.5, 0.5],
+      "padding_ratio": 0.15,
+      "min_bbox_width_px": 96,
+      "max_dimension": 0
+    }
+  ]
+}

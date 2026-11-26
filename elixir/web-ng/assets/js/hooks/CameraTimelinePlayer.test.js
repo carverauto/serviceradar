@@ -20,6 +20,7 @@ import CameraTimelinePlayer, {
   parseScrubberEvents,
   parseScrubberThumbnails,
   projectDetectionBox,
+  selectActiveDetections,
 } from "./CameraTimelinePlayer"
 
 class FakeBaseLoader {
@@ -986,5 +987,120 @@ describe("CameraTimelinePlayer hook", () => {
     expect(overlayInnerHtmlWrites).toBe(0)
 
     hook.destroyed()
+  })
+
+  it("keeps co-occurring Vantage overlays alongside Stage 1 boxes and preserves Vantage scrubber labels", () => {
+    const rawDetections = JSON.stringify([
+      {
+        source: "stage1",
+        visual_frame_id: "frame-1",
+        offset_seconds: 10,
+        object_class: "vehicle",
+        score: 0.87,
+        time_basis: "received",
+        bbox: [0.2, 0.3, 0.6, 0.8],
+      },
+      {
+        source: "vantage",
+        vantage_observation_id: "obs-1",
+        offset_seconds: 10.2,
+        category: "license_plate",
+        label: "SR-0100",
+        color: "#f59e0b",
+        score: 0.94,
+        time_basis: "received",
+        bbox: [0.32, 0.58, 0.48, 0.66],
+      },
+    ])
+
+    const parsed = parseOverlayDetections(rawDetections)
+    expect(parsed).toHaveLength(2)
+
+    const active = selectActiveDetections(parsed, 10.1, {toleranceSeconds: 1.5, metadataLoaded: true})
+    expect(active).toHaveLength(2)
+    expect(active.map(d => d.source).sort()).toEqual(["stage1", "vantage"])
+
+    const svg = buildOverlaySvgMarkup(active, {x: 0, y: 0, width: 1000, height: 600})
+    expect(svg).toContain('stroke="#10b981"')
+    expect(svg).toContain('stroke="#f59e0b"')
+    expect(svg).toContain("SR-0100 94% · received")
+    expect(svg).toContain("vehicle 87% · received")
+
+    const rawEvents = JSON.stringify([
+      {
+        source: "vantage",
+        category: "license_plate",
+        label: "SR-0100",
+        color: "#f59e0b",
+        start_offset_seconds: 10,
+        end_offset_seconds: 10,
+        confidence: 0.94,
+        crop_url: "/api/cameras/cam-1/timeline/thumbnails/vantage/obs-1.jpg",
+      },
+      {
+        source: "vantage",
+        category: "license_plate",
+        label: "TEST-742",
+        color: "#0ea5e9",
+        start_offset_seconds: 11,
+        end_offset_seconds: 11,
+        confidence: 0.91,
+      },
+    ])
+
+    const parsedEvents = parseScrubberEvents(rawEvents)
+    const segments = buildScrubberEventSegments([], parsedEvents, 60)
+    expect(segments).toHaveLength(2)
+    expect(segments.map(s => s.label)).toEqual(["SR-0100", "TEST-742"])
+    expect(segments[0].color).toBe("#f59e0b")
+    expect(segments[0].tooltip).toContain("SR-0100")
+    expect(segments[1].color).toBe("#0ea5e9")
+  })
+
+  it("keeps co-occurring Vantage detections within tolerance of highlighted Stage 1 frame before loadedmetadata", () => {
+    const detections = parseOverlayDetections(
+      JSON.stringify([
+        {
+          source: "stage1",
+          visual_frame_id: "frame-1",
+          offset_seconds: 10,
+          object_class: "vehicle",
+          score: 0.87,
+          time_basis: "received",
+          bbox: [0.2, 0.3, 0.6, 0.8],
+        },
+        {
+          source: "vantage",
+          vantage_observation_id: "obs-near",
+          offset_seconds: 10.4,
+          category: "license_plate",
+          label: "SR-0100",
+          color: "#f59e0b",
+          score: 0.94,
+          time_basis: "received",
+          bbox: [0.32, 0.58, 0.48, 0.66],
+        },
+        {
+          source: "vantage",
+          vantage_observation_id: "obs-far",
+          offset_seconds: 25.0,
+          category: "license_plate",
+          label: "TEST-742",
+          color: "#0ea5e9",
+          score: 0.91,
+          time_basis: "received",
+          bbox: [0.1, 0.2, 0.3, 0.4],
+        },
+      ])
+    )
+
+    const preMetaActive = selectActiveDetections(detections, 0, {
+      highlightFrameId: "frame-1",
+      toleranceSeconds: 1.5,
+      metadataLoaded: false,
+    })
+
+    expect(preMetaActive.map(d => d.source).sort()).toEqual(["stage1", "vantage"])
+    expect(preMetaActive.find(d => d.source === "vantage")?.vantageObservationId).toBe("obs-near")
   })
 })

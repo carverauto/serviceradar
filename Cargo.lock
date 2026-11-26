@@ -7676,6 +7676,7 @@ dependencies = [
 name = "serviceradar-media-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "hex",
  "serde",
  "serde_json",
@@ -7706,6 +7707,7 @@ dependencies = [
  "longshore_s3",
  "parking_lot",
  "prometheus",
+ "regex-automata",
  "rustls",
  "rusty_h264-common",
  "rusty_h264-decoder",

@@ -10,9 +10,10 @@
 //     `mode = 0644`, `uid = 0`, `gid = 0`, `mtime = 0`, `uname = ""`,
 //     `gname = ""`, `devmajor = 0`, `devminor = 0`, two trailing 512-byte
 //     zero EOF blocks.
-//   - Extraction caps: 25 MB compressed, 64 MB uncompressed, max 256 entries,
-//     strict rejection of `..`, leading `/`, `\`, NUL bytes, symlinks,
-//     hardlinks, and device nodes.
+//   - Extraction caps: 25 MiB compressed / 64 MiB uncompressed (v1 and v2
+//     without dashboard_packages), or 32 MiB compressed / 96 MiB uncompressed
+//     (v2 with dashboard_packages), max 256 entries, strict rejection of `..`,
+//     leading `/`, `\`, NUL bytes, symlinks, hardlinks, and device nodes.
 
 import {lstatSync, readdirSync, readFileSync} from "node:fs"
 import {join} from "node:path"
@@ -21,8 +22,67 @@ import {compareUtf8Keys} from "./canonical.js"
 
 export const MAX_COMPRESSED_ARCHIVE_BYTES = 25 * 1024 * 1024
 export const MAX_UNCOMPRESSED_ARCHIVE_BYTES = 64 * 1024 * 1024
+export const MAX_V2_DASHBOARD_COMPRESSED_ARCHIVE_BYTES = 32 * 1024 * 1024
+export const MAX_V2_DASHBOARD_UNCOMPRESSED_ARCHIVE_BYTES = 96 * 1024 * 1024
+export const MAX_DASHBOARD_RENDERER_BYTES = 8 * 1024 * 1024
 export const MAX_ARCHIVE_ENTRIES = 256
 const TAR_BLOCK_SIZE = 512
+
+export interface ArchiveLimitsOptions {
+  maxCompressedBytes?: number
+  maxUncompressedBytes?: number
+}
+
+export interface CollectDirectoryOptions extends ArchiveLimitsOptions {
+  excludePath?: (relPath: string, isDirectory: boolean) => boolean
+}
+
+const VANTAGE_DEV_ROOT_DIRS = new Set([
+  "worker",
+  "src",
+  "target",
+  ".venv",
+  "__pycache__",
+  "fixtures",
+  "node_modules",
+  ".git",
+])
+
+const VANTAGE_DEV_ROOT_FILES = new Set([
+  "Cargo.toml",
+  "Cargo.lock",
+  "package.json",
+  "package-lock.json",
+  "pyproject.toml",
+  ".gitignore",
+  "gitignore",
+])
+
+const VANTAGE_DASHBOARD_DEV_ENTRIES = new Set([
+  "src",
+  "fixtures",
+  "node_modules",
+  "package.json",
+  "package-lock.json",
+  "README.md",
+  ".gitignore",
+  "gitignore",
+])
+
+export function isVantageDevAuthoringPath(relPath: string, _isDirectory = false): boolean {
+  const segments = relPath.split("/")
+  if (segments.length === 1) {
+    return VANTAGE_DEV_ROOT_DIRS.has(segments[0]) || VANTAGE_DEV_ROOT_FILES.has(segments[0])
+  }
+  if (VANTAGE_DEV_ROOT_DIRS.has(segments[0])) {
+    return true
+  }
+  if (segments[0] === "dashboard_packages" && segments.length >= 3) {
+    const child = segments[2]
+    return VANTAGE_DASHBOARD_DEV_ENTRIES.has(child) || child.startsWith("dashboard.config.")
+  }
+  return false
+}
 
 interface ZlibWithZstd {
   constants?: Record<string, number>
@@ -57,7 +117,12 @@ export function normalizeArchivePath(rawPath: string): string {
   return normalized
 }
 
-export function collectPackDirectoryFiles(rootDir: string): Map<string, Buffer> {
+export function collectPackDirectoryFiles(
+  rootDir: string,
+  options: CollectDirectoryOptions = {},
+): Map<string, Buffer> {
+  const maxUncompressedBytes =
+    options.maxUncompressedBytes ?? MAX_V2_DASHBOARD_UNCOMPRESSED_ARCHIVE_BYTES
   const rootStat = lstatSync(rootDir)
   if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
     throw new Error(`pack path "${rootDir}" must be a real directory (not a symlink)`)
@@ -78,22 +143,33 @@ export function collectPackDirectoryFiles(rootDir: string): Map<string, Buffer> 
       const st = lstatSync(fullPath)
 
       if (st.isSymbolicLink()) {
+        if (options.excludePath?.(normalized, false)) {
+          continue
+        }
         throw new Error(`unsafe symlink in pack directory: "${normalized}"`)
       }
       if (st.isDirectory()) {
+        if (options.excludePath?.(normalized, true)) {
+          continue
+        }
         walk(fullPath, normalized)
         continue
       }
       if (!st.isFile()) {
         throw new Error(`unsupported special file in pack directory: "${normalized}"`)
       }
+      if (options.excludePath?.(normalized, false)) {
+        continue
+      }
       if (collected.length >= MAX_ARCHIVE_ENTRIES) {
         throw new Error(`pack exceeds maximum entry count of ${MAX_ARCHIVE_ENTRIES}`)
       }
       const data = readFileSync(fullPath)
       totalBytes += data.length
-      if (totalBytes > MAX_UNCOMPRESSED_ARCHIVE_BYTES) {
-        throw new Error(`pack exceeds maximum uncompressed size of ${MAX_UNCOMPRESSED_ARCHIVE_BYTES} bytes`)
+      if (totalBytes > maxUncompressedBytes) {
+        throw new Error(
+          `pack uncompressed size ${totalBytes} exceeds ${maxUncompressedBytes} bytes`,
+        )
       }
       collected.push({path: normalized, data})
     }
@@ -109,7 +185,11 @@ export function collectPackDirectoryFiles(rootDir: string): Map<string, Buffer> 
   return files
 }
 
-export function buildDeterministicTar(entries: ArchiveEntry[]): Buffer {
+export function buildDeterministicTar(
+  entries: ArchiveEntry[],
+  options: ArchiveLimitsOptions = {},
+): Buffer {
+  const maxUncompressedBytes = options.maxUncompressedBytes ?? MAX_UNCOMPRESSED_ARCHIVE_BYTES
   if (entries.length > MAX_ARCHIVE_ENTRIES) {
     throw new Error(`pack exceeds maximum entry count of ${MAX_ARCHIVE_ENTRIES}`)
   }
@@ -135,11 +215,13 @@ export function buildDeterministicTar(entries: ArchiveEntry[]): Buffer {
 
   for (const entry of normalizedEntries) {
     totalUncompressed += entry.data.length
-    if (totalUncompressed > MAX_UNCOMPRESSED_ARCHIVE_BYTES) {
-      throw new Error(`pack exceeds maximum uncompressed size of ${MAX_UNCOMPRESSED_ARCHIVE_BYTES} bytes`)
+    if (totalUncompressed > maxUncompressedBytes) {
+      throw new Error(
+        `pack uncompressed size ${totalUncompressed} exceeds ${maxUncompressedBytes} bytes`,
+      )
     }
 
-    chunks.push(encodeUstarHeader(entry.path, entry.data.length, entry.mode))
+    chunks.push(encodeUstarHeader(entry.path, entry.data.length, entry.mode, maxUncompressedBytes))
     if (entry.data.length > 0) {
       chunks.push(entry.data)
       const remainder = entry.data.length % TAR_BLOCK_SIZE
@@ -154,7 +236,11 @@ export function buildDeterministicTar(entries: ArchiveEntry[]): Buffer {
   return Buffer.concat(chunks)
 }
 
-export function compressSrpackTar(tarBuffer: Buffer): Buffer {
+export function compressSrpackTar(
+  tarBuffer: Buffer,
+  options: ArchiveLimitsOptions = {},
+): Buffer {
+  const maxCompressedBytes = options.maxCompressedBytes ?? MAX_COMPRESSED_ARCHIVE_BYTES
   const z = zlib as unknown as ZlibWithZstd
   if (typeof z.zstdCompressSync === "function") {
     const levelKey = z.constants?.ZSTD_c_compressionLevel ?? 100
@@ -163,8 +249,10 @@ export function compressSrpackTar(tarBuffer: Buffer): Buffer {
         [levelKey]: 3,
       },
     })
-    if (compressed.length > MAX_COMPRESSED_ARCHIVE_BYTES) {
-      throw new Error(`compressed .srpack exceeds ${MAX_COMPRESSED_ARCHIVE_BYTES} bytes`)
+    if (compressed.length > maxCompressedBytes) {
+      throw new Error(
+        `compressed .srpack size ${compressed.length} exceeds ${maxCompressedBytes} bytes`,
+      )
     }
     return compressed
   }
@@ -175,32 +263,42 @@ export function compressSrpackTar(tarBuffer: Buffer): Buffer {
     gz.writeUInt32LE(0, 4) // mtime = 0
     gz[9] = 0xff // OS = unknown (255) for cross-platform byte determinism
   }
-  if (gz.length > MAX_COMPRESSED_ARCHIVE_BYTES) {
-    throw new Error(`compressed .srpack exceeds ${MAX_COMPRESSED_ARCHIVE_BYTES} bytes`)
+  if (gz.length > maxCompressedBytes) {
+    throw new Error(`compressed .srpack size ${gz.length} exceeds ${maxCompressedBytes} bytes`)
   }
   return gz
 }
 
-export function buildSrpackArchive(entries: ArchiveEntry[]): Buffer {
-  const tar = buildDeterministicTar(entries)
-  return compressSrpackTar(tar)
+export function buildSrpackArchive(
+  entries: ArchiveEntry[],
+  options: ArchiveLimitsOptions = {},
+): Buffer {
+  const tar = buildDeterministicTar(entries, options)
+  return compressSrpackTar(tar, options)
 }
 
-export function readSrpackArchive(archiveBytes: Buffer): Map<string, Buffer> {
+export function readSrpackArchive(
+  archiveBytes: Buffer,
+  options: ArchiveLimitsOptions = {},
+): Map<string, Buffer> {
+  const maxCompressedBytes =
+    options.maxCompressedBytes ?? MAX_V2_DASHBOARD_COMPRESSED_ARCHIVE_BYTES
+  const maxUncompressedBytes =
+    options.maxUncompressedBytes ?? MAX_V2_DASHBOARD_UNCOMPRESSED_ARCHIVE_BYTES
   if (archiveBytes.length === 0) {
     throw new Error("invalid .srpack archive: file is empty")
   }
-  if (archiveBytes.length > MAX_COMPRESSED_ARCHIVE_BYTES) {
+  if (archiveBytes.length > maxCompressedBytes) {
     throw new Error(
-      `invalid .srpack archive: compressed size ${archiveBytes.length} exceeds ${MAX_COMPRESSED_ARCHIVE_BYTES} bytes`,
+      `invalid .srpack archive: compressed size ${archiveBytes.length} exceeds ${maxCompressedBytes} bytes`,
     )
   }
 
-  const tarBytes = decompressToTar(archiveBytes)
-  return parseUstarArchive(tarBytes)
+  const tarBytes = decompressToTar(archiveBytes, maxUncompressedBytes)
+  return parseUstarArchive(tarBytes, maxUncompressedBytes)
 }
 
-function decompressToTar(archiveBytes: Buffer): Buffer {
+function decompressToTar(archiveBytes: Buffer, maxUncompressedBytes: number): Buffer {
   // Zstandard magic: 0x28 0xB5 0x2F 0xFD
   if (
     archiveBytes.length >= 4 &&
@@ -214,14 +312,14 @@ function decompressToTar(archiveBytes: Buffer): Buffer {
       throw new Error("this Node.js runtime does not provide zlib.zstdDecompressSync for zstd .srpack archives")
     }
     return z.zstdDecompressSync(archiveBytes, {
-      maxOutputLength: MAX_UNCOMPRESSED_ARCHIVE_BYTES,
+      maxOutputLength: maxUncompressedBytes,
     })
   }
 
   // Gzip magic: 0x1F 0x8B
   if (archiveBytes.length >= 2 && archiveBytes[0] === 0x1f && archiveBytes[1] === 0x8b) {
     return zlib.gunzipSync(archiveBytes, {
-      maxOutputLength: MAX_UNCOMPRESSED_ARCHIVE_BYTES,
+      maxOutputLength: maxUncompressedBytes,
     })
   }
 
@@ -230,8 +328,8 @@ function decompressToTar(archiveBytes: Buffer): Buffer {
     archiveBytes.length >= TAR_BLOCK_SIZE &&
     archiveBytes.subarray(257, 262).toString("ascii") === "ustar"
   ) {
-    if (archiveBytes.length > MAX_UNCOMPRESSED_ARCHIVE_BYTES) {
-      throw new Error(`tar archive exceeds ${MAX_UNCOMPRESSED_ARCHIVE_BYTES} bytes`)
+    if (archiveBytes.length > maxUncompressedBytes) {
+      throw new Error(`tar archive size ${archiveBytes.length} exceeds ${maxUncompressedBytes} bytes`)
     }
     return archiveBytes
   }
@@ -239,8 +337,13 @@ function decompressToTar(archiveBytes: Buffer): Buffer {
   throw new Error("unrecognized .srpack archive format (expected tar.zst, tar.gz, or POSIX ustar)")
 }
 
-function encodeUstarHeader(path: string, size: number, mode: number): Buffer {
-  if (size < 0 || size > MAX_UNCOMPRESSED_ARCHIVE_BYTES) {
+function encodeUstarHeader(
+  path: string,
+  size: number,
+  mode: number,
+  maxUncompressedBytes: number,
+): Buffer {
+  if (size < 0 || size > maxUncompressedBytes) {
     throw new Error(`archive entry "${path}" size ${size} is out of bounds`)
   }
 
@@ -303,7 +406,7 @@ function splitUstarPath(normalizedPath: string): {name: string; prefix: string} 
   throw new Error(`archive path "${normalizedPath}" cannot be encoded in POSIX ustar name+prefix`)
 }
 
-function parseUstarArchive(tarBytes: Buffer): Map<string, Buffer> {
+function parseUstarArchive(tarBytes: Buffer, maxUncompressedBytes: number): Map<string, Buffer> {
   if (tarBytes.length % TAR_BLOCK_SIZE !== 0) {
     throw new Error("corrupt tar stream inside .srpack: length is not a multiple of 512 bytes")
   }
@@ -352,8 +455,10 @@ function parseUstarArchive(tarBytes: Buffer): Map<string, Buffer> {
 
     const size = parseOctalField(header.subarray(124, 136), "size")
     totalBytes += size
-    if (totalBytes > MAX_UNCOMPRESSED_ARCHIVE_BYTES) {
-      throw new Error(`.srpack archive exceeds maximum uncompressed size of ${MAX_UNCOMPRESSED_ARCHIVE_BYTES} bytes`)
+    if (totalBytes > maxUncompressedBytes) {
+      throw new Error(
+        `.srpack archive uncompressed size ${totalBytes} exceeds ${maxUncompressedBytes} bytes`,
+      )
     }
 
     const paddedSize = Math.ceil(size / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE

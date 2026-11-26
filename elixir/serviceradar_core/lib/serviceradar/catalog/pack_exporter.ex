@@ -25,8 +25,9 @@ defmodule ServiceRadar.Catalog.PackExporter do
   """
 
   @doc """
-  Exports authored checks, rules, and dashboards into an in-memory secret-free
-  `pack_format_version: 1` file map (`%{relative_path => binary}`).
+  Exports authored checks, rules, dashboards, Vantage pipelines, signal schemas,
+  and dashboard packages into an in-memory secret-free `pack_format_version: 1`
+  or `pack_format_version: 2` file map (`%{relative_path => binary}`).
   """
   @spec export_tree(map(), keyword()) :: {:ok, %{String.t() => binary()}} | {:error, term()}
   def export_tree(spec, opts \\ []) when is_map(spec) and is_list(opts) do
@@ -41,13 +42,35 @@ defmodule ServiceRadar.Catalog.PackExporter do
     categories = fetch_val(spec, :categories, ["Infrastructure"])
     config_defs = fetch_val(spec, :config, [])
     plugin_deps = fetch_val(spec, :plugin_dependencies, [])
+    worker_deps = fetch_val(spec, :worker_dependencies, [])
+    dashboard_package_deps = fetch_val(spec, :dashboard_package_dependencies, [])
     raw_icon = fetch_str(spec, :icon) || @default_icon_svg
     readme = fetch_str(spec, :readme) || default_readme(name, description)
 
     checks = fetch_val(spec, :checks, [])
     rules = fetch_val(spec, :rules, [])
     dashboards = fetch_val(spec, :dashboards, [])
+    vantage_pipelines = fetch_val(spec, :vantage_pipelines, [])
+    signal_schemas = fetch_val(spec, :signal_schemas, [])
+    dashboard_packages = fetch_val(spec, :dashboard_packages, [])
     assets = fetch_val(spec, :assets, %{})
+
+    has_v2_content? =
+      vantage_pipelines != [] or
+        signal_schemas != [] or
+        dashboard_packages != [] or
+        worker_deps != [] or
+        dashboard_package_deps != []
+
+    requested_version =
+      fetch_val(spec, :pack_format_version, Keyword.get(opts, :pack_format_version, nil))
+
+    format_version =
+      cond do
+        requested_version in [1, 2] -> requested_version
+        has_v2_content? -> 2
+        true -> 1
+      end
 
     with {:ok, icon_uri} <- SvgSanitizer.sanitize_icon(raw_icon),
          {:ok, clean_readme} <- SvgSanitizer.sanitize_markdown(readme),
@@ -55,6 +78,12 @@ defmodule ServiceRadar.Catalog.PackExporter do
            serialize_checks(checks, pack_id, version),
          {:ok, rule_files, rule_entries} <- serialize_rules(rules),
          {:ok, dashboard_files, dashboard_entries} <- serialize_dashboards(dashboards),
+         {:ok, signal_schema_files, signal_schema_entries} <-
+           serialize_signal_schemas(signal_schemas),
+         {:ok, vantage_pipeline_files, vantage_pipeline_entries} <-
+           serialize_vantage_pipelines(vantage_pipelines, pack_id, version),
+         {:ok, dashboard_pkg_files, dashboard_pkg_entries} <-
+           serialize_dashboard_packages(dashboard_packages, opts),
          {:ok, asset_files} <- serialize_assets(assets) do
       explicit_slots = fetch_val(spec, :credential_slots, nil)
       manifest_slots = if is_list(explicit_slots), do: explicit_slots, else: aggregated_slots
@@ -64,30 +93,51 @@ defmodule ServiceRadar.Catalog.PackExporter do
         |> Map.merge(check_files)
         |> Map.merge(rule_files)
         |> Map.merge(dashboard_files)
+        |> Map.merge(signal_schema_files)
+        |> Map.merge(vantage_pipeline_files)
+        |> Map.merge(dashboard_pkg_files)
         |> Map.merge(asset_files)
 
-      base_manifest = %{
-        "pack_format_version" => 1,
-        "id" => pack_id,
-        "slug" => slug,
-        "name" => name,
-        "version" => version,
-        "author" => author,
-        "license" => license,
-        "min_serviceradar_version" => min_version,
-        "categories" => categories,
-        "icon" => icon_uri,
-        "description" => description,
-        "config" => config_defs,
-        "credential_slots" => manifest_slots,
-        "plugin_dependencies" => plugin_deps,
-        "resources" => %{
-          "checks" => check_entries,
-          "rules" => rule_entries,
-          "dashboards" => dashboard_entries
-        },
-        "files" => %{}
+      base_resources = %{
+        "checks" => check_entries,
+        "rules" => rule_entries,
+        "dashboards" => dashboard_entries
       }
+
+      resources =
+        if format_version == 2 do
+          base_resources
+          |> Map.put("vantage_pipelines", vantage_pipeline_entries)
+          |> Map.put("signal_schemas", signal_schema_entries)
+          |> Map.put("dashboard_packages", dashboard_pkg_entries)
+        else
+          base_resources
+        end
+
+      base_manifest =
+        maybe_put_v2_deps(
+          %{
+            "pack_format_version" => format_version,
+            "id" => pack_id,
+            "slug" => slug,
+            "name" => name,
+            "version" => version,
+            "author" => author,
+            "license" => license,
+            "min_serviceradar_version" => min_version,
+            "categories" => categories,
+            "icon" => icon_uri,
+            "description" => description,
+            "config" => config_defs,
+            "credential_slots" => manifest_slots,
+            "plugin_dependencies" => plugin_deps,
+            "resources" => resources,
+            "files" => %{}
+          },
+          format_version,
+          worker_deps,
+          dashboard_package_deps
+        )
 
       {:ok, _manifest, full_tree} =
         PackManifest.refresh_manifest_digests(base_manifest, non_manifest_files)
@@ -99,6 +149,14 @@ defmodule ServiceRadar.Catalog.PackExporter do
       end
     end
   end
+
+  defp maybe_put_v2_deps(manifest, 2, worker_deps, dashboard_package_deps) do
+    manifest
+    |> Map.put("worker_dependencies", stringify_map(List.wrap(worker_deps)))
+    |> Map.put("dashboard_package_dependencies", stringify_map(List.wrap(dashboard_package_deps)))
+  end
+
+  defp maybe_put_v2_deps(manifest, _version, _worker_deps, _dashboard_package_deps), do: manifest
 
   @doc """
   Exports authored checks, rules, and dashboards directly into deterministic
@@ -360,6 +418,237 @@ defmodule ServiceRadar.Catalog.PackExporter do
       "variables" => stringify_map(fetch_val(plain, :variables, %{})),
       "panels" => panels
     }
+  end
+
+  defp serialize_signal_schemas(schemas) when is_list(schemas) do
+    {files, entries} =
+      Enum.reduce(schemas, {%{}, []}, fn raw_item, {f_acc, e_acc} ->
+        plain = to_plain_map(raw_item)
+        schema_id = fetch_str(plain, :schema_id) || fetch_str(plain, :id) || "signal_schema"
+
+        version =
+          fetch_str(plain, :version) || fetch_str(plain, :signal_schema_version) || "1.0.0"
+
+        signal_schema =
+          fetch_val(plain, :signal_schema, nil) ||
+            fetch_val(plain, :schema, %{})
+
+        display_contract =
+          fetch_val(plain, :display_contract, nil) ||
+            fetch_val(plain, :display, %{})
+
+        display_contract_id =
+          fetch_str(plain, :display_contract_id) || schema_id
+
+        file_slug = slugify_name(schema_id)
+        schema_doc = stringify_map(signal_schema)
+        display_doc = stringify_map(display_contract)
+
+        if is_map(display_doc) and display_doc != %{} do
+          schema_path = "signal_schemas/#{file_slug}.schema.json"
+          display_path = "signal_schemas/#{file_slug}.display.json"
+
+          entry = %{
+            "schema_id" => schema_id,
+            "version" => version,
+            "schema_file" => schema_path,
+            "display_file" => display_path,
+            "display_contract_id" => display_contract_id
+          }
+
+          next_files =
+            f_acc
+            |> Map.put(schema_path, CanonicalJSON.encode_pretty(schema_doc))
+            |> Map.put(display_path, CanonicalJSON.encode_pretty(display_doc))
+
+          {next_files, [entry | e_acc]}
+        else
+          combined_path = "signal_schemas/#{file_slug}.json"
+
+          combined_doc = %{
+            "schema_id" => schema_id,
+            "version" => version,
+            "display_contract_id" => display_contract_id,
+            "schema" => schema_doc
+          }
+
+          entry = %{
+            "schema_id" => schema_id,
+            "version" => version,
+            "file" => combined_path,
+            "display_contract_id" => display_contract_id
+          }
+
+          {
+            Map.put(f_acc, combined_path, CanonicalJSON.encode_pretty(combined_doc)),
+            [entry | e_acc]
+          }
+        end
+      end)
+
+    {:ok, files, Enum.sort_by(entries, & &1["schema_id"])}
+  end
+
+  defp serialize_vantage_pipelines(pipelines, pack_id, pack_version) when is_list(pipelines) do
+    {files, entries} =
+      Enum.reduce(pipelines, {%{}, []}, fn raw_pipeline, {f_acc, e_acc} ->
+        projected = project_vantage_pipeline(raw_pipeline, pack_id, pack_version)
+        pipeline_id = projected["pipeline_id"]
+        pipeline_version = projected["version"]
+        file_slug = slugify_name(pipeline_id)
+        rel_path = "vantage_pipelines/#{file_slug}.json"
+        install_state = if projected["enabled"] == false, do: "paused", else: "enabled"
+
+        entry = %{
+          "file" => rel_path,
+          "pipeline_id" => pipeline_id,
+          "version" => pipeline_version,
+          "install_state" => install_state
+        }
+
+        {
+          Map.put(f_acc, rel_path, CanonicalJSON.encode_pretty(projected)),
+          [entry | e_acc]
+        }
+      end)
+
+    {:ok, files, Enum.sort_by(entries, & &1["pipeline_id"])}
+  end
+
+  defp project_vantage_pipeline(raw_pipeline, pack_id, pack_version) do
+    plain = to_plain_map(raw_pipeline)
+    enabled = fetch_val(plain, :enabled, true) != false
+
+    projected =
+      %{
+        "pipeline_id" => to_string(fetch_val(plain, :pipeline_id, "")),
+        "version" => to_string(fetch_val(plain, :version, "1.0.0")),
+        "name" => to_string(fetch_val(plain, :name, "")),
+        "description" => fetch_val(plain, :description, nil),
+        "enabled" => enabled,
+        "source_mode" => to_string(fetch_val(plain, :source_mode, "recorded_block")),
+        "trigger_kind" => to_string(fetch_val(plain, :trigger_kind, "on_stage1_detection")),
+        "camera_selector" => stringify_map(fetch_val(plain, :camera_selector, %{})),
+        "object_classes" => List.wrap(fetch_val(plain, :object_classes, [])),
+        "min_confidence" => fetch_val(plain, :min_confidence, nil),
+        "roi_polygons" => stringify_map(List.wrap(fetch_val(plain, :roi_polygons, []))),
+        "input_mode" => to_string(fetch_val(plain, :input_mode, "detection_crop")),
+        "crop_policy" => stringify_map(fetch_val(plain, :crop_policy, %{})),
+        "max_jobs_per_minute" => fetch_val(plain, :max_jobs_per_minute, 60),
+        "max_frames_per_track" => fetch_val(plain, :max_frames_per_track, 3),
+        "runner" => to_string(fetch_val(plain, :runner, "camera_vlm")),
+        "capability" => fetch_val(plain, :capability, nil),
+        "fallback_runner" =>
+          case fetch_val(plain, :fallback_runner, nil) do
+            nil -> nil
+            val -> to_string(val)
+          end,
+        "vlm_config" => stringify_map(fetch_val(plain, :vlm_config, %{})),
+        "signal_schema_id" => to_string(fetch_val(plain, :signal_schema_id, "")),
+        "signal_schema_version" => to_string(fetch_val(plain, :signal_schema_version, "1.0.0")),
+        "signal_schema" => stringify_map(fetch_val(plain, :signal_schema, %{})),
+        "display_contract_id" => to_string(fetch_val(plain, :display_contract_id, "")),
+        "display_contract" => stringify_map(fetch_val(plain, :display_contract, %{})),
+        "emit_ocsf_events" => fetch_val(plain, :emit_ocsf_events, false) == true,
+        "live_observation_retention_days" =>
+          fetch_val(plain, :live_observation_retention_days, 30),
+        "pack_id" => pack_id,
+        "pack_version" => pack_version,
+        "managed" => true,
+        "parameter_overrides" => %{}
+      }
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+      |> Map.new()
+
+    Map.put(projected, "template_fingerprint", CanonicalJSON.template_fingerprint(projected))
+  end
+
+  defp serialize_dashboard_packages(packages, opts) when is_list(packages) do
+    blob_loader = Keyword.get(opts, :dashboard_blob_loader)
+
+    packages
+    |> Enum.reduce_while({:ok, %{}, []}, fn raw_pkg, {:ok, f_acc, e_acc} ->
+      plain = to_plain_map(raw_pkg)
+      raw_manifest = fetch_val(plain, :manifest, nil) || %{}
+
+      dash_manifest =
+        case raw_manifest do
+          bytes when is_binary(bytes) ->
+            case Jason.decode(bytes) do
+              {:ok, m} when is_map(m) -> m
+              _ -> %{}
+            end
+
+          m when is_map(m) ->
+            stringify_map(m)
+
+          _ ->
+            %{}
+        end
+
+      dashboard_id =
+        fetch_str(plain, :dashboard_id) ||
+          Map.get(dash_manifest, "id") ||
+          "dashboard-package"
+
+      slug = fetch_str(plain, :slug) || slugify_name(dashboard_id)
+
+      renderer_bytes =
+        fetch_val(plain, :renderer_bytes, nil) ||
+          fetch_val(plain, :bytes, nil) ||
+          fetch_val(plain, :renderer_js, nil) ||
+          if(is_function(blob_loader, 1), do: blob_loader.(raw_pkg))
+
+      if is_binary(renderer_bytes) do
+        sha256 = PackManifest.sha256_hex(renderer_bytes)
+        base_dir = "dashboard_packages/#{slug}"
+        manifest_path = "#{base_dir}/manifest.json"
+        renderer_path = "#{base_dir}/renderer.js"
+
+        renderer_meta =
+          dash_manifest
+          |> Map.get("renderer", %{})
+          |> stringify_map()
+          |> Map.put_new("kind", "browser_module")
+          |> Map.put_new("interface_version", "dashboard-browser-module-v1")
+          |> Map.put("artifact", "renderer.js")
+          |> Map.put("sha256", sha256)
+          |> then(fn r ->
+            if r["kind"] == "browser_module", do: Map.put_new(r, "trust", "trusted"), else: r
+          end)
+
+        normalized_manifest =
+          dash_manifest
+          |> Map.put_new("id", dashboard_id)
+          |> Map.put_new("name", fetch_str(plain, :name) || dashboard_id)
+          |> Map.put_new("version", fetch_str(plain, :version) || "1.0.0")
+          |> Map.put_new("data_frames", fetch_val(plain, :data_frames, []))
+          |> Map.put_new("capabilities", fetch_val(plain, :capabilities, []))
+          |> Map.put_new("settings_schema", fetch_val(plain, :settings_schema, %{}))
+          |> Map.put("renderer", renderer_meta)
+
+        entry =
+          then(%{"slug" => slug, "dir" => base_dir}, fn e ->
+            case fetch_str(plain, :route_slug) do
+              nil -> e
+              rs -> Map.put(e, "route_slug", rs)
+            end
+          end)
+
+        next_files =
+          f_acc
+          |> Map.put(manifest_path, CanonicalJSON.encode_pretty(normalized_manifest))
+          |> Map.put(renderer_path, renderer_bytes)
+
+        {:cont, {:ok, next_files, [entry | e_acc]}}
+      else
+        {:halt, {:error, {:missing_dashboard_renderer_bytes, slug}}}
+      end
+    end)
+    |> case do
+      {:ok, files, entries} -> {:ok, files, Enum.sort_by(entries, & &1["slug"])}
+      err -> err
+    end
   end
 
   defp serialize_assets(assets) when is_map(assets) do

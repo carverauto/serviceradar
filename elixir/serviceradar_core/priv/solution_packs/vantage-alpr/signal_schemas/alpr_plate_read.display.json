@@ -1,0 +1,67 @@
+{
+  "id": "alpr_plate_read",
+  "display_contract_id": "alpr_plate_read",
+  "version": "1.0.0",
+  "title": "ALPR Plate Read",
+  "label": "Plate",
+  "primary_field": "plate_text",
+  "badge_field": "region",
+  "summary_template": "{{plate_text}} ({{region}})",
+  "badge": {
+    "label": "Plate",
+    "color": "#0EA5E9",
+    "icon": "hero-identification"
+  },
+  "scrubber_marker": {
+    "category": "license_plate",
+    "color": "#0EA5E9",
+    "label_field": "plate_text"
+  },
+  "overlay": {
+    "label_template": "{{plate_text}}",
+    "stroke_color": "#0EA5E9",
+    "show_confidence": true
+  },
+  "crop_preview": {
+    "enabled": true,
+    "max_bytes": 32768,
+    "alt_template": "Crop for {{plate_text}}"
+  },
+  "fields": [
+    {
+      "key": "plate_text",
+      "label": "Plate",
+      "type": "string"
+    },
+    {
+      "key": "region",
+      "label": "Region",
+      "type": "string"
+    },
+    {
+      "key": "vehicle_color",
+      "label": "Color",
+      "type": "string"
+    },
+    {
+      "key": "vehicle_type",
+      "label": "Vehicle Type",
+      "type": "string"
+    },
+    {
+      "key": "confidence",
+      "label": "Confidence",
+      "type": "number"
+    }
+  ],
+  "search_fields": [
+    "plate_text",
+    "region",
+    "vehicle_color",
+    "vehicle_type"
+  ],
+  "highlight_fields": [
+    "plate_text",
+    "region"
+  ]
+}

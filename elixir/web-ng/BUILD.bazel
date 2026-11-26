@@ -556,6 +556,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/app_domain/accounts_test.exs",
         "test/app_domain/authorization/permissions_test.exs",
         "test/app_domain/bootstrap/admin_user_test.exs",
+        "test/app_domain/camera_observations_srql_db_test.exs",
         "test/app_domain/dashboards/system_reports_db_test.exs",
         "test/app_domain/edge/bundle_generator_test.exs",
         "test/app_domain/edge/onboarding_packages_test.exs",

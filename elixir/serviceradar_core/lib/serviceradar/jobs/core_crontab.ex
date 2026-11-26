@@ -8,6 +8,8 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   """
 
   alias ServiceRadar.Camera.RelaySessionReaperWorker
+  alias ServiceRadar.Camera.VantagePipelineDispatcher
+  alias ServiceRadar.Camera.VantagePipelineDispatchWorker
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexDispatchWorker
   alias ServiceRadar.CompositeChecks.TickWorker
@@ -113,6 +115,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       object_store_retention_entries(fetch) ++
       capacity_forecasting_entries(fetch) ++
       visual_index_relay_entries(fetch) ++
+      vantage_pipeline_relay_entries(fetch) ++
       ProductionSchedule.cron_entries(fetch) ++
       DispatchSchedule.cron_entries(fetch)
   end
@@ -142,6 +145,14 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   defp visual_index_relay_entries(fetch) do
     if VisualIndexDispatcher.deployment_enabled?(fetch) do
       [{"* * * * *", VisualIndexDispatchWorker, queue: :maintenance}]
+    else
+      []
+    end
+  end
+
+  defp vantage_pipeline_relay_entries(fetch) do
+    if VantagePipelineDispatcher.deployment_enabled?(fetch) do
+      [{"* * * * *", VantagePipelineDispatchWorker, queue: :maintenance}]
     else
       []
     end

@@ -1380,6 +1380,215 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
     """
   end
 
+  attr :vantage_workers, :map, default: %{}
+  attr :timezone, :string, default: "Etc/UTC"
+
+  def vantage_workers_card(assigns) do
+    vw = assigns.vantage_workers || %{}
+    workers = List.wrap(Map.get(vw, :workers))
+    pipelines = List.wrap(Map.get(vw, :pipelines))
+    queue_lag = Map.get(vw, :queue_lag) || %{}
+    online_count = int_or_zero(Map.get(vw, :online_count))
+    stale_count = int_or_zero(Map.get(vw, :stale_count))
+    routing_mode = Map.get(vw, :routing_mode, :idle)
+
+    assigns =
+      assigns
+      |> assign(:workers, workers)
+      |> assign(:pipelines, pipelines)
+      |> assign(:queue_lag, queue_lag)
+      |> assign(:online_count, online_count)
+      |> assign(:stale_count, stale_count)
+      |> assign(:routing_mode, routing_mode)
+
+    ~H"""
+    <section
+      id="health-vantage-workers-card"
+      class="rounded-xl border border-sr-line bg-sr-surface p-5 space-y-4"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 class="text-base font-semibold text-sr-ink">
+            Vantage ML Workers &amp; Queue Health
+          </h2>
+          <p class="text-xs text-sr-muted">
+            Live <code class="font-mono">vantage.worker.v1</code> capability registrations,
+            queue lag, and dynamic Ramp 1 (<code class="font-mono">camera_vlm</code>) vs
+            Ramp 2 (<code class="font-mono">vantage.worker.v1</code>) dispatch routing.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <.ui_badge
+            id="health-vantage-routing-badge"
+            size="xs"
+            variant={vantage_routing_badge_variant(@routing_mode)}
+          >
+            {vantage_routing_badge_label(@routing_mode)}
+          </.ui_badge>
+          <.ui_badge size="xs" variant="outline">
+            {@online_count} online / {@stale_count} stale
+          </.ui_badge>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div
+          id="health-vantage-queue-pending"
+          class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3"
+        >
+          <div class="text-xs text-sr-muted">Pending jobs</div>
+          <div class="mt-1 text-lg font-semibold font-mono text-sr-ink">
+            {if(Map.get(@queue_lag, :accessible?, true),
+              do: int_or_zero(Map.get(@queue_lag, :pending_count)),
+              else: "restricted"
+            )}
+          </div>
+        </div>
+
+        <div
+          id="health-vantage-queue-dispatched"
+          class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3"
+        >
+          <div class="text-xs text-sr-muted">Dispatched / in-flight</div>
+          <div class="mt-1 text-lg font-semibold font-mono text-sr-ink">
+            {if(Map.get(@queue_lag, :accessible?, true),
+              do: int_or_zero(Map.get(@queue_lag, :dispatched_count)),
+              else: "restricted"
+            )}
+          </div>
+        </div>
+
+        <div
+          id="health-vantage-queue-oldest-age"
+          class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3"
+        >
+          <div class="text-xs text-sr-muted">Oldest pending age</div>
+          <div class="mt-1 text-lg font-semibold font-mono text-sr-ink">
+            {format_oldest_pending_age(Map.get(@queue_lag, :oldest_pending_age_seconds))}
+          </div>
+        </div>
+      </div>
+
+      <p :if={@workers == []} id="health-vantage-workers-empty" class="text-xs text-sr-muted">
+        No <code class="font-mono">vantage.worker.v1</code>
+        worker heartbeats recorded yet. <code class="font-mono">recorded_block</code>
+        pipelines with <code class="font-mono">fallback_runner = camera_vlm</code>
+        automatically route to Ramp 1.
+      </p>
+
+      <div :if={@workers != []} class="overflow-x-auto">
+        <table id="health-vantage-workers-table" class="w-full text-left text-xs">
+          <thead class="border-b border-sr-line text-sr-muted">
+            <tr>
+              <th class="py-2 pr-3 font-medium">Worker</th>
+              <th class="py-2 pr-3 font-medium">Capabilities &amp; Modes</th>
+              <th class="py-2 pr-3 font-medium">Runtime &amp; Model</th>
+              <th class="py-2 pr-3 font-medium">Concurrency</th>
+              <th class="py-2 pr-3 font-medium">Health</th>
+              <th class="py-2 font-medium">Expires</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-sr-line">
+            <tr :for={w <- @workers} id={"health-vantage-worker-#{w.worker_id}"} class="align-top">
+              <td class="py-2 pr-3 font-mono text-sr-ink">
+                <div>{w.worker_id}</div>
+                <div class="text-[11px] text-sr-muted">{w.worker_kind}</div>
+              </td>
+              <td class="py-2 pr-3">
+                <div class="font-mono text-sr-ink">{Enum.join(w.capabilities, ", ")}</div>
+                <div class="text-[11px] text-sr-muted">
+                  modes: {Enum.join(w.supported_source_modes, ", ")}
+                </div>
+              </td>
+              <td class="py-2 pr-3 font-mono text-sr-ink">
+                <div>{w.execution_backend} / {w.architecture}</div>
+                <div class="text-[11px] text-sr-muted">{w.model_id}:{w.model_version}</div>
+              </td>
+              <td class="py-2 pr-3 font-mono text-sr-ink">
+                {w.active_jobs}/{w.max_concurrency}
+              </td>
+              <td class="py-2 pr-3">
+                <.ui_badge
+                  size="xs"
+                  variant={if(w.online?, do: "success", else: "warning")}
+                >
+                  {if(w.stale?, do: "stale", else: w.health)}
+                </.ui_badge>
+              </td>
+              <td class="py-2 font-mono text-[11px] text-sr-muted">
+                <.user_time
+                  :if={w.expires_at}
+                  id={"health-vantage-worker-expires-#{sanitize_dom_id(w.worker_id)}"}
+                  value={w.expires_at}
+                  timezone={@timezone}
+                  style={:compact}
+                />
+                <span :if={is_nil(w.expires_at)}>—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div :if={@pipelines != []} class="overflow-x-auto pt-1">
+        <table id="health-vantage-pipelines-table" class="w-full text-left text-xs">
+          <thead class="border-b border-sr-line text-sr-muted">
+            <tr>
+              <th class="py-1.5 pr-3 font-medium">Pipeline</th>
+              <th class="py-1.5 pr-3 font-medium">Capability &amp; Source Mode</th>
+              <th class="py-1.5 pr-3 font-medium">Active Route</th>
+              <th class="py-1.5 font-medium">Ready Workers</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-sr-line">
+            <tr :for={p <- @pipelines} class="align-top">
+              <td class="py-1.5 pr-3 font-mono text-sr-ink">{p.pipeline_id} (v{p.version})</td>
+              <td class="py-1.5 pr-3 font-mono text-sr-muted">
+                {p.capability || "vantage.vlm.v1"} · {p.source_mode}
+              </td>
+              <td class="py-1.5 pr-3">
+                <.ui_badge
+                  size="xs"
+                  variant={pipeline_route_badge_variant(p.active_route)}
+                >
+                  {pipeline_route_label(p.active_route)}
+                </.ui_badge>
+              </td>
+              <td class="py-1.5 font-mono text-sr-ink">{p.worker_count}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    """
+  end
+
+  defp vantage_routing_badge_variant(:ramp_2), do: "success"
+  defp vantage_routing_badge_variant(:mixed), do: "info"
+  defp vantage_routing_badge_variant(:ramp_1_fallback), do: "warning"
+  defp vantage_routing_badge_variant(:held), do: "error"
+  defp vantage_routing_badge_variant(_), do: "ghost"
+
+  defp vantage_routing_badge_label(:ramp_2), do: "Ramp 2: vantage.worker.v1 active"
+  defp vantage_routing_badge_label(:mixed), do: "Mixed: Ramp 2 + Ramp 1 fallback"
+  defp vantage_routing_badge_label(:ramp_1_fallback), do: "Ramp 1: camera_vlm active"
+  defp vantage_routing_badge_label(:held), do: "Held (awaiting worker)"
+  defp vantage_routing_badge_label(_), do: "Idle"
+
+  defp pipeline_route_badge_variant(:ramp_2), do: "success"
+  defp pipeline_route_badge_variant(:ramp_1_fallback), do: "warning"
+  defp pipeline_route_badge_variant(:camera_vlm), do: "info"
+  defp pipeline_route_badge_variant(_), do: "error"
+
+  defp pipeline_route_label(:ramp_2), do: "Ramp 2 (vantage.worker.v1)"
+  defp pipeline_route_label(:ramp_1_fallback), do: "Ramp 1 fallback (camera_vlm)"
+  defp pipeline_route_label(:camera_vlm), do: "Ramp 1 (camera_vlm)"
+  defp pipeline_route_label(_), do: "Held (no eligible worker)"
+
+  defp format_oldest_pending_age(age) when is_integer(age), do: "#{age}s"
+  defp format_oldest_pending_age(_), do: "—"
+
   # --- formatting helpers ----------------------------------------------------
 
   defp format_desired_budget(desired) do

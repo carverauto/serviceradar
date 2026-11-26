@@ -17,6 +17,7 @@ use crate::range_reader::{
     FragmentStore, HybridGrantStore, LongshoreArchiveReader, NvrAnalysisReader,
     VerifiedKeyframeBlock,
 };
+use crate::vantage_vlm::{HttpVlmClient, VantageVlmProcessor};
 use crate::vision::VisionPipeline;
 use async_nats::jetstream::AckKind;
 use async_nats::jetstream::consumer::{AckPolicy, pull};
@@ -24,7 +25,12 @@ use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
 use async_nats::{Client, ConnectOptions, HeaderMap, jetstream};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use serviceradar_media_core::RoiGridMask;
+use serviceradar_media_core::{
+    MAX_VANTAGE_RESULT_ENVELOPE_BYTES, RoiGridMask,
+    VANTAGE_RESULTS_SUBJECT as CORE_VANTAGE_RESULTS_SUBJECT,
+    VANTAGE_VLM_BACKFILL_SUBJECT as CORE_VANTAGE_VLM_BACKFILL_SUBJECT,
+    VANTAGE_VLM_JOBS_SUBJECT as CORE_VANTAGE_VLM_JOBS_SUBJECT, VantageResultEnvelope,
+};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
@@ -47,6 +53,12 @@ pub const VISUAL_TEXT_EMBED_QUEUE_GROUP: &str = "serviceradar_media_worker_text_
 /// Safe serialized JSON byte ceiling (960 KiB) for `VisualIndexResultEnvelope`, keeping
 /// headroom below NATS's 1 MiB `max_payload`.
 pub const MAX_RESULT_ENVELOPE_JSON_BYTES: usize = 960 * 1024;
+/// Live Ramp 1 Vantage VLM job subject (`media.jobs.vantage.vlm.v1`).
+pub const VANTAGE_VLM_LIVE_SUBJECT: &str = CORE_VANTAGE_VLM_JOBS_SUBJECT;
+/// Backfill Ramp 1 Vantage VLM job subject (`media.jobs.vantage.vlm.backfill.v1`).
+pub const VANTAGE_VLM_BACKFILL_SUBJECT: &str = CORE_VANTAGE_VLM_BACKFILL_SUBJECT;
+/// Idempotent Vantage observation result subject consumed by Core `EventWriter`.
+pub const VANTAGE_RESULTS_SUBJECT: &str = CORE_VANTAGE_RESULTS_SUBJECT;
 
 fn default_schema_v1() -> u32 {
     1
@@ -493,6 +505,12 @@ pub trait ResultPublisher: Send + Sync {
         &self,
         msg_id: &str,
         envelope: &VisualIndexResultEnvelope,
+    ) -> impl Future<Output = Result<(), MediaWorkerError>> + Send;
+
+    fn publish_vantage_result(
+        &self,
+        msg_id: &str,
+        envelope: &VantageResultEnvelope,
     ) -> impl Future<Output = Result<(), MediaWorkerError>> + Send;
 
     fn publish_telemetry_snapshot(
@@ -1251,13 +1269,13 @@ fn is_terminal_non_retryable(err: &MediaWorkerError) -> bool {
     )
 }
 
-struct WpiHeartbeatHandle {
+pub(crate) struct WpiHeartbeatHandle {
     stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
     join: tokio::task::JoinHandle<()>,
 }
 
 impl WpiHeartbeatHandle {
-    async fn stop(mut self) {
+    pub(crate) async fn stop(mut self) {
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());
         }
@@ -1265,7 +1283,7 @@ impl WpiHeartbeatHandle {
     }
 }
 
-fn spawn_wpi_heartbeat<D: JobDelivery + 'static>(
+pub(crate) fn spawn_wpi_heartbeat<D: JobDelivery + 'static>(
     delivery: Arc<D>,
     interval: Duration,
     max_budget: Duration,
@@ -1401,6 +1419,58 @@ impl ResultPublisher for JetStreamResultPublisher {
         .map_err(|_| {
             MediaWorkerError::deadline_exceeded(format!(
                 "JetStream publish timeout on {VISUAL_INDEX_RESULTS_SUBJECT}"
+            ))
+        })??;
+
+        Ok(())
+    }
+
+    async fn publish_vantage_result(
+        &self,
+        msg_id: &str,
+        envelope: &VantageResultEnvelope,
+    ) -> Result<(), MediaWorkerError> {
+        if let Some(guard) = &self.cert_policy {
+            guard
+                .ensure_authorized()
+                .map_err(|err| MediaWorkerError::nats_error(err.to_string()))?;
+        }
+
+        let payload = serde_json::to_vec(envelope).map_err(|err| {
+            MediaWorkerError::nats_error(format!("failed serializing vantage result JSON: {err}"))
+        })?;
+        if payload.len() > MAX_VANTAGE_RESULT_ENVELOPE_BYTES {
+            return Err(MediaWorkerError::inference_failed(format!(
+                "VantageResultEnvelope payload {} exceeds {} bytes",
+                payload.len(),
+                MAX_VANTAGE_RESULT_ENVELOPE_BYTES
+            )));
+        }
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Nats-Msg-Id", msg_id);
+
+        timeout(self.publish_timeout, async {
+            let ack_fut = self
+                .js
+                .publish_with_headers(VANTAGE_RESULTS_SUBJECT, headers, payload.into())
+                .await
+                .map_err(|err| {
+                    MediaWorkerError::nats_error(format!(
+                        "JetStream publish to {VANTAGE_RESULTS_SUBJECT} failed: {err}"
+                    ))
+                })?;
+            ack_fut.await.map_err(|err| {
+                MediaWorkerError::nats_error(format!(
+                    "JetStream pub-ack for {VANTAGE_RESULTS_SUBJECT} failed: {err}"
+                ))
+            })?;
+            Ok::<(), MediaWorkerError>(())
+        })
+        .await
+        .map_err(|_| {
+            MediaWorkerError::deadline_exceeded(format!(
+                "JetStream publish timeout on {VANTAGE_RESULTS_SUBJECT}"
             ))
         })??;
 
@@ -1635,11 +1705,69 @@ async fn run_admitted_nats_worker_inner(
     let processor = VisualIndexProcessor::with_backend(
         config,
         worker.backend,
-        grant_client,
-        store,
-        publisher,
-        metrics,
+        grant_client.clone(),
+        store.clone(),
+        publisher.clone(),
+        Arc::clone(&metrics),
     );
+
+    let _vantage_handle = if config.vantage_vlm_enabled() {
+        let vlm_client = HttpVlmClient::from_config(config)?;
+        let vantage_processor = VantageVlmProcessor::new(
+            config,
+            grant_client,
+            store,
+            publisher,
+            vlm_client,
+            Arc::clone(&metrics),
+        );
+        let vantage_live_consumer = ensure_pull_consumer(
+            &js,
+            config.jobs_stream_name(),
+            &format!("{}_live", config.vantage_consumer_name()),
+            VANTAGE_VLM_LIVE_SUBJECT,
+            config.vantage_vlm_concurrency(),
+        )
+        .await?;
+        let vantage_backfill_consumer = ensure_pull_consumer(
+            &js,
+            config.jobs_stream_name(),
+            &format!("{}_backfill", config.vantage_consumer_name()),
+            VANTAGE_VLM_BACKFILL_SUBJECT,
+            config.vantage_vlm_concurrency(),
+        )
+        .await?;
+        let mut vantage_shutdown = shutdown.clone();
+        info!(
+            live_subject = VANTAGE_VLM_LIVE_SUBJECT,
+            backfill_subject = VANTAGE_VLM_BACKFILL_SUBJECT,
+            vantage_vlm_concurrency = config.vantage_vlm_concurrency(),
+            "started isolated JetStream Vantage VLM pull loop"
+        );
+        Some(tokio::spawn(async move {
+            while !*vantage_shutdown.borrow_and_update() {
+                let pulled_live =
+                    pull_and_spawn_vantage_batch(&vantage_live_consumer, &vantage_processor, 1)
+                        .await;
+                if pulled_live == 0 {
+                    let pulled_backfill = pull_and_spawn_vantage_batch(
+                        &vantage_backfill_consumer,
+                        &vantage_processor,
+                        1,
+                    )
+                    .await;
+                    if pulled_backfill == 0 {
+                        tokio::select! {
+                            _ = vantage_shutdown.changed() => break,
+                            _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+                        }
+                    }
+                }
+            }
+        }))
+    } else {
+        None
+    };
 
     let live_consumer = ensure_pull_consumer(
         &js,
@@ -1721,6 +1849,46 @@ where
     count
 }
 
+async fn pull_and_spawn_vantage_batch<G, S, P, V>(
+    consumer: &jetstream::consumer::Consumer<pull::Config>,
+    processor: &VantageVlmProcessor<G, S, P, V>,
+    max_messages: usize,
+) -> usize
+where
+    G: GrantClient + 'static,
+    S: FragmentStore + 'static,
+    P: ResultPublisher + 'static,
+    V: crate::vantage_vlm::VlmClient + 'static,
+{
+    if processor.semaphore().available_permits() == 0 {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        return 0;
+    }
+
+    let Ok(mut batch) = consumer
+        .fetch()
+        .max_messages(max_messages)
+        .expires(Duration::from_millis(200))
+        .messages()
+        .await
+    else {
+        return 0;
+    };
+
+    let mut count = 0usize;
+    while let Some(Ok(msg)) = batch.next().await {
+        count += 1;
+        let proc_clone = processor.clone();
+        let delivery = Arc::new(JetStreamJobDelivery::new(msg));
+        tokio::spawn(async move {
+            if let Err(err) = proc_clone.process_delivery(delivery).await {
+                warn!(error = %err, "vantage VLM job failed");
+            }
+        });
+    }
+    count
+}
+
 async fn connect_nats_and_jetstream(
     config: &WorkerConfig,
 ) -> Result<
@@ -1784,6 +1952,8 @@ async fn ensure_media_streams(
         subjects: vec![
             VISUAL_INDEX_LIVE_SUBJECT.to_string(),
             VISUAL_INDEX_BACKFILL_SUBJECT.to_string(),
+            VANTAGE_VLM_LIVE_SUBJECT.to_string(),
+            VANTAGE_VLM_BACKFILL_SUBJECT.to_string(),
         ],
         retention: RetentionPolicy::Limits,
         storage: StorageType::File,
@@ -1797,7 +1967,10 @@ async fn ensure_media_streams(
 
     let results_cfg = jetstream::stream::Config {
         name: config.results_stream_name().to_string(),
-        subjects: vec![VISUAL_INDEX_RESULTS_SUBJECT.to_string()],
+        subjects: vec![
+            VISUAL_INDEX_RESULTS_SUBJECT.to_string(),
+            VANTAGE_RESULTS_SUBJECT.to_string(),
+        ],
         retention: RetentionPolicy::Limits,
         storage: StorageType::File,
         max_age: Duration::from_secs(72 * 3600),

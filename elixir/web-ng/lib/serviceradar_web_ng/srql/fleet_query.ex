@@ -3,12 +3,17 @@ defmodule ServiceRadarWebNG.SRQL.FleetQuery do
 
   alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.PluginFleet
+  alias ServiceRadarWebNG.SRQL.CameraObservationsQuery
   alias ServiceRadarWebNG.SRQL.EntityAccess
 
   @native_fields ~w(agent_uid agent_label addon_id addon_name package_id assigned_version
     latest_approved_version content_hash package_status verification_status degradation_reason
     reported_at last_health_at last_scan_at category reason_code evidence_age_seconds rollout_state update_policy)
   @time_fields ~w(reported_at last_health_at last_scan_at last_success_at last_failure_at)
+
+  def execute(%{"entity" => "camera_observations"} = plan, scope) do
+    CameraObservationsQuery.execute(plan, scope)
+  end
 
   def execute(%{"entity" => entity} = plan, scope) do
     with :ok <- EntityAccess.authorize("in:#{entity}", scope) do

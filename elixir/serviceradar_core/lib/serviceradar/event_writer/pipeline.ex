@@ -38,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   alias Broadway.Message
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Camera.VantageObservationProjector
   alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
@@ -839,6 +840,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:scan_results, &scan_results_subject?/1},
       {:mtr_results, &mtr_results_subject?/1},
       {:camera_visual_index_results, &(&1 == VisualIndexResultProjector.result_subject())},
+      {:camera_vantage_observations, &(&1 == VantageObservationProjector.result_subject())},
       {:availability_transitions, &String.starts_with?(&1, "availability.transitions.")},
       {:rum_beacons, &String.starts_with?(&1, "rum.beacons.")},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
@@ -953,6 +955,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp get_processor(:camera_visual_index_results),
     do: ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
+
+  defp get_processor(:camera_vantage_observations),
+    do: ServiceRadar.EventWriter.Processors.CameraVantageObservations
 
   defp get_processor(:rum_beacons), do: ServiceRadar.EventWriter.Processors.RumBeacons
   defp get_processor(:bmp_causal), do: AnalyticsSignals

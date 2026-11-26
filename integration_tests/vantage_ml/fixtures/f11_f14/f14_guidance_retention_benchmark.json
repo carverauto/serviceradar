@@ -1,0 +1,187 @@
+{
+  "guidance_states": ["approach", "aligning", "stop", "docked", "clear"],
+  "bay_guidance_positive": [
+    {
+      "bay_id": "bay-04",
+      "guidance_state": "approach",
+      "distance_m": 6.5,
+      "lateral_offset_m": -0.24,
+      "confidence": 0.91
+    },
+    {
+      "bay_id": "bay-04",
+      "guidance_state": "aligning",
+      "distance_m": 2.1,
+      "lateral_offset_m": 0.08,
+      "confidence": 0.94
+    },
+    {
+      "bay_id": "bay-04",
+      "guidance_state": "stop",
+      "distance_m": 0.15,
+      "lateral_offset_m": 0.01,
+      "confidence": 0.97
+    },
+    {
+      "bay_id": "bay-04",
+      "guidance_state": "docked",
+      "distance_m": 0.0,
+      "lateral_offset_m": 0.0,
+      "confidence": 0.99
+    },
+    {
+      "bay_id": "bay-04",
+      "guidance_state": "clear",
+      "distance_m": 12.0,
+      "lateral_offset_m": 0.05
+    }
+  ],
+  "bay_guidance_negative": [
+    {
+      "name": "missing_bay_id",
+      "expected_error": "bay_id",
+      "attributes": {
+        "guidance_state": "approach",
+        "distance_m": 3.0,
+        "lateral_offset_m": 0.0
+      }
+    },
+    {
+      "name": "invalid_guidance_state",
+      "expected_error": "guidance_state",
+      "attributes": {
+        "bay_id": "bay-04",
+        "guidance_state": "backing_up",
+        "distance_m": 3.0,
+        "lateral_offset_m": 0.0
+      }
+    },
+    {
+      "name": "negative_distance",
+      "expected_error": "distance_m",
+      "attributes": {
+        "bay_id": "bay-04",
+        "guidance_state": "stop",
+        "distance_m": -0.01,
+        "lateral_offset_m": 0.0
+      }
+    },
+    {
+      "name": "legacy_alignment_status_missing_guidance_state",
+      "expected_error": "guidance_state",
+      "attributes": {
+        "bay_id": "bay-04",
+        "alignment_status": "centered",
+        "distance_m": 1.2,
+        "lateral_offset_m": 0.0
+      }
+    },
+    {
+      "name": "confidence_above_1",
+      "expected_error": "confidence",
+      "attributes": {
+        "bay_id": "bay-04",
+        "guidance_state": "docked",
+        "distance_m": 0.0,
+        "lateral_offset_m": 0.0,
+        "confidence": 1.05
+      }
+    }
+  ],
+  "ocsf_event_envelope": {
+    "id": "99999999-9999-4999-8999-999999999904",
+    "class_uid": 1008,
+    "log_name": "camera.vantage.observation",
+    "log_provider": "serviceradar.vantage",
+    "metadata": {
+      "service_radar": {
+        "source_type": "camera_vantage",
+        "camera_source_id": "22222222-2222-4222-8222-222222222204",
+        "stream_profile_id": "33333333-3333-4333-8333-333333333304",
+        "catalog_entry_id": null,
+        "pipeline_id": "io.serviceradar.vantage-bay-guidance.dock",
+        "pipeline_version": "1.0.0",
+        "source_mode": "live_keyframe_tap",
+        "signal_schema": {
+          "producer_id": "io.serviceradar.vantage-bay-guidance",
+          "producer_version": "1.0.0",
+          "schema_id": "bay_guidance",
+          "schema_version": "1.0.0"
+        },
+        "attributes": {
+          "bay_id": "bay-04",
+          "guidance_state": "approach",
+          "distance_m": 3.5,
+          "lateral_offset_m": -0.05
+        }
+      }
+    }
+  },
+  "retention_boundary": {
+    "live_observation_retention_days": 7,
+    "now_ts_us": 1700604800000000,
+    "cutoff_ts_us": 1700000000000000,
+    "records": [
+      {
+        "observation_id": "live-expired-before-cutoff",
+        "source_mode": "live_keyframe_tap",
+        "catalog_entry_id": null,
+        "has_recording_hold": false,
+        "inserted_at_us": 1699999999000000,
+        "expected_purged": true
+      },
+      {
+        "observation_id": "live-exact-cutoff",
+        "source_mode": "live_keyframe_tap",
+        "catalog_entry_id": null,
+        "has_recording_hold": false,
+        "inserted_at_us": 1700000000000000,
+        "expected_purged": false
+      },
+      {
+        "observation_id": "live-fresh-after-cutoff",
+        "source_mode": "live_keyframe_tap",
+        "catalog_entry_id": null,
+        "has_recording_hold": false,
+        "inserted_at_us": 1700000001000000,
+        "expected_purged": false
+      },
+      {
+        "observation_id": "recorded-old-with-hold",
+        "source_mode": "recorded_block",
+        "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+        "has_recording_hold": true,
+        "inserted_at_us": 1699000000000000,
+        "expected_purged": false
+      }
+    ]
+  },
+  "latency_reference_sets": [
+    {
+      "name": "hundred_sequential_ms",
+      "samples_ms": [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+        31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+        41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+        51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
+        61, 62, 63, 64, 65, 66, 67, 68, 69, 70,
+        71, 72, 73, 74, 75, 76, 77, 78, 79, 80,
+        81, 82, 83, 84, 85, 86, 87, 88, 89, 90,
+        91, 92, 93, 94, 95, 96, 97, 98, 99, 100
+      ],
+      "expected": {"p50": 50.0, "p95": 95.0, "p99": 99.0}
+    },
+    {
+      "name": "single_sample_ms",
+      "samples_ms": [18.5],
+      "expected": {"p50": 18.5, "p95": 18.5, "p99": 18.5}
+    },
+    {
+      "name": "unsorted_bay04_burst_ms",
+      "samples_ms": [42.0, 12.0, 19.0, 88.0, 15.0, 27.0, 31.0, 14.0, 22.0, 65.0],
+      "expected": {"p50": 22.0, "p95": 88.0, "p99": 88.0}
+    }
+  ]
+}

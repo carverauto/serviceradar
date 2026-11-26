@@ -1443,4 +1443,114 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   defp unit_vec(dim) do
     [1.0 | List.duplicate(0.0, dim - 1)]
   end
+
+  describe "SemanticSearch Vantage observation fusion & embedder fallback" do
+    test "fuses plate_text attribute & FTS observation hits independently and preserves audit when embedder is unavailable" do
+      obs_1 = "00000000-0000-7000-8000-000000000951"
+      obs_2 = "00000000-0000-7000-8000-000000000952"
+
+      caller = %{
+        user: %{id: "investigator-alpr"},
+        permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"])
+      }
+
+      parent = self()
+
+      obs_hit_1 = %{
+        id: obs_1,
+        catalog_entry_id: @catalog_id,
+        camera_source_id: @cam_a,
+        stream_profile_id: @prof_a,
+        timeline_ts_us: 1_700_000_012_000_000,
+        time_basis: "received",
+        category: "license_plate",
+        label: "SR-0100",
+        confidence: 0.94,
+        bbox: [0.32, 0.58, 0.48, 0.66],
+        attributes: %{"plate_text" => "SR-0100", "region" => "US-CO"},
+        signal_schema_id: "alpr_plate_read",
+        display_contract_id: "alpr_plate_read",
+        pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+        pipeline_version: "1.0.0",
+        track_id: "track-1",
+        has_crop: true,
+        catalog_start_us: 1_700_000_000_000_000,
+        catalog_end_us: 1_700_000_060_000_000,
+        text_rank: 0.9,
+        match_sources: ["observation_attribute", "observation_fts"]
+      }
+
+      obs_hit_2 = %{
+        obs_hit_1
+        | id: obs_2,
+          timeline_ts_us: 1_700_000_045_000_000,
+          label: "TEST-742",
+          attributes: %{"plate_text" => "TEST-742", "region" => "US-CO"},
+          text_rank: 0.4
+      }
+
+      assert {:ok, resp} =
+               SemanticSearch.search(
+                 %{
+                   query: "plate_text:SR-0100",
+                   from_us: 1_700_000_000_000_000,
+                   to_us: 1_700_000_120_000_000
+                 },
+                 scope: caller,
+                 now: ~U[2026-11-24 00:01:00Z],
+                 bypass_cache: true,
+                 text_embedder: fn _q, _ctx -> {:error, :search_embedder_unavailable} end,
+                 loaders: %{
+                   sources: [%{id: @cam_a, display_name: "Gate West 01", device_uid: "dev-gw01"}],
+                   observations_loader: fn _q, ctx ->
+                     assert ctx.attribute_filters == [{"plate_text", "SR-0100"}]
+                     assert ctx.free_text == ""
+                     assert ctx.camera_source_ids == [@cam_a]
+                     {:ok, [obs_hit_1, obs_hit_2]}
+                   end,
+                   audit_writer: fn audit ->
+                     send(parent, {:audit_recorded, audit})
+                     {:ok, audit}
+                   end
+                 }
+               )
+
+      assert [first, second] = resp.results
+      assert first.vantage_observation_id == obs_1
+      assert first.best_timeline_ts_us == 1_700_000_012_000_000
+      assert first.observation_label == "SR-0100"
+      assert first.has_crop == true
+      assert second.vantage_observation_id == obs_2
+      assert second.best_timeline_ts_us == 1_700_000_045_000_000
+
+      assert_receive {:audit_recorded, audit}
+      assert audit.event_kind == :semantic_search
+      assert audit.details["observation_result_count"] == 2
+    end
+
+    test "still fails closed with :search_embedder_unavailable when no observations match" do
+      caller = %{
+        user: %{id: "investigator-alpr"},
+        permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"])
+      }
+
+      assert {:error, :search_embedder_unavailable} =
+               SemanticSearch.search(
+                 %{
+                   query: "SR-0100",
+                   from_us: 1_700_000_000_000_000,
+                   to_us: 1_700_000_120_000_000
+                 },
+                 scope: caller,
+                 now: ~U[2026-11-24 00:01:00Z],
+                 bypass_cache: true,
+                 text_embedder: fn _q, _ctx -> {:error, :search_embedder_unavailable} end,
+                 loaders: %{
+                   sources: [%{id: @cam_a, display_name: "Gate West 01", device_uid: "dev-gw01"}],
+                   observations_loader: fn _q, _ctx -> {:ok, []} end,
+                   skip_db_audit: true
+                 }
+               )
+    end
+  end
 end

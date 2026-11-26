@@ -985,6 +985,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/catalog/packs/import", SolutionPackController, :import_pack)
     post("/catalog/packs/export", SolutionPackController, :export_custom)
     get("/catalog/packs/:slug", SolutionPackController, :show)
+    delete("/catalog/packs/:slug", SolutionPackController, :uninstall)
     get("/catalog/packs/:slug/export", SolutionPackController, :export)
     post("/catalog/packs/:slug/install", SolutionPackController, :install)
     get("/catalog/repositories", SolutionPackController, :list_repositories)

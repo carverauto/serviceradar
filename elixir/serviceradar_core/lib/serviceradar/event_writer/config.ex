@@ -53,6 +53,7 @@ defmodule ServiceRadar.EventWriter.Config do
     `_FALLBACK_REPLICAS` - JetStream stream sizes, see `jetstream_sizes_from_env!/1`
   """
 
+  alias ServiceRadar.Camera.VantageObservationProjector
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
@@ -1264,6 +1265,38 @@ defmodule ServiceRadar.EventWriter.Config do
   def camera_visual_index_results_streams do
     if VisualIndexDispatcher.deployment_enabled?(),
       do: [camera_visual_index_results_stream()],
+      else: []
+  end
+
+  @doc """
+  Vantage ML observation results (`media.results.vantage.v1`), stored by the
+  CameraVantageObservations processor on the worker-owned `CAMERA_MEDIA_RESULTS`
+  stream (`ensure_stream: false`, `allow_stream_fallback: false`).
+  """
+  @spec camera_vantage_observations_stream() :: stream_config()
+  def camera_vantage_observations_stream do
+    %{
+      name: "CAMERA_VANTAGE_OBSERVATIONS",
+      stream_name: "CAMERA_MEDIA_RESULTS",
+      subject: VantageObservationProjector.result_subject(),
+      allow_stream_fallback: false,
+      processor: ServiceRadar.EventWriter.Processors.CameraVantageObservations,
+      ensure_stream: false,
+      batch_size: 10,
+      batch_timeout: 250,
+      consumer_max_ack_pending: 20,
+      consumer_max_deliver: 10
+    }
+  end
+
+  @doc """
+  The Vantage observation result stream when `SERVICERADAR_VANTAGE_PIPELINES_ENABLED`
+  is `"true"`.
+  """
+  @spec camera_vantage_observations_streams() :: [stream_config()]
+  def camera_vantage_observations_streams do
+    if VantageObservationProjector.deployment_enabled?(),
+      do: [camera_vantage_observations_stream()],
       else: []
   end
 

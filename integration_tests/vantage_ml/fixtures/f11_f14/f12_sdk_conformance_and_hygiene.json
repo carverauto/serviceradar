@@ -1,0 +1,228 @@
+{
+  "worker_configs_clean": {
+    "rust_alpr_worker": {
+      "worker_id": "vantage-alpr-rust-gate-west-01",
+      "worker_kind": "external_rust",
+      "protocol_version": "vantage.worker.v1",
+      "capabilities": ["vantage.alpr.v1"],
+      "supported_source_modes": ["recorded_block", "live_keyframe_tap"],
+      "nats_url": "nats://198.51.100.10:4222",
+      "control_plane_url": "https://control.example.com",
+      "read_grant_endpoint": "/v1/media/workers/read-grants",
+      "headers": {
+        "X-ServiceRadar-Control-Plane-Authorization": "{{control_plane_token}}",
+        "X-ServiceRadar-Deployment-Ref": "{{deployment_ref}}",
+        "X-ServiceRadar-Media-Worker-Generation": "{{worker_generation}}"
+      },
+      "health_bind": "127.0.0.1:8081",
+      "database_access": "none",
+      "warehouse_access": "none",
+      "storage_access": "read_grant_only"
+    },
+    "python_guidance_worker": {
+      "worker_id": "vantage-guidance-py-bay-04",
+      "worker_kind": "external_python",
+      "protocol_version": "vantage.worker.v1",
+      "capabilities": ["vantage.bay_guidance.v1"],
+      "supported_source_modes": ["live_keyframe_tap", "recorded_block"],
+      "nats_url": "nats://203.0.113.15:4222",
+      "control_plane_url": "https://control.example.org",
+      "read_grant_endpoint": "/v1/media/workers/read-grants",
+      "headers": {
+        "X-ServiceRadar-Control-Plane-Authorization": "${VANTAGE_CONTROL_PLANE_AUTH}",
+        "X-ServiceRadar-Deployment-Ref": "${VANTAGE_DEPLOYMENT_REF}",
+        "X-ServiceRadar-Media-Worker-Generation": "${VANTAGE_WORKER_GENERATION}"
+      },
+      "health_bind": "127.0.0.1:8082",
+      "database_access": "none",
+      "warehouse_access": "none",
+      "storage_access": "read_grant_only"
+    }
+  },
+  "forbidden_env_keys": [
+    "DATABASE_URL",
+    "SERVICERADAR_E2E_DATABASE_URL",
+    "CNPG_PASSWORD",
+    "STARROCKS_PASSWORD",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "S3_SECRET_KEY"
+  ],
+  "ramp1_to_ramp2_parity": {
+    "ramp1_vlm_result": {
+      "schema_version": "vantage.result.v1",
+      "job_id": "11111111-1111-4111-8111-111111111101",
+      "pack_id": "io.serviceradar.vantage-alpr",
+      "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+      "pipeline_version": "1.0.0",
+      "worker_kind": "camera_vlm",
+      "worker_id": "media-worker-gate-west-01",
+      "model_id": "vantage-vlm-synthetic",
+      "model_version": "1.0.0",
+      "capability": "vantage.alpr.v1",
+      "source_mode": "recorded_block",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+      "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "observations": [
+        {
+          "observation_key": "1212121212121212121212121212121212121212121212121212121212121212",
+          "fragment_sequence": 1,
+          "frame_sequence": 1,
+          "media_pts_ns": 1000000000,
+          "timeline_ts_us": 1700000000000000,
+          "time_basis": "received",
+          "track_id": "track-1",
+          "category": "license_plate",
+          "label": "SR-0100",
+          "confidence": 0.93,
+          "bbox": [0.32, 0.58, 0.48, 0.66],
+          "attributes": {
+            "plate_text": "SR-0100",
+            "region": "US-CO",
+            "vehicle_color": "silver",
+            "vehicle_type": "sedan"
+          },
+          "signal_schema_id": "alpr_plate_read",
+          "signal_schema_version": "1.0.0",
+          "display_contract_id": "alpr_plate_read",
+          "search_text": "SR-0100 Gate West 01 US-CO silver sedan"
+        }
+      ]
+    },
+    "ramp2_rust_result": {
+      "schema_version": "vantage.result.v1",
+      "job_id": "11111111-1111-4111-8111-111111111102",
+      "pack_id": "io.serviceradar.vantage-alpr",
+      "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+      "pipeline_version": "1.0.0",
+      "worker_kind": "external_rust",
+      "worker_id": "vantage-alpr-rust-gate-west-01",
+      "model_id": "vantage-alpr-onnx-synthetic",
+      "model_version": "1.0.0",
+      "capability": "vantage.alpr.v1",
+      "source_mode": "recorded_block",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+      "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "observations": [
+        {
+          "observation_key": "2323232323232323232323232323232323232323232323232323232323232323",
+          "fragment_sequence": 1,
+          "frame_sequence": 1,
+          "media_pts_ns": 1000000000,
+          "timeline_ts_us": 1700000000000000,
+          "time_basis": "received",
+          "track_id": "track-1",
+          "category": "license_plate",
+          "label": "SR-0100",
+          "confidence": 0.96,
+          "bbox": [0.32, 0.58, 0.48, 0.66],
+          "attributes": {
+            "plate_text": "SR-0100",
+            "region": "US-CO",
+            "vehicle_color": "silver",
+            "vehicle_type": "sedan"
+          },
+          "signal_schema_id": "alpr_plate_read",
+          "signal_schema_version": "1.0.0",
+          "display_contract_id": "alpr_plate_read",
+          "search_text": "SR-0100 Gate West 01 US-CO silver sedan"
+        }
+      ]
+    },
+    "ramp2_python_result": {
+      "schema_version": "vantage.result.v1",
+      "job_id": "11111111-1111-4111-8111-111111111103",
+      "pack_id": "io.serviceradar.vantage-alpr",
+      "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+      "pipeline_version": "1.0.0",
+      "worker_kind": "external_python",
+      "worker_id": "vantage-alpr-py-gate-west-01",
+      "model_id": "vantage-alpr-py-synthetic",
+      "model_version": "1.0.0",
+      "capability": "vantage.alpr.v1",
+      "source_mode": "recorded_block",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+      "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "observations": [
+        {
+          "observation_key": "3434343434343434343434343434343434343434343434343434343434343434",
+          "fragment_sequence": 2,
+          "frame_sequence": 4,
+          "media_pts_ns": 2000000000,
+          "timeline_ts_us": 1700000001000000,
+          "time_basis": "received",
+          "track_id": "track-2",
+          "category": "license_plate",
+          "label": "TEST-742",
+          "confidence": 0.95,
+          "bbox": [0.4, 0.5, 0.6, 0.65],
+          "attributes": {
+            "plate_text": "TEST-742",
+            "region": "US-CA"
+          },
+          "signal_schema_id": "alpr_plate_read",
+          "signal_schema_version": "1.0.0",
+          "display_contract_id": "alpr_plate_read",
+          "search_text": "TEST-742 Gate West 01 US-CA"
+        }
+      ]
+    }
+  },
+  "live_tap_result_strict_null": {
+    "schema_version": "vantage.result.v1",
+    "job_id": null,
+    "pack_id": "io.serviceradar.vantage-bay-guidance",
+    "pipeline_id": "io.serviceradar.vantage-bay-guidance.dock",
+    "pipeline_version": "1.0.0",
+    "worker_kind": "external_python",
+    "worker_id": "vantage-guidance-py-bay-04",
+    "model_id": "bay-guidance-onnx",
+    "model_version": "1.0.0",
+    "capability": "vantage.bay_guidance.v1",
+    "source_mode": "live_keyframe_tap",
+    "camera_source_id": "22222222-2222-4222-8222-222222222204",
+    "stream_profile_id": "33333333-3333-4333-8333-333333333304",
+    "catalog_entry_id": null,
+    "descriptor_sha256": null,
+    "observations": [
+      {
+        "observation_key": "4545454545454545454545454545454545454545454545454545454545454545",
+        "fragment_sequence": null,
+        "frame_sequence": 14,
+        "media_pts_ns": 600000000,
+        "timeline_ts_us": 1700000006000000,
+        "time_basis": "camera_reported",
+        "track_id": "bay-04-track-1",
+        "category": "vehicle",
+        "label": "Bay 04 Approach",
+        "confidence": 0.94,
+        "bbox": [0.22, 0.31, 0.72, 0.84],
+        "attributes": {
+          "bay_id": "bay-04",
+          "guidance_state": "aligning",
+          "distance_m": 1.4,
+          "lateral_offset_m": 0.04,
+          "confidence": 0.94
+        },
+        "signal_schema_id": "bay_guidance",
+        "signal_schema_version": "1.0.0",
+        "display_contract_id": "bay_guidance",
+        "search_text": "Bay 04 Approach bay-04 aligning"
+      }
+    ]
+  },
+  "rgb8_frame_cases": {
+    "width": 4,
+    "height": 2,
+    "valid_payload_b64": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY",
+    "mismatch_payload_b64": "AQIDBAUGBwgJ",
+    "unaligned_payload_b64": "AQIDBAU="
+  }
+}

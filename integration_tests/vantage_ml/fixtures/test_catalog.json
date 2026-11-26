@@ -1,0 +1,1316 @@
+{
+  "version": 1,
+  "milestone": "E2E-M5",
+  "cases": [
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-01",
+      "mode": "A+B",
+      "description": "Upsert VantagePipeline with on_stage1_detection, detection_crop, camera_vlm, signal_schema, and managed provenance",
+      "requirement": "vantage-ml-pipelines \u00a71, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-02",
+      "mode": "A+B",
+      "description": "Enqueue VantageJob idempotently twice with identical unique_job_key returning a single row",
+      "requirement": "vantage-ml-pipelines \u00a71, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-03",
+      "mode": "A+B",
+      "description": "Persist recorded_block VantageObservation with <= 32 KiB Baseline JFIF crop_jpeg, Ash bbox map, and GIN search_tsv match",
+      "requirement": "vantage-ml-pipelines \u00a71/\u00a73, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-04",
+      "mode": "A+B",
+      "description": "Persist live_keyframe_tap VantageObservation with catalog_entry_id null linked to camera_source_id",
+      "requirement": "vantage-ml-pipelines \u00a71/\u00a77, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-05",
+      "mode": "A+B",
+      "description": "Upsert VantageWorkerRegistration active_for_capability plus DashboardPackage/Instance provenance and dashboards.packages.manage RBAC",
+      "requirement": "vantage-ml-pipelines \u00a71, solution-packs-catalog \u00a72, tasks.md 1.1/1.4"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-01",
+      "mode": "A+B",
+      "description": "Enforce exact 32768-byte crop_jpeg acceptance and 32769-byte rejection at both Ash validation and PostgreSQL CHECK constraint",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-02",
+      "mode": "A+B",
+      "description": "Reject Progressive SOF2 (0xC2) and non-JFIF bytes in crop_jpeg",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-03",
+      "mode": "A+B",
+      "description": "Reject out-of-bounds or inverted bbox coordinates and out-of-range confidence (< 0.0 or > 1.0)",
+      "requirement": "vantage-ml-pipelines \u00a71/\u00a72, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-04",
+      "mode": "A+B",
+      "description": "Enforce Ash RBAC fail-closed: deny non-system writes to VantageObservation/VantageJob and reject bare devices.view without devices.cameras.recordings.view",
+      "requirement": "vantage-ml-pipelines \u00a76, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-05",
+      "mode": "A+B",
+      "description": "Reject invalid time_basis, invalid source_mode, recorded_block missing catalog_entry_id, and invalid VantagePipeline pipeline_id or empty version",
+      "requirement": "vantage-ml-pipelines \u00a71, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-01",
+      "mode": "A+B",
+      "description": "Quarantining RecordingCatalogEntry immediately purges linked VantageObservations and cancels pending/dispatched VantageJobs while preserving completed history",
+      "requirement": "vantage-ml-pipelines \u00a74, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-02",
+      "mode": "A+B",
+      "description": "Terminal reclaim (local_state=reclaimed with archive_state=deleted or not_required) purges observations and cancels active jobs",
+      "requirement": "vantage-ml-pipelines \u00a74, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-03",
+      "mode": "A+B",
+      "description": "Local-only cache eviction (local_state=reclaimed, archive_state=verified) preserves observations and search_tsv searchability",
+      "requirement": "vantage-ml-pipelines \u00a74, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-04",
+      "mode": "A+B",
+      "description": "Accepted RecordingHold pins surviving copy under PD5 blocking deletion intent until release_hold and terminal reclaim",
+      "requirement": "vantage-ml-pipelines \u00a74, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-05",
+      "mode": "A+B",
+      "description": "Deleting camera Source cascades to both recorded_block and live_keyframe_tap (catalog_entry_id null) observations and jobs",
+      "requirement": "vantage-ml-pipelines \u00a74, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-01",
+      "mode": "A+B",
+      "description": "Direct DELETE on RecordingCatalogEntry cascades via ON DELETE CASCADE FKs to observations and jobs",
+      "requirement": "vantage-ml-pipelines \u00a74, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-02",
+      "mode": "A+B",
+      "description": "Quarantining while VantageJob is dispatched cancels the job and causes late result ingestion to drop with recording_gone",
+      "requirement": "vantage-ml-pipelines \u00a72/\u00a74, tasks.md 1.1/1.2"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-03",
+      "mode": "A+B",
+      "description": "Enforce RecordingHold half-open [h_start, h_end) boundary where timeline_end_us == h_start is unprotected while overlapping blocks are pinned",
+      "requirement": "vantage-ml-pipelines \u00a74, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-04",
+      "mode": "A+B",
+      "description": "Live-tap observations (catalog_entry_id null) survive sibling recorded block reclaim on the same camera",
+      "requirement": "vantage-ml-pipelines \u00a74/\u00a77, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-05",
+      "mode": "A+B",
+      "description": "Updating unrelated catalog fields (e.g., archive_state pending -> verified while local_state=present) does not fire observation purge",
+      "requirement": "vantage-ml-pipelines \u00a74, tasks.md 1.1"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-01",
+      "mode": "A+B",
+      "description": "Ingest valid recorded_block vantage.result.v1 over JetStream media.results.vantage.v1, complete job, and emit OCSF class 1008 with signal_schema metadata",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-02",
+      "mode": "A+B",
+      "description": "Enforce deterministic Nats-Msg-Id (vantage-result:<job_id>) and duplicate observation_key replay idempotency yielding 1 row",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-03",
+      "mode": "A+B",
+      "description": "Ingest valid live_keyframe_tap result envelope (job_id null, catalog_entry_id null, external_python) and broadcast VantagePubSub",
+      "requirement": "vantage-ml-pipelines \u00a72/\u00a77, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-04",
+      "mode": "A+B",
+      "description": "Pipeline with emit_ocsf_events=false persists VantageObservation row while emitting zero OCSF events",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-05",
+      "mode": "A+B",
+      "description": "Valid empty observations: [] batch completes active VantageJob cleanly with 0 rows inserted",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-01",
+      "mode": "A+B",
+      "description": "Reject alpr_plate_read signal_schema violations (regex mismatch, missing required field, wrong type) with TerminalMessageError and failed_terminal job",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-02",
+      "mode": "A+B",
+      "description": "Reject 32769-byte crop_jpeg_b64 and non-JPEG crop payloads cleanly as terminal drop without persisting unvalidated rows",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-03",
+      "mode": "A+B",
+      "description": "Reject inverted/out-of-range bbox and out-of-range confidence (1.05 / -0.1) as terminal drop",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-04",
+      "mode": "A+B",
+      "description": "Reject quarantined catalog_entry_id, descriptor_sha256 mismatch, or unknown job_id with zero observation writes",
+      "requirement": "vantage-ml-pipelines \u00a72/\u00a74, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-05",
+      "mode": "A+B",
+      "description": "Reject > 960 KiB payload (983041 B), invalid schema_version (vantage.result.v99), and missing recorded_block IDs without crashing EventWriter pipeline",
+      "requirement": "vantage-ml-pipelines \u00a72, tasks.md 1.2"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-01",
+      "mode": "A+B",
+      "description": "Extract native 1920x1080 RGB padded vehicle crop with padding_ratio=0.15, <= 640px, <= 96 KiB Baseline JFIF and sha256_hex",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-02",
+      "mode": "A+B",
+      "description": "Downscale 4K (3840x2160) large detection preserving aspect ratio to max dimension 640px within <= 96 KiB",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-03",
+      "mode": "A+B",
+      "description": "Clamp border-touching detection [0.0, 0.0, 0.25, 0.30] cleanly to frame bounds without OOB read",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-04",
+      "mode": "A+B",
+      "description": "Step down JPEG quality and apply bounded 3/4 downscale on high-detail texture to satisfy <= 32 KiB stored preview and <= 96 KiB VLM bounds",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-05",
+      "mode": "A+B",
+      "description": "Round-trip vantage_protocol wire envelopes across recorded_block and live_keyframe_tap plus ROI polygon crop extraction",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-01",
+      "mode": "A+B",
+      "description": "Skip distant 76.8px detection (1920x1080 [0.40, 0.40, 0.44, 0.50]) with explicit crop_below_min_dimension reason",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-02",
+      "mode": "A+B",
+      "description": "Enforce exact 96px acceptance vs 95px crop_below_min_dimension skip (and outside-ROI crop_outside_roi gate)",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-03",
+      "mode": "A+B",
+      "description": "Reject zero-area, inverted, negative, out-of-unit, and NaN bounding boxes cleanly without panic",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-04",
+      "mode": "A+B",
+      "description": "Reject empty 0x0 frame, max_dimension=0, and max_bytes < 512 with typed configuration/frame errors",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-05",
+      "mode": "A+B",
+      "description": "Return bounded encoding error when high-frequency noise cannot fit impossibly small max_bytes without exceeding cap",
+      "requirement": "vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-01",
+      "mode": "A+B",
+      "description": "Execute single-frame Ramp 1 VLM job sending enable_thinking=false, response_format, SHA-256 verify, and publish-before-ACK to media.results.vantage.v1",
+      "requirement": "vantage-ml-pipelines \u00a75, vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-02",
+      "mode": "A+B",
+      "description": "Compute 3-frame track consensus vote [TEST-742@0.94, TEST-742@0.91, TEST-74Z@0.62] -> TEST-742 with <= 32 KiB stored preview",
+      "requirement": "vantage-ml-pipelines \u00a75, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-03",
+      "mode": "A+B",
+      "description": "Process mixed detections skipping distant <96px vehicle (vantage_crops_skipped_total{reason=crop_below_min_dimension}) while completing valid target",
+      "requirement": "vantage-ml-pipelines \u00a75, vms-media-workers \u00a71, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-04",
+      "mode": "A+B",
+      "description": "Handle 410 recording_gone from read-grant endpoint by ACKing job cleanly, incrementing vantage_jobs_gone_total, and publishing zero results",
+      "requirement": "vantage-ml-pipelines \u00a75, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-05",
+      "mode": "A+B",
+      "description": "Decode and SHA-256 verify identical synthetic CMAF blocks across both local NVR byte-range and archive presigned range read grants",
+      "requirement": "vantage-ml-pipelines \u00a75, vms-media-workers \u00a72, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-01",
+      "mode": "A+B",
+      "description": "Strip closed <think> blocks cleanly while rejecting unclosed <think> as truncated_thinking with zero fabricated observations",
+      "requirement": "vantage-ml-pipelines \u00a75, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-02",
+      "mode": "A+B",
+      "description": "Reject non-JSON prose and plate_text regex violations from VLM without fabricating observations",
+      "requirement": "vantage-ml-pipelines \u00a75, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-03",
+      "mode": "A+B",
+      "description": "Abort before VLM invocation (0 HTTP calls) and NAK job when init.mp4 or fragment SHA-256 mismatches descriptor",
+      "requirement": "vantage-ml-pipelines \u00a75, vms-media-workers \u00a72, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-04",
+      "mode": "A+B",
+      "description": "Handle VLM HTTP 500/503 or timeout by NAKing job without fabricating observations",
+      "requirement": "vantage-ml-pipelines \u00a75, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-05",
+      "mode": "A+B",
+      "description": "Trim lowest-confidence crop_jpeg_b64 previews first so large multi-track result envelope fits <= 960 KiB (983040 B) ceiling",
+      "requirement": "vantage-ml-pipelines \u00a72/\u00a75, tasks.md 1.3"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-01",
+      "mode": "A+B",
+      "description": "Solution Pack v1 backward-compatibility tree validates within 25 MiB / 64 MiB limits without v2 fields"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-02",
+      "mode": "A+B",
+      "description": "Solution Pack v2 manifest and archive validate vantage_pipelines, signal_schemas, worker_dependencies, and dashboard_packages within 32 MiB / 96 MiB limits"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-03",
+      "mode": "A+B",
+      "description": "Bundled dashboard-browser-module-v1 passes triple SHA-256 parity and enables DashboardPackage + DashboardInstance with catalog.packs.install and dashboards.packages.manage + approval"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-04",
+      "mode": "A+B",
+      "description": "Pack v2 install with catalog.packs.install only (no dashboard manage permission or approval) stages DashboardPackage safely in :staged state"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-05",
+      "mode": "A+B",
+      "description": "Pack v2 upgrade preserves operator parameter_overrides, rule install_state, and detached (managed: false) DashboardInstance bindings"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-06",
+      "mode": "A+B",
+      "description": "Pack v2 uninstall disables managed VantagePipeline and detaches managed DashboardInstance while PackExporter produces secret-free v2 archives"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-01",
+      "mode": "A+B",
+      "description": "Tampered dashboard renderer.js (SHA-256 mismatch) and version_already_published conflict fail closed before mutating CNPG"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-02",
+      "mode": "A+B",
+      "description": "Renderer > 8 MiB (8388609B), archive > 32 MiB compressed / 96 MiB uncompressed, and v2-without-dashboards > 25 MiB are rejected"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-03",
+      "mode": "A+B",
+      "description": "pack_format_version 1 rejects v2 fields, untrusted browser modules, unregistered dashboard_packages, and path traversal / symlink entries"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-04",
+      "mode": "A+B",
+      "description": "Required worker_dependency (optional: false, no fallback_runner) with zero healthy workers blocks active activation"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-05",
+      "mode": "A+B",
+      "description": "SecretFreeValidator rejects token literals and forbidden JSON keys in v2 packs while allowing benign minified JS identifiers"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-06",
+      "mode": "A+B",
+      "description": "Caller lacking catalog.packs.install is denied pack installation with Forbidden even when holding dashboards.packages.manage"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-01",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack validate --json and pack build --json accept pack_format_version 2 with dashboard_packages and emit deterministic .srpack"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-02",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack keygen, pack sign --json, and pack index --json emit Ed25519 signature verifiable by Elixir UploadSignature"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-03",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage init <name> --template vlm --with-dashboard scaffolds valid pipeline, signal_schema, and dashboard package"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-04",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage init scaffolds valid python-worker and rust-worker projects passing vantage validate --json"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-05",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage dev --fixture executes synthetic H.264 clip locally without NATS, CNPG, or Kubernetes"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-06",
+      "mode": "A+B",
+      "description": "serviceradar-cli built v2 .srpack archive round-trips deterministically through POSIX.1-1988 USTAR and Elixir PackArchive extraction"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-01",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack validate and pack build exit non-zero on stale/mismatched renderer SHA-256 without writing .srpack"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-02",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack build rejects renderer.js exceeding 8 MiB (8388609B) without emitting .srpack"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-03",
+      "mode": "A+B",
+      "description": "serviceradar-cli secret scan rejects embedded PAT/PEM/Bearer tokens in minified renderer.js while allowing benign JS identifiers"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-04",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage init fails closed on unknown --template argument"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-05",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage dev fails closed when --fixture clip path is missing or unreadable"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-06",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack verify rejects tampered .srpack or mismatched Ed25519 signature"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-01",
+      "mode": "A+B",
+      "description": "io.serviceradar.vantage-alpr manifest declares pack_format_version 2, Apache-2.0 license, and optional vantage.alpr.v1 with camera_vlm fallback"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-02",
+      "mode": "A+B",
+      "description": "ALPR pipeline definition configures on_stage1_detection, vehicle class, ROI polygon, detection_crop, min_bbox_width_px >= 96, and <= 640px / 96 KiB policy"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-03",
+      "mode": "A+B",
+      "description": "alpr_plate_read.schema.json and alpr_plate_read.display.json validate synthetic plates SR-0100 and TEST-742 cleanly"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-04",
+      "mode": "A+B",
+      "description": "ALPR watchlist alert rule installs with install_state paused (disabled by default) and synthetic plate matchers"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-05",
+      "mode": "A+B",
+      "description": "ALPR pack includes alpr-worker-health check, alpr-overview dashboard, and trusted alpr-console module declaring camera.stream.view, events.subscribe, and srql.execute"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-06",
+      "mode": "A+B",
+      "description": "BuiltinPacks loads vantage-alpr offline and Reconciler reconciles pipeline, paused rule, check, dashboard, and staged/enabled alpr-console"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-01",
+      "mode": "A+B",
+      "description": "alpr_plate_read rejects lowercase, 1-char, >12-char, and punctuation-invalid plate_text values"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-02",
+      "mode": "A+B",
+      "description": "io.serviceradar.vantage-alpr tree passes synthetic-data hygiene (strictly synthetic plates/cameras/hosts) with zero copyleft references"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-03",
+      "mode": "A+B",
+      "description": "ALPR pack passes secret-free scanning across manifest, pipeline VLM config, rule, check, and alpr-console renderer.js"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-04",
+      "mode": "A+B",
+      "description": "Operator-enabled or operator-customized ALPR watchlist rule and pipeline parameter_overrides survive pack upgrade"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-05",
+      "mode": "A+B",
+      "description": "Missing or invalid alpr-console renderer digest in vantage-alpr fails pack validation cleanly"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-06",
+      "mode": "A+B",
+      "description": "ALPR crop_policy rejects min_bbox_width_px < 1 or max_dimension > 640 or max_bytes > 98304"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-01",
+      "mode": "A+B",
+      "description": "Authorized in:camera_observations query returns Gate West 01 SR-0100 observation with time_basis, bbox, and seek timestamp"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-02",
+      "mode": "A+B",
+      "description": "Last-in: SRQL precedence evaluates in:devices in:camera_observations as camera_observations requiring both devices.view and devices.cameras.recordings.view"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-03",
+      "mode": "A+B",
+      "description": "Authorized SemanticSearch for SR-0100 returns observation hit with timeline_path seek URL and writes RecordingAccessAudit event_kind semantic_search"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-04",
+      "mode": "A+B",
+      "description": "SemanticSearch matches exact observation attribute plate_text:TEST-742 via camera_vantage_observations FTS/attribute leg even without visual embedder"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-05",
+      "mode": "A+B",
+      "description": "SRQL in:camera_observations cursor pagination (next_cursor and prev_cursor) returns ordered disjoint slices and SRQL.Catalog registers camera_observations"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-06",
+      "mode": "A+B",
+      "description": "live_keyframe_tap observations with catalog_entry_id null remain queryable via in:camera_observations for authorized Source scopes"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-01",
+      "mode": "A+B",
+      "description": "Caller missing either devices.view or devices.cameras.recordings.view receives 403 forbidden on in:camera_observations and /api/cameras/search with zero leakage"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-02",
+      "mode": "A+B",
+      "description": "Caller scoped only to Bay 04 Approach receives zero Gate West 01 rows on in:camera_observations and SemanticSearch"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-03",
+      "mode": "A+B",
+      "description": "Observations tied to quarantined or reclaimed+deleted RecordingCatalogEntry are excluded from in:camera_observations and SemanticSearch"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-04",
+      "mode": "A+B",
+      "description": "SemanticSearch enforces 1..256 char query bounds and 31-day max window, rejecting 0-char, 257-char, and 31d+1s inputs"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-05",
+      "mode": "A+B",
+      "description": "SQL/SRQL injection payloads in label:, attributes.plate_text:, and q= execute safely via parameterized bindings with zero leakage"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-06",
+      "mode": "A+B",
+      "description": "RecordingAccessAudit rejects updates/deletes (append-only) and forbidden credential keys in details"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-01",
+      "mode": "A+B",
+      "description": "CameraLive.Recordings renders Vantage scrubber markers and clip modal SVG bbox + crop preview from display_contract without mutating media"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-02",
+      "mode": "A+B",
+      "description": "Selecting a SemanticSearch TEST-742 hit seeks CameraTimelinePlayer to timeline_ts_us and highlights matching observation bbox"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-03",
+      "mode": "A+B",
+      "description": "DashboardFrameChannel events:subscribe filters nested metadata.service_radar.signal_schema and camera_source_id to deliver OCSF 1008 events:batch"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-04",
+      "mode": "A+B",
+      "description": "alpr-console combines in:camera_observations frames:replace data frame with useDashboardEvents live push over DashboardFrameChannel"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-05",
+      "mode": "A+B",
+      "description": "events:subscribe omitting camera_source_id delivers events:batch only for cameras within viewer authorized Source scope"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-06",
+      "mode": "A+B",
+      "description": "PhoenixChannelClient v2 frame framing handles join, events:subscribe, events:unsubscribe, frames:refresh, and masked Ping/Pong cleanly"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-01",
+      "mode": "A+B",
+      "description": "Viewer lacking devices.cameras.recordings.view is denied camera observation events:subscribe and receives :forbidden on in:camera_observations frame"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-02",
+      "mode": "A+B",
+      "description": "Viewer authorized for Bay 04 Approach only receives zero events:batch deliveries when Gate West 01 emits alpr_plate_read OCSF 1008"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-03",
+      "mode": "A+B",
+      "description": "Revoking devices.cameras.recordings.view triggers DashboardFrameChannel events:error and drops active event subscriptions"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-04",
+      "mode": "A+B",
+      "description": "Observation with crop_jpeg: null renders bbox and label cleanly in clip modal with zero broken-image or null errors"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-05",
+      "mode": "A+B",
+      "description": "XSS-hostile display_contract/label strings and javascript: thumbnail URLs are escaped or rejected with zero script execution"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-06",
+      "mode": "A+B",
+      "description": "DashboardFrameChannel rejects malformed or oversized nested metadata filter payloads on events:subscribe"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-01",
+      "mode": "A+B",
+      "description": "Capability slug normalization and Ramp 1 / Ramp 2 / backfill / live-tap NATS subject derivation"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-02",
+      "mode": "A+B",
+      "description": "Heartbeat validation, active capacity eligibility, and Ramp 2 routing for fresh ready worker"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-03",
+      "mode": "A+B",
+      "description": "Heartbeat TTL expiration falls back from Ramp 2 to Ramp 1 camera_vlm when optional is true"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-04",
+      "mode": "A+B",
+      "description": "Read-grant 200 archive response contract with no-store headers, reader-only grant, and RedactedCredential"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-05",
+      "mode": "A+B",
+      "description": "Read-grant 200 local analysis_read backing and coalesced range gap and chunk slice invariants"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-06",
+      "mode": "A+B",
+      "description": "Backfill job routing to .backfill.v1 subjects without displacing live job routing"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-01",
+      "mode": "A+B",
+      "description": "Invalid capability slugs with wildcards or spaces and malformed heartbeat payloads fail closed"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-02",
+      "mode": "A+B",
+      "description": "Strict external worker dependency (optional=false) holds rather than falling back on expired or non-ready heartbeat"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-03",
+      "mode": "A+B",
+      "description": "Read-grant request 8192B boundary and 400 invalid_read_grant_request / invalid_schema_version status responses"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-04",
+      "mode": "A+B",
+      "description": "Read-grant 401 unauthorized (missing/bad headers) and 403 forbidden responses with no-store headers"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-05",
+      "mode": "A+B",
+      "description": "Read-grant 409 conflict variants, 410 recording_gone, and 503 media_worker_grants_unavailable status contracts"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-06",
+      "mode": "A+B",
+      "description": "Read-grant coalesce gap > 262144B, chunk > 4194304B, slice overflow, and leaked credential key rejection"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-01",
+      "mode": "A+B",
+      "description": "Companion SDK vantage.job.v1 and vantage.result.v1 wire conformance for external_rust and external_python ALPR"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-02",
+      "mode": "A+B",
+      "description": "Live-tap vantage.result.v1 enforces strict nullity on job_id, catalog_entry_id, descriptor_sha256, and fragment_sequence"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-03",
+      "mode": "A+B",
+      "description": "Zero-credential worker config and environment passes secret-free and synthetic hygiene checks"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-04",
+      "mode": "A+B",
+      "description": "Shared vantage.heartbeat.v1 and vantage.frame.v1 rgb8 buffer conformance across Rust and Python SDKs"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-05",
+      "mode": "A+B",
+      "description": "Reference vantage-worker-alpr Ramp 1 to Ramp 2 upgrade preserves identical alpr_plate_read observation schema"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-06",
+      "mode": "A+B",
+      "description": "Offline serviceradar-cli vantage / run_local_harness synthetic fixture validation contract"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-01",
+      "mode": "A+B",
+      "description": "Worker config or environment leaking DB DSN, secret_access_key, credential_secret_id, or token literals fails closed"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-02",
+      "mode": "A+B",
+      "description": "Live-tap result envelope with non-null job_id, catalog_entry_id, descriptor_sha256, or fragment_sequence fails closed"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-03",
+      "mode": "A+B",
+      "description": "Corrupt init.mp4 or fragment SHA-256 mismatch aborts decode before process_frame and emits zero observations"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-04",
+      "mode": "A+B",
+      "description": "Handler error or malformed Observation fails gracefully without poisoning media.results.vantage.v1"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-05",
+      "mode": "A+B",
+      "description": "Zero-copy rgb8 frame dimension mismatch (len != width * height * 3) fails closed"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-06",
+      "mode": "A+B",
+      "description": "Disallowed copyleft engine reference or non-synthetic host/IP in worker fixtures fails synthetic hygiene"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-01",
+      "mode": "A+B",
+      "description": "Opt-in live_keyframe_tap emits vantage.frame.v1 on media.live.vantage.vantage_bay_guidance_v1.v1 for Bay 04 Approach"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-02",
+      "mode": "A+B",
+      "description": "Steady-state longshore_mailbox (cap=8) delivers monotonic frame_sequence with zero drops"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-03",
+      "mode": "A+B",
+      "description": "Per-camera mailbox sharding isolates burst pressure on Bay 04 Approach from Gate West 01"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-04",
+      "mode": "A+B",
+      "description": "vantage.frame.v1 supports frame_jpeg_b64, payload_format (jpeg/annex_b_idr/rgb8), read_token, and both time_basis values"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-05",
+      "mode": "A+B",
+      "description": "Deployment camera-cap admission admits enabled cameras up to configured camera cap"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-06",
+      "mode": "A+B",
+      "description": "Per-camera active track registry admits up to 128 concurrent tracks and tears down cleanly"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-01",
+      "mode": "A+B",
+      "description": "longshore_mailbox overflow burst (20 frames, cap=8) drops 12 oldest frames and increments serviceradar_vantage_live_tap_dropped_total"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-02",
+      "mode": "A+B",
+      "description": "Active track cap boundary rejects/bounds track 129 above LIVE_TAP_MAX_TRACKS (128)"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-03",
+      "mode": "A+B",
+      "description": "Deployment camera-cap overflow refuses (cap + 1)-th camera admission without disrupting active cameras"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-04",
+      "mode": "A+B",
+      "description": "Oversized vantage.frame.v1 exceeding 983040B NATS payload ceiling is rejected before publish"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-05",
+      "mode": "A+B",
+      "description": "vantage.frame.v1 missing carrier, non-null catalog_entry_id/fragment_sequence, or invalid detection fails closed"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-06",
+      "mode": "A+B",
+      "description": "Non-monotonic frame_sequence or downstream worker stall leaves CMAF recording and live viewer playback intact"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-01",
+      "mode": "A+B",
+      "description": "vantage.bay_guidance.v1 attributes validate across approach, aligning, stop, docked, and clear states"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-02",
+      "mode": "A+B",
+      "description": "Identical process_frame(ctx) contract produces schema-valid live-tap results from Rust and Python workers"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-03",
+      "mode": "A+B",
+      "description": "JetStream -> EventWriter -> PubSub -> DashboardFrameChannel nested signal_schema and camera_source_id event scoping"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-04",
+      "mode": "A+B",
+      "description": "Synthetic Bay 04 Approach guidance latency benchmark computes deterministic p50/p95/p99 percentiles"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-05",
+      "mode": "A+B",
+      "description": "live_observation_retention_days cleanup purges expired live-tap rows while preserving fresh live and held recorded rows"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-06",
+      "mode": "A+B",
+      "description": "Worker supporting both recorded_block and live_keyframe_tap handles interleaved workloads cleanly"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-01",
+      "mode": "A+B",
+      "description": "Latency percentile calculation fails closed on empty, negative, or non-finite samples and handles single-sample sets"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-02",
+      "mode": "A+B",
+      "description": "live_observation_retention_days exact boundary purges (cutoff - 1s) and preserves (cutoff + 1s) and RecordingHold rows"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-03",
+      "mode": "A+B",
+      "description": "Worker advertising only recorded_block is excluded from live_keyframe_tap routing for Bay 04 Approach"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-04",
+      "mode": "A+B",
+      "description": "Invalid bay_guidance attributes (unknown guidance_state, negative distance_m, legacy alignment_status) fail validation"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-05",
+      "mode": "A+B",
+      "description": "Unauthorized dashboard viewer without devices.cameras.recordings.view or Source access receives zero guidance overlays"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-06",
+      "mode": "A+B",
+      "description": "Worker crash and mailbox overflow injection during Bay 04 Approach benchmark preserves CMAF recording and recovers cleanly"
+    },
+    {
+      "feature": "F1+F2",
+      "tier": 3,
+      "test_id": "E2E-T3-01",
+      "mode": "A+B",
+      "description": "CNPG FKs and purge trigger align with RecordingCatalogEntry quarantine/reclaim, RecordingHold pin, and live-tap Source cascade"
+    },
+    {
+      "feature": "F1+F3",
+      "tier": 3,
+      "test_id": "E2E-T3-02",
+      "mode": "A+B",
+      "description": "EventWriter projector enforces signal_schema, bbox, and <= 32 KiB crop_jpeg before Ash upsert and populates search_tsv"
+    },
+    {
+      "feature": "F2+F3",
+      "tier": 3,
+      "test_id": "E2E-T3-03",
+      "mode": "A+B",
+      "description": "Concurrent RecordingCatalogEntry quarantine or terminal reclaim causes in-flight media.results.vantage.v1 projection to drop and cancel job"
+    },
+    {
+      "feature": "F2+F11",
+      "tier": 3,
+      "test_id": "E2E-T3-04",
+      "mode": "A+B",
+      "description": "POST /v1/media/workers/read-grants fails closed with 410 recording_gone and cancels active VantageJob on quarantined or reclaimed entry"
+    },
+    {
+      "feature": "F3+F9",
+      "tier": 3,
+      "test_id": "E2E-T3-05",
+      "mode": "A+B",
+      "description": "Persisted EventWriter observations flow into SRQL in:camera_observations and SemanticSearch gated by dual RBAC, Source scope, and playability"
+    },
+    {
+      "feature": "F3+F10",
+      "tier": 3,
+      "test_id": "E2E-T3-06",
+      "mode": "A+B",
+      "description": "EventWriter OCSF 1008 emission feeds DashboardFrameChannel.Events nested signal_schema filtering gated by dual RBAC and Source scope"
+    },
+    {
+      "feature": "F4+F5",
+      "tier": 3,
+      "test_id": "E2E-T3-07",
+      "mode": "A+B",
+      "description": "media-core native full-res cropper gates < 96px targets before VLM HTTP call and separates <= 96 KiB VLM crops from <= 32 KiB stored crops"
+    },
+    {
+      "feature": "F5+F11",
+      "tier": 3,
+      "test_id": "E2E-T3-08",
+      "mode": "A+B",
+      "description": "VantagePipelineDispatcher routes Ramp 1 fallback jobs to media.jobs.vantage.vlm.v1 and media-worker authenticates scoped read-grants"
+    },
+    {
+      "feature": "F6+F7",
+      "tier": 3,
+      "test_id": "E2E-T3-09",
+      "mode": "A+B",
+      "description": "CLI pack build, sign, and validate round-trip v2 .srpack (32/96 MiB, <= 8 MiB renderer, triple SHA-256) with Elixir PackArchive and UploadSignature"
+    },
+    {
+      "feature": "F6+F8",
+      "tier": 3,
+      "test_id": "E2E-T3-10",
+      "mode": "A+B",
+      "description": "Solution Pack v2 Reconciler installs io.serviceradar.vantage-alpr with paused watchlist rule, pipeline overrides, and RBAC-gated alpr-console"
+    },
+    {
+      "feature": "F6+F10",
+      "tier": 3,
+      "test_id": "E2E-T3-11",
+      "mode": "A+B",
+      "description": "Bundled dashboard_packages :staged vs :enabled gate controls DashboardInstance route binding, DashboardFrameChannel access, and uninstall detach"
+    },
+    {
+      "feature": "F8+F11+F12",
+      "tier": 3,
+      "test_id": "E2E-T3-12",
+      "mode": "A+B",
+      "description": "io.serviceradar.vantage-alpr switches automatically from Ramp 1 camera_vlm to Ramp 2 vantage.alpr.v1 worker heartbeat and fails back on TTL expiry"
+    },
+    {
+      "feature": "F11+F12",
+      "tier": 3,
+      "test_id": "E2E-T3-13",
+      "mode": "A+B",
+      "description": "External serviceradar-sdk-vantage workers authenticate via vantage_worker read-grants with zero DB/S3 credentials and SHA-256 verification"
+    },
+    {
+      "feature": "F12+F13",
+      "tier": 3,
+      "test_id": "E2E-T3-14",
+      "mode": "A+B",
+      "description": "longshore_mailbox vantage.frame.v1 live-tap payloads invoke identical SDK process_frame(ctx) emitting strict null-catalog live results"
+    },
+    {
+      "feature": "F13+F14",
+      "tier": 3,
+      "test_id": "E2E-T3-15",
+      "mode": "A+B",
+      "description": "Bounded longshore_mailbox drop-oldest overflow isolates CMAF recording while steady-state live-tap reports p50/p95/p99 latency and retention purge"
+    },
+    {
+      "feature": "F1+F3+F4+F5+F8+F9+F10+F11",
+      "tier": 4,
+      "test_id": "E2E-T4-W1",
+      "mode": "A+B",
+      "description": "W1: Ramp 1 ALPR gate entry lifecycle for Gate West 01 with SR-0100 and TEST-742 from Stage 1 detection to timeline overlay"
+    },
+    {
+      "feature": "F1+F2+F3+F9+F11",
+      "tier": 4,
+      "test_id": "E2E-T4-W2",
+      "mode": "A+B",
+      "description": "W2: RecordingHold preservation vs quarantine and terminal reclaim purge lifecycle across SRQL and read-grants"
+    },
+    {
+      "feature": "F1+F3+F6+F9+F10",
+      "tier": 4,
+      "test_id": "E2E-T4-W3",
+      "mode": "A+B",
+      "description": "W3: Multi-tenant dual-permission RBAC, Source scoping, last-in: SRQL bypass resistance, channel revocation, and RecordingAccessAudit trail"
+    },
+    {
+      "feature": "F1+F6+F7+F8+F10",
+      "tier": 4,
+      "test_id": "E2E-T4-W4",
+      "mode": "A+B",
+      "description": "W4: Solution Pack v2 CLI authoring, Ed25519 signing, staged admin approval, upgrade override preservation, and uninstall detach lifecycle"
+    },
+    {
+      "feature": "F3+F5+F8+F11+F12",
+      "tier": 4,
+      "test_id": "E2E-T4-W5",
+      "mode": "A+B",
+      "description": "W5: External Rust SDK worker Ramp 1 to Ramp 2 upgrade and heartbeat-TTL failback with schema-identical alpr_plate_read output"
+    },
+    {
+      "feature": "F4+F7+F11+F12",
+      "tier": 4,
+      "test_id": "E2E-T4-W6",
+      "mode": "A+B",
+      "description": "W6: External Python PyO3 zero-copy NumPy worker and offline serviceradar-cli vantage dev harness"
+    },
+    {
+      "feature": "F1+F2+F3+F12+F13+F14",
+      "tier": 4,
+      "test_id": "E2E-T4-W7",
+      "mode": "A+B",
+      "description": "W7: Phase 3 vantage.bay_guidance.v1 (Bay 04 Approach) live-tap p50/p95/p99 latency benchmark and crash/overflow isolation"
+    }
+  ]
+}

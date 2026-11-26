@@ -6,6 +6,7 @@ defmodule ServiceRadar.Camera.Thumbnail do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.VantageObservation
   alias ServiceRadar.Camera.VisualFrame
 
   require Ash.Query
@@ -17,7 +18,7 @@ defmodule ServiceRadar.Camera.Thumbnail do
 
   @system_actor SystemActor.system(:camera_thumbnail)
 
-  @type kind :: :frame | :block
+  @type kind :: :frame | :block | :vantage
 
   @doc "Maximum permitted thumbnail size in bytes (64 KiB)."
   @spec max_bytes() :: pos_integer()
@@ -89,6 +90,12 @@ defmodule ServiceRadar.Camera.Thumbnail do
     "/api/cameras/#{camera_source_id}/timeline/thumbnails/block/#{catalog_entry_id}.jpg"
   end
 
+  @doc "Builds the authenticated crop preview URL for a `VantageObservation`."
+  @spec vantage_crop_url(String.t(), String.t()) :: String.t()
+  def vantage_crop_url(camera_source_id, observation_id) do
+    "/api/cameras/#{camera_source_id}/timeline/thumbnails/vantage/#{observation_id}.jpg"
+  end
+
   @doc """
   Fetches a validated JPEG thumbnail scoped strictly to `(camera_source_id, kind, id)`,
   excluding quarantined, unfrozen, or non-playable catalog entries.
@@ -142,16 +149,41 @@ defmodule ServiceRadar.Camera.Thumbnail do
     |> unwrap_thumbnail_row()
   end
 
+  defp load_from_repo(camera_uuid, :vantage, record_uuid) do
+    VantageObservation
+    |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
+    |> Ash.Query.filter(
+      id == ^record_uuid and
+        camera_source_id == ^camera_uuid and
+        ((source_mode == :live_keyframe_tap and is_nil(catalog_entry_id)) or
+           (not is_nil(catalog_entry_id) and
+              catalog_entry.local_state != :quarantined and
+              is_nil(catalog_entry.quarantine_reason) and
+              not is_nil(catalog_entry.recording_block_id) and
+              (catalog_entry.local_state == :present or catalog_entry.archive_state == :verified)))
+    )
+    |> Ash.Query.select([:id, :crop_jpeg, :catalog_entry_id, :source_mode])
+    |> Ash.read_one(actor: @system_actor)
+    |> unwrap_crop_row()
+  end
+
   defp unwrap_thumbnail_row({:ok, %{thumbnail_jpeg: bytes}}) when is_binary(bytes),
     do: {:ok, bytes}
 
   defp unwrap_thumbnail_row({:ok, _}), do: {:error, :thumbnail_not_found}
   defp unwrap_thumbnail_row({:error, _} = error), do: error
 
+  defp unwrap_crop_row({:ok, %{crop_jpeg: bytes}}) when is_binary(bytes), do: {:ok, bytes}
+
+  defp unwrap_crop_row({:ok, _}), do: {:error, :thumbnail_not_found}
+  defp unwrap_crop_row({:error, _} = error), do: error
+
   defp normalize_kind(:frame), do: {:ok, :frame}
   defp normalize_kind("frame"), do: {:ok, :frame}
   defp normalize_kind(:block), do: {:ok, :block}
   defp normalize_kind("block"), do: {:ok, :block}
+  defp normalize_kind(:vantage), do: {:ok, :vantage}
+  defp normalize_kind("vantage"), do: {:ok, :vantage}
   defp normalize_kind(_), do: {:error, :invalid_id}
 
   defp cast_uuid(value, error_reason) when is_binary(value) do

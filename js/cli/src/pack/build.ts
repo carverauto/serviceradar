@@ -2,9 +2,24 @@
 
 import {mkdirSync, writeFileSync} from "node:fs"
 import {dirname, resolve} from "node:path"
-import {buildSrpackArchive, collectPackDirectoryFiles, type ArchiveEntry} from "./archive.js"
+import {
+  buildSrpackArchive,
+  collectPackDirectoryFiles,
+  isVantageDevAuthoringPath,
+  MAX_COMPRESSED_ARCHIVE_BYTES,
+  MAX_UNCOMPRESSED_ARCHIVE_BYTES,
+  MAX_V2_DASHBOARD_COMPRESSED_ARCHIVE_BYTES,
+  MAX_V2_DASHBOARD_UNCOMPRESSED_ARCHIVE_BYTES,
+  type ArchiveEntry,
+} from "./archive.js"
 import {isPlainObject, sha256Hex, writeCanonicalJsonPretty} from "./canonical.js"
-import {computePackFileDigests, PackValidationError, validatePackFiles} from "./validate.js"
+import {
+  computePackFileDigests,
+  isVantagePackDirectory,
+  PackValidationError,
+  validatePackFiles,
+  type PackResourceCounts,
+} from "./validate.js"
 
 export interface BuildPackOptions {
   dir: string
@@ -18,16 +33,13 @@ export interface BuildPackResult {
   archiveBytes: Buffer
   sha256: string
   manifest: Record<string, unknown>
-  resourceCounts: {
-    checks: number
-    rules: number
-    dashboards: number
-  }
+  resourceCounts: PackResourceCounts
 }
 
 export function buildPackFromDirectory(opts: BuildPackOptions): BuildPackResult {
   const resolvedDir = resolve(opts.dir)
-  const files = collectPackDirectoryFiles(resolvedDir)
+  const excludePath = isVantagePackDirectory(resolvedDir) ? isVantageDevAuthoringPath : undefined
+  const files = collectPackDirectoryFiles(resolvedDir, {excludePath})
 
   const manifestBuf = files.get("manifest.json")
   if (!manifestBuf) {
@@ -69,6 +81,19 @@ export function buildPackFromDirectory(opts: BuildPackOptions): BuildPackResult 
   }
 
   const {manifest, resourceCounts} = validation.result
+  const hasDashboardPackages =
+    manifest.pack_format_version === 2 &&
+    ((isPlainObject(manifest.resources) &&
+      Array.isArray(manifest.resources.dashboard_packages) &&
+      manifest.resources.dashboard_packages.length > 0) ||
+      Array.from(workingFiles.keys()).some((p) => p.startsWith("dashboard_packages/")))
+
+  const maxCompressedBytes = hasDashboardPackages
+    ? MAX_V2_DASHBOARD_COMPRESSED_ARCHIVE_BYTES
+    : MAX_COMPRESSED_ARCHIVE_BYTES
+  const maxUncompressedBytes = hasDashboardPackages
+    ? MAX_V2_DASHBOARD_UNCOMPRESSED_ARCHIVE_BYTES
+    : MAX_UNCOMPRESSED_ARCHIVE_BYTES
 
   // Canonicalize manifest.json inside the archive if it wasn't already refreshed
   // so line endings or whitespace differences across OS checkouts never alter the
@@ -81,7 +106,10 @@ export function buildPackFromDirectory(opts: BuildPackOptions): BuildPackResult 
     entries.push({path, data, mode: 0o644})
   }
 
-  const archiveBytes = buildSrpackArchive(entries)
+  const archiveBytes = buildSrpackArchive(entries, {
+    maxCompressedBytes,
+    maxUncompressedBytes,
+  })
   const digest = sha256Hex(archiveBytes)
 
   const defaultFileName = `${String(manifest.slug)}-${String(manifest.version)}.srpack`

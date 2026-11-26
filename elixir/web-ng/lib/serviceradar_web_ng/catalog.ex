@@ -9,6 +9,12 @@ defmodule ServiceRadarWebNG.Catalog do
   propagation and JSON-ready map serialization.
   """
 
+  use Boundary,
+    top_level?: true,
+    deps: [ServiceRadar, ServiceRadarWebNG, ServiceRadarWebNG.Plugins],
+    exports: :all
+
+  alias ServiceRadar.Camera.VantagePipeline
   alias ServiceRadar.Catalog, as: CoreCatalog
   alias ServiceRadar.Catalog.CatalogRepository
   alias ServiceRadar.Catalog.CatalogSyncWorker
@@ -19,12 +25,15 @@ defmodule ServiceRadarWebNG.Catalog do
   alias ServiceRadar.Catalog.PackManifest
   alias ServiceRadar.Catalog.ReleaseCatalogClient
   alias ServiceRadar.Catalog.SvgSanitizer
+  alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.DeclarativeChecks.CanonicalJSON
   alias ServiceRadarWebNG.DeclarativeChecks
+  alias ServiceRadarWebNG.Plugins.Storage
 
   @public_developer_portal_url "https://developer.serviceradar.cloud/packs"
 
   @categories [
+    "Camera & Vantage",
     "Storage & NVR",
     "Network & WAN",
     "Synthetic HTTP",
@@ -162,6 +171,24 @@ defmodule ServiceRadarWebNG.Catalog do
   end
 
   @doc """
+  Uninstalls an installed Solution Pack by `pack_id` or `slug`, preserving
+  any operator-detached (`managed: false`) resources.
+  """
+  @spec uninstall_pack(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def uninstall_pack(id_or_slug, opts \\ []) when is_binary(id_or_slug) and is_list(opts) do
+    CoreCatalog.uninstall_pack(id_or_slug, core_opts(opts))
+  end
+
+  @doc """
+  Detaches an installed Solution Pack by `pack_id` or `slug`, setting `managed: false`
+  on its managed resources and removing the installed pack record.
+  """
+  @spec detach_pack(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def detach_pack(id_or_slug, opts \\ []) when is_binary(id_or_slug) and is_list(opts) do
+    CoreCatalog.detach_pack(id_or_slug, core_opts(opts))
+  end
+
+  @doc """
   Exports a built-in or installed pack by `id_or_slug` as `:srpack` (`tar.zst` bytes)
   or `:json` (pretty-printed canonical bundle JSON).
   """
@@ -173,6 +200,7 @@ defmodule ServiceRadarWebNG.Catalog do
 
     with {:ok, validated} <- resolve_validated_pack(id_or_slug, c_opts) do
       slug = validated.manifest["slug"] || id_or_slug
+      pack_format_version = Map.get(validated.manifest, "pack_format_version", 1)
 
       case format do
         :srpack ->
@@ -182,7 +210,7 @@ defmodule ServiceRadarWebNG.Catalog do
 
         :json ->
           bundle = %{
-            "pack_format_version" => 1,
+            "pack_format_version" => pack_format_version,
             "manifest" => validated.manifest,
             "files" => validated.files
           }
@@ -193,8 +221,9 @@ defmodule ServiceRadarWebNG.Catalog do
   end
 
   @doc """
-  Exports a custom pack specification (live checks, rules, dashboards) into a
-  secret-free `.srpack` archive or file tree JSON via `ServiceRadar.Catalog`.
+  Exports a custom pack specification (live checks, rules, dashboards, pipelines,
+  schemas, dashboard packages) into a secret-free `.srpack` archive or file tree JSON
+  via `ServiceRadar.Catalog`.
   """
   @spec export_custom_pack(map(), :srpack | :json, keyword()) ::
           {:ok, binary(), String.t()} | {:error, term()}
@@ -211,7 +240,17 @@ defmodule ServiceRadarWebNG.Catalog do
 
       :json ->
         with {:ok, file_map} <- CoreCatalog.export_pack_tree(spec, c_opts) do
-          {:ok, CanonicalJSON.encode_pretty(%{"pack_format_version" => 1, "files" => file_map}), "#{slug}.srpack.json"}
+          pack_format_version =
+            case Jason.decode(Map.get(file_map, "manifest.json", "{}")) do
+              {:ok, %{"pack_format_version" => v}} when v in [1, 2] -> v
+              _ -> 1
+            end
+
+          {:ok,
+           CanonicalJSON.encode_pretty(%{
+             "pack_format_version" => pack_format_version,
+             "files" => file_map
+           }), "#{slug}.srpack.json"}
         end
     end
   end
@@ -403,8 +442,8 @@ defmodule ServiceRadarWebNG.Catalog do
   end
 
   @doc """
-  Lists exportable checks, alert rules, and authored dashboards for the
-  Export / Push to GitOps flow.
+  Lists exportable checks, alert rules, authored dashboards, Vantage pipelines,
+  and dashboard packages for the Export / Push to GitOps flow.
   """
   @spec list_exportable_resources(keyword()) :: map()
   def list_exportable_resources(opts \\ []) when is_list(opts) do
@@ -417,7 +456,9 @@ defmodule ServiceRadarWebNG.Catalog do
     %{
       "checks" => checks,
       "rules" => [],
-      "dashboards" => []
+      "dashboards" => [],
+      "vantage_pipelines" => safe_list_exportable_vantage_pipelines(opts),
+      "dashboard_packages" => safe_list_exportable_dashboard_packages(opts)
     }
   end
 
@@ -447,7 +488,16 @@ defmodule ServiceRadarWebNG.Catalog do
   ## Private helpers
 
   defp core_opts(opts) do
-    Enum.reject(opts, fn {_k, v} -> is_nil(v) end)
+    opts
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Keyword.put_new(:dashboard_blob_store, default_dashboard_blob_store())
+  end
+
+  defp default_dashboard_blob_store do
+    %{
+      put: &Storage.put_blob/2,
+      delete: &Storage.delete_blob/1
+    }
   end
 
   defp safe_list_installed(c_opts) do
@@ -481,6 +531,72 @@ defmodule ServiceRadarWebNG.Catalog do
     end
   end
 
+  defp safe_list_exportable_vantage_pipelines(opts) do
+    if is_pid(Process.whereis(ServiceRadar.Repo)) do
+      case VantagePipeline
+           |> Ash.Query.for_read(:read)
+           |> Ash.read(export_ash_opts(opts)) do
+        {:ok, rows} ->
+          Enum.map(rows, fn vp ->
+            %{
+              "pipeline_id" => vp.pipeline_id,
+              "version" => vp.version,
+              "name" => vp.name,
+              "description" => vp.description,
+              "enabled" => vp.enabled,
+              "source_mode" => to_string(vp.source_mode),
+              "trigger_kind" => to_string(vp.trigger_kind),
+              "runner" => to_string(vp.runner),
+              "capability" => vp.capability,
+              "signal_schema_id" => vp.signal_schema_id,
+              "signal_schema_version" => vp.signal_schema_version,
+              "display_contract_id" => vp.display_contract_id,
+              "pack_id" => vp.pack_id,
+              "pack_version" => vp.pack_version,
+              "managed" => vp.managed
+            }
+          end)
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  end
+
+  defp safe_list_exportable_dashboard_packages(opts) do
+    if is_pid(Process.whereis(ServiceRadar.Repo)) do
+      case DashboardPackage
+           |> Ash.Query.for_read(:read)
+           |> Ash.read(export_ash_opts(opts)) do
+        {:ok, rows} ->
+          Enum.map(rows, fn pkg ->
+            %{
+              "id" => to_string(pkg.id),
+              "dashboard_id" => pkg.dashboard_id,
+              "name" => pkg.name,
+              "version" => pkg.version,
+              "description" => pkg.description,
+              "status" => to_string(pkg.status),
+              "pack_id" => pkg.pack_id,
+              "pack_version" => pkg.pack_version,
+              "managed" => pkg.managed
+            }
+          end)
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  end
+
+  defp export_ash_opts(opts) do
+    Enum.filter(opts, fn {k, v} -> k in [:scope, :actor] and not is_nil(v) end)
+  end
+
   defp extract_repo_updates(repos) do
     Enum.reduce(repos, %{}, fn repo, acc ->
       updates =
@@ -511,6 +627,9 @@ defmodule ServiceRadarWebNG.Catalog do
     checks = List.wrap(resources["checks"])
     rules = List.wrap(resources["rules"])
     dashboards = List.wrap(resources["dashboards"])
+    vantage_pipelines = List.wrap(resources["vantage_pipelines"])
+    signal_schemas = List.wrap(resources["signal_schemas"])
+    dashboard_packages = List.wrap(resources["dashboard_packages"])
     detail? = Keyword.get(opts, :detail?, false)
     source_type = Keyword.get(opts, :source_type, "builtin")
 
@@ -527,6 +646,7 @@ defmodule ServiceRadarWebNG.Catalog do
       not is_nil(installed_version) and newer_semver?(available_version, installed_version)
 
     base = %{
+      "pack_format_version" => Map.get(manifest, "pack_format_version", 1),
       "id" => manifest["id"],
       "slug" => manifest["slug"],
       "name" => manifest["name"],
@@ -545,11 +665,16 @@ defmodule ServiceRadarWebNG.Catalog do
       "counts" => %{
         "checks" => length(checks),
         "rules" => length(rules),
-        "dashboards" => length(dashboards)
+        "dashboards" => length(dashboards),
+        "vantage_pipelines" => length(vantage_pipelines),
+        "signal_schemas" => length(signal_schemas),
+        "dashboard_packages" => length(dashboard_packages)
       },
       "config" => List.wrap(manifest["config"]),
       "credential_slots" => List.wrap(manifest["credential_slots"]),
-      "plugin_dependencies" => List.wrap(manifest["plugin_dependencies"])
+      "plugin_dependencies" => List.wrap(manifest["plugin_dependencies"]),
+      "worker_dependencies" => List.wrap(manifest["worker_dependencies"]),
+      "dashboard_package_dependencies" => List.wrap(manifest["dashboard_package_dependencies"])
     }
 
     if detail? do
@@ -605,6 +730,44 @@ defmodule ServiceRadarWebNG.Catalog do
               "document" => &1.raw
             }
           ),
+        "vantage_pipelines" =>
+          Enum.map(
+            Map.get(validated, :vantage_pipelines, []),
+            &%{
+              "pipeline_id" => &1.normalized["pipeline_id"],
+              "version" => &1.normalized["version"],
+              "name" => &1.normalized["name"],
+              "file" => &1.entry["file"],
+              "install_state" => &1.entry["install_state"] || "enabled",
+              "document" => &1.raw
+            }
+          ),
+        "signal_schemas" =>
+          Enum.map(
+            Map.get(validated, :signal_schemas, []),
+            &%{
+              "schema_id" => &1.schema_id,
+              "version" => &1.version,
+              "display_contract_id" => &1.display_contract_id,
+              "signal_schema" => &1.signal_schema,
+              "display_contract" => &1.display_contract,
+              "file" => &1.entry["file"] || &1.entry["schema_file"]
+            }
+          ),
+        "dashboard_packages" =>
+          Enum.map(
+            Map.get(validated, :dashboard_packages, []),
+            &%{
+              "slug" => &1.slug,
+              "dashboard_id" => &1.dashboard_id,
+              "version" => &1.version,
+              "route_slug" => &1.entry["route_slug"] || &1.slug,
+              "name" => &1.dashboard_manifest.name,
+              "interface_version" => &1.dashboard_manifest.renderer["interface_version"],
+              "renderer_sha256" => &1.renderer_sha256,
+              "renderer_bytes" => byte_size(&1.renderer_bytes)
+            }
+          ),
         "installed_record" => installed && serialize_installed_record(installed)
       })
     else
@@ -625,6 +788,7 @@ defmodule ServiceRadarWebNG.Catalog do
       end
 
     base = %{
+      "pack_format_version" => Map.get(manifest, "pack_format_version", 1),
       "id" => inst.pack_id,
       "slug" => inst.slug,
       "name" => inst.name,
@@ -643,11 +807,16 @@ defmodule ServiceRadarWebNG.Catalog do
       "counts" => %{
         "checks" => length(List.wrap(resources["checks"])),
         "rules" => length(List.wrap(resources["rules"])),
-        "dashboards" => length(List.wrap(resources["dashboards"]))
+        "dashboards" => length(List.wrap(resources["dashboards"])),
+        "vantage_pipelines" => length(List.wrap(resources["vantage_pipelines"])),
+        "signal_schemas" => length(List.wrap(resources["signal_schemas"])),
+        "dashboard_packages" => length(List.wrap(resources["dashboard_packages"]))
       },
       "config" => List.wrap(manifest["config"]),
       "credential_slots" => List.wrap(manifest["credential_slots"]),
-      "plugin_dependencies" => List.wrap(manifest["plugin_dependencies"])
+      "plugin_dependencies" => List.wrap(manifest["plugin_dependencies"]),
+      "worker_dependencies" => List.wrap(manifest["worker_dependencies"]),
+      "dashboard_package_dependencies" => List.wrap(manifest["dashboard_package_dependencies"])
     }
 
     if detail? do
@@ -658,6 +827,9 @@ defmodule ServiceRadarWebNG.Catalog do
         "checks" => [],
         "rules" => [],
         "dashboards" => [],
+        "vantage_pipelines" => List.wrap(resources["vantage_pipelines"]),
+        "signal_schemas" => List.wrap(resources["signal_schemas"]),
+        "dashboard_packages" => List.wrap(resources["dashboard_packages"]),
         "installed_record" => serialize_installed_record(inst)
       })
     else

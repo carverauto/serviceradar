@@ -134,27 +134,47 @@ defmodule ServiceRadar.Catalog.SecretFreeValidator do
   end
 
   defp scan_pack_entry(path, content) when is_binary(content) do
-    if String.ends_with?(path, ".json") do
-      case Jason.decode(content) do
-        {:ok, decoded} ->
-          decoded
-          |> scan_json(path, "$", false)
-          |> Enum.reverse()
+    lower_path = String.downcase(path)
 
-        {:error, err} ->
+    cond do
+      String.ends_with?(lower_path, ".json") ->
+        case Jason.decode(content) do
+          {:ok, decoded} ->
+            decoded
+            |> scan_json(path, "$", false)
+            |> Enum.reverse()
+
+          {:error, err} ->
+            [
+              %{
+                file: path,
+                path: "$",
+                code: "invalid_json",
+                message: "failed to parse JSON (#{Exception.message(err)})"
+              }
+            ]
+        end
+
+      String.ends_with?(lower_path, ".js") or String.ends_with?(lower_path, ".mjs") ->
+        if String.valid?(content) do
+          content
+          |> scan_string_literals(path, "$")
+          |> Enum.reverse()
+        else
           [
             %{
               file: path,
               path: "$",
-              code: "invalid_json",
-              message: "failed to parse JSON (#{Exception.message(err)})"
+              code: "invalid_utf8",
+              message: "JavaScript file #{inspect(path)} must be valid UTF-8"
             }
           ]
-      end
-    else
-      content
-      |> scan_string_literals(path, "$")
-      |> Enum.reverse()
+        end
+
+      true ->
+        content
+        |> scan_string_literals(path, "$")
+        |> Enum.reverse()
     end
   end
 

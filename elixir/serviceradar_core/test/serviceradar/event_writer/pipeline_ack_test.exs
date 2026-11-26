@@ -9,6 +9,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AdhocScan
+  alias ServiceRadar.EventWriter.Processors.CameraVantageObservations
   alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
   alias ServiceRadar.EventWriter.Processors.Mtr
   alias ServiceRadar.EventWriter.TerminalMessageError
@@ -632,7 +633,8 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     routes = [
       {"mtr.results.ingest", :mtr_results, Mtr},
       {"scans.results.run01", :scan_results, AdhocScan},
-      {"media.results.visual_index.v1", :camera_visual_index_results, CameraVisualIndexResults}
+      {"media.results.visual_index.v1", :camera_visual_index_results, CameraVisualIndexResults},
+      {"media.results.vantage.v1", :camera_vantage_observations, CameraVantageObservations}
     ]
 
     for {subject, batcher, processor} <- routes do

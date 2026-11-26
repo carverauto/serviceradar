@@ -1,0 +1,114 @@
+{
+  "description": "Solution Pack v2 RBAC approval, worker dependency readiness, upgrade override preservation, and uninstall detach matrix.",
+  "dashboard_package_rbac_cases": [
+    {
+      "name": "install_only_stages_dashboard_package",
+      "permissions": ["catalog.packs.install"],
+      "explicit_approval": false,
+      "expected_allowed": true,
+      "expected_package_status": "staged",
+      "expected_instance_bound": false
+    },
+    {
+      "name": "install_plus_packages_manage_with_approval_enables_and_binds",
+      "permissions": ["catalog.packs.install", "dashboards.packages.manage"],
+      "explicit_approval": true,
+      "expected_allowed": true,
+      "expected_package_status": "enabled",
+      "expected_instance_bound": true
+    },
+    {
+      "name": "install_plus_packages_manage_without_approval_stays_staged",
+      "permissions": ["catalog.packs.install", "dashboards.packages.manage"],
+      "explicit_approval": false,
+      "expected_allowed": true,
+      "expected_package_status": "staged",
+      "expected_instance_bound": false
+    },
+    {
+      "name": "install_plus_cli_publish_and_enable_with_approval_enables_and_binds",
+      "permissions": ["catalog.packs.install", "cli.dashboard.publish", "dashboards.packages.enable"],
+      "explicit_approval": true,
+      "expected_allowed": true,
+      "expected_package_status": "enabled",
+      "expected_instance_bound": true
+    },
+    {
+      "name": "missing_catalog_packs_install_is_forbidden",
+      "permissions": ["devices.view", "dashboards.packages.manage"],
+      "explicit_approval": true,
+      "expected_allowed": false,
+      "expected_error": "forbidden"
+    }
+  ],
+  "worker_dependency_cases": [
+    {
+      "name": "optional_with_camera_vlm_fallback_and_zero_workers_is_ready",
+      "dependency": {
+        "capability": "vantage.alpr.v1",
+        "min_protocol_version": "vantage.worker.v1",
+        "optional": true,
+        "fallback_runner": "camera_vlm"
+      },
+      "healthy_workers": [],
+      "expected_ready": true,
+      "expected_blocking_count": 0,
+      "expected_effective_runner": "camera_vlm"
+    },
+    {
+      "name": "required_without_fallback_and_zero_workers_blocks_activation",
+      "dependency": {
+        "capability": "vantage.alpr.v1",
+        "min_protocol_version": "vantage.worker.v1",
+        "optional": false,
+        "fallback_runner": null
+      },
+      "healthy_workers": [],
+      "expected_ready": false,
+      "expected_blocking_count": 1,
+      "expected_effective_runner": null
+    },
+    {
+      "name": "required_with_healthy_ready_worker_is_ready",
+      "dependency": {
+        "capability": "vantage.alpr.v1",
+        "min_protocol_version": "vantage.worker.v1",
+        "optional": false,
+        "fallback_runner": null
+      },
+      "healthy_workers": [
+        {
+          "worker_id": "alpr-worker-01",
+          "capability": "vantage.alpr.v1",
+          "protocol_version": "vantage.worker.v1",
+          "health": "ready"
+        }
+      ],
+      "expected_ready": true,
+      "expected_blocking_count": 0,
+      "expected_effective_runner": "vantage.alpr.v1"
+    }
+  ],
+  "upgrade_and_uninstall_cases": [
+    {
+      "name": "upgrade_preserves_parameter_overrides_and_detached_resources",
+      "from_version": "1.0.0",
+      "to_version": "1.1.0",
+      "pipeline_overrides": {"max_jobs_per_minute": 24, "min_confidence": 0.7},
+      "rule_install_state": "paused",
+      "detached_dashboard_instance_managed": false,
+      "expected_overrides_preserved": true,
+      "expected_rule_enabled": false,
+      "expected_detached_instance_preserved": true
+    },
+    {
+      "name": "uninstall_disables_managed_pipeline_and_detaches_managed_instance_only",
+      "managed_pipeline_active_before": true,
+      "managed_instance_before": true,
+      "detached_instance_before": true,
+      "expected_managed_pipeline_enabled_after": false,
+      "expected_managed_instance_detached": true,
+      "expected_detached_instance_preserved": true
+    }
+  ]
+}

@@ -73,12 +73,20 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
              {:fragment_sequence, &uint(&1, @max_u32)},
              {:media_pts_ns, &uint(&1, @max_bigint)},
              {:scene_suppressed, &boolean/1},
-             {:detections, fn items -> array(items, 64, &detection/1) end},
+             {:detections, fn items -> array(items, 64, &detection_with_track/1) end},
              {:embeddings, &array(&1, 16, fn item -> embedding(item, dim) end)},
              {:thumbnail_jpeg_b64, fn v -> nullable(v, &thumbnail_jpeg_b64/1) end, nil}
            ]) do
       {thumbnail_jpeg, rest} = Map.pop(parsed, :thumbnail_jpeg_b64)
-      {:ok, Map.put(rest, :thumbnail_jpeg, thumbnail_jpeg)}
+
+      vantage_detections = rest.detections
+      persisted_detections = Enum.map(vantage_detections, &Map.delete(&1, "track_id"))
+
+      {:ok,
+       rest
+       |> Map.put(:detections, persisted_detections)
+       |> Map.put(:vantage_detections, vantage_detections)
+       |> Map.put(:thumbnail_jpeg, thumbnail_jpeg)}
     end
   end
 
@@ -89,7 +97,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
     end
   end
 
-  defp detection(value) do
+  defp detection_with_track(value) do
     with {:ok, parsed} <-
            object(value, [
              {:object_class, &string(&1, 64)},
@@ -98,10 +106,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
              {:dominant_colors, &colors/1},
              {:track_id, &nullable(&1, fn id -> uint(id, @max_bigint) end), nil}
            ]) do
-      {:ok,
-       parsed
-       |> Map.delete(:track_id)
-       |> Map.new(fn {key, v} -> {Atom.to_string(key), v} end)}
+      {:ok, Map.new(parsed, fn {key, v} -> {Atom.to_string(key), v} end)}
     end
   end
 

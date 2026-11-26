@@ -1,0 +1,182 @@
+load("@rules_python//python:py_library.bzl", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Keep Markdown files out of Bazel data inputs so docs_only_ci_contract_test
+# (DocsOnlyExclusionCoverageContractTest) never sees an unexcluded Markdown literal.
+filegroup(
+    name = "fixtures_data",
+    srcs = glob(
+        ["fixtures/**/*.json"],
+        allow_empty = False,
+    ),
+)
+
+py_library(
+    name = "vantage_contracts",
+    srcs = [
+        "__init__.py",
+        "fixtures/__init__.py",
+        "vantage_contracts.py",
+    ],
+    data = [
+        ":fixtures_data",
+        "//elixir/serviceradar_core:vantage_alpr_pack",
+    ],
+)
+
+py_library(
+    name = "drivers",
+    srcs = glob(["drivers/*.py"]),
+    deps = [":vantage_contracts"],
+)
+
+py_test(
+    name = "mode_a_contracts_test",
+    size = "small",
+    srcs = ["test_mode_a_contracts.py"],
+    main = "test_mode_a_contracts.py",
+    deps = [
+        ":drivers",
+        ":vantage_contracts",
+    ],
+)
+
+py_test(
+    name = "mode_a_synthetic_media_test",
+    size = "small",
+    srcs = ["test_mode_a_synthetic_media.py"],
+    main = "test_mode_a_synthetic_media.py",
+    deps = [":vantage_contracts"],
+)
+
+py_test(
+    name = "mode_a_f1_f5_test",
+    size = "small",
+    srcs = ["test_mode_a_f1_f5.py"],
+    main = "test_mode_a_f1_f5.py",
+    deps = [":vantage_contracts"],
+)
+
+py_test(
+    name = "mode_a_pack_v2_test",
+    size = "small",
+    srcs = ["test_mode_a_pack_v2.py"],
+    main = "test_mode_a_pack_v2.py",
+    deps = [":vantage_contracts"],
+)
+
+py_test(
+    name = "mode_a_f6_f10_test",
+    size = "small",
+    srcs = ["test_mode_a_f6_f10.py"],
+    main = "test_mode_a_f6_f10.py",
+    deps = [
+        ":drivers",
+        ":vantage_contracts",
+    ],
+)
+
+py_test(
+    name = "mode_a_f11_f14_test",
+    size = "small",
+    srcs = ["test_mode_a_f11_f14.py"],
+    main = "test_mode_a_f11_f14.py",
+    deps = [":vantage_contracts"],
+)
+
+py_test(
+    name = "mode_a_tier3_tier4_test",
+    size = "small",
+    srcs = ["test_mode_a_tier3_tier4.py"],
+    main = "test_mode_a_tier3_tier4.py",
+    deps = [":vantage_contracts"],
+)
+
+test_suite(
+    name = "mode_a_tests",
+    tests = [
+        ":mode_a_contracts_test",
+        ":mode_a_f11_f14_test",
+        ":mode_a_f1_f5_test",
+        ":mode_a_f6_f10_test",
+        ":mode_a_pack_v2_test",
+        ":mode_a_synthetic_media_test",
+        ":mode_a_tier3_tier4_test",
+    ],
+)
+
+py_test(
+    name = "mode_b_f1_f5_test",
+    size = "large",
+    srcs = ["test_mode_b_f1_f5.py"],
+    main = "test_mode_b_f1_f5.py",
+    tags = [
+        "acceptance_test",
+        "manual",
+    ],
+    deps = [
+        ":drivers",
+        ":vantage_contracts",
+    ],
+)
+
+py_test(
+    name = "mode_b_f6_f10_test",
+    size = "large",
+    srcs = ["test_mode_b_f6_f10.py"],
+    main = "test_mode_b_f6_f10.py",
+    tags = [
+        "acceptance_test",
+        "manual",
+    ],
+    deps = [
+        ":drivers",
+        ":vantage_contracts",
+    ],
+)
+
+py_test(
+    name = "mode_b_f11_f14_test",
+    size = "large",
+    srcs = ["test_mode_b_f11_f14.py"],
+    main = "test_mode_b_f11_f14.py",
+    tags = [
+        "acceptance_test",
+        "manual",
+    ],
+    deps = [
+        ":drivers",
+        ":vantage_contracts",
+    ],
+)
+
+py_test(
+    name = "mode_b_tier3_tier4_test",
+    size = "large",
+    srcs = ["test_mode_b_tier3_tier4.py"],
+    main = "test_mode_b_tier3_tier4.py",
+    tags = [
+        "acceptance_test",
+        "manual",
+    ],
+    deps = [
+        ":drivers",
+        ":vantage_contracts",
+    ],
+)
+
+test_suite(
+    name = "mode_b_tests",
+    tags = [
+        "acceptance_test",
+        "manual",
+    ],
+    tests = [
+        ":mode_b_f11_f14_test",
+        ":mode_b_f1_f5_test",
+        ":mode_b_f6_f10_test",
+        ":mode_b_tier3_tier4_test",
+    ],
+)

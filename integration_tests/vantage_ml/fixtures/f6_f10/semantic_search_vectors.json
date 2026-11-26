@@ -1,0 +1,85 @@
+{
+  "description": "SemanticSearch observation FTS/attribute query, boundary, RBAC, and RecordingAccessAudit vectors.",
+  "limits": {
+    "max_query_chars": 256,
+    "max_window_days": 31,
+    "max_window_us": 2678400000000,
+    "min_limit": 1,
+    "max_limit": 50
+  },
+  "valid_queries": [
+    {
+      "name": "plate_sr_0100_search",
+      "query": "SR-0100",
+      "window_us": 86400000000,
+      "expected_plate_text": "SR-0100",
+      "expected_camera_display_name": "Gate West 01",
+      "expected_audit_event_kind": "semantic_search"
+    },
+    {
+      "name": "plate_attribute_test_742_search",
+      "query": "plate_text:TEST-742",
+      "window_us": 86400000000,
+      "expected_plate_text": "TEST-742",
+      "expected_camera_display_name": "Gate West 01",
+      "expected_audit_event_kind": "semantic_search"
+    },
+    {
+      "name": "exact_256_char_query_boundary",
+      "query_length": 256,
+      "query_prefix": "SR-0100 ",
+      "window_us": 2678400000000,
+      "expected_valid": true
+    }
+  ],
+  "invalid_queries": [
+    {
+      "name": "empty_query_rejected",
+      "query": "",
+      "window_us": 86400000000,
+      "expected_error": "invalid_query",
+      "expected_http_status": 400
+    },
+    {
+      "name": "whitespace_only_query_rejected",
+      "query": "    \t  ",
+      "window_us": 86400000000,
+      "expected_error": "invalid_query",
+      "expected_http_status": 400
+    },
+    {
+      "name": "over_256_char_query_rejected",
+      "query_length": 257,
+      "window_us": 86400000000,
+      "expected_error": "invalid_query",
+      "expected_http_status": 400
+    },
+    {
+      "name": "window_31d_plus_1s_rejected",
+      "query": "SR-0100",
+      "window_us": 2678401000000,
+      "expected_error": "window_too_large",
+      "expected_http_status": 400
+    },
+    {
+      "name": "inverted_time_window_rejected",
+      "query": "SR-0100",
+      "from_us": 1700000001000000,
+      "to_us": 1700000000000000,
+      "expected_error": "invalid_time_window",
+      "expected_http_status": 400
+    }
+  ],
+  "recording_access_audit_contract": {
+    "event_kind": "semantic_search",
+    "append_only": true,
+    "required_details_keys": [
+      "query_text",
+      "query_sha256",
+      "authorized_camera_count",
+      "filtered_camera_count",
+      "result_count"
+    ],
+    "max_details_bytes": 8192
+  }
+}

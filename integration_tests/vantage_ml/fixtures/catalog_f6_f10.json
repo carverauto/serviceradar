@@ -1,0 +1,424 @@
+{
+  "cases": [
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-01",
+      "mode": "A+B",
+      "description": "Solution Pack v1 backward-compatibility tree validates within 25 MiB / 64 MiB limits without v2 fields"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-02",
+      "mode": "A+B",
+      "description": "Solution Pack v2 manifest and archive validate vantage_pipelines, signal_schemas, worker_dependencies, and dashboard_packages within 32 MiB / 96 MiB limits"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-03",
+      "mode": "A+B",
+      "description": "Bundled dashboard-browser-module-v1 passes triple SHA-256 parity and enables DashboardPackage + DashboardInstance with catalog.packs.install and dashboards.packages.manage + approval"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-04",
+      "mode": "A+B",
+      "description": "Pack v2 install with catalog.packs.install only (no dashboard manage permission or approval) stages DashboardPackage safely in :staged state"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-05",
+      "mode": "A+B",
+      "description": "Pack v2 upgrade preserves operator parameter_overrides, rule install_state, and detached (managed: false) DashboardInstance bindings"
+    },
+    {
+      "feature": "F6",
+      "tier": 1,
+      "test_id": "E2E-F6-T1-06",
+      "mode": "A+B",
+      "description": "Pack v2 uninstall disables managed VantagePipeline and detaches managed DashboardInstance while PackExporter produces secret-free v2 archives"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-01",
+      "mode": "A+B",
+      "description": "Tampered dashboard renderer.js (SHA-256 mismatch) and version_already_published conflict fail closed before mutating CNPG"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-02",
+      "mode": "A+B",
+      "description": "Renderer > 8 MiB (8388609B), archive > 32 MiB compressed / 96 MiB uncompressed, and v2-without-dashboards > 25 MiB are rejected"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-03",
+      "mode": "A+B",
+      "description": "pack_format_version 1 rejects v2 fields, untrusted browser modules, unregistered dashboard_packages, and path traversal / symlink entries"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-04",
+      "mode": "A+B",
+      "description": "Required worker_dependency (optional: false, no fallback_runner) with zero healthy workers blocks active activation"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-05",
+      "mode": "A+B",
+      "description": "SecretFreeValidator rejects token literals and forbidden JSON keys in v2 packs while allowing benign minified JS identifiers"
+    },
+    {
+      "feature": "F6",
+      "tier": 2,
+      "test_id": "E2E-F6-T2-06",
+      "mode": "A+B",
+      "description": "Caller lacking catalog.packs.install is denied pack installation with Forbidden even when holding dashboards.packages.manage"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-01",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack validate --json and pack build --json accept pack_format_version 2 with dashboard_packages and emit deterministic .srpack"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-02",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack keygen, pack sign --json, and pack index --json emit Ed25519 signature verifiable by Elixir UploadSignature"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-03",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage init <name> --template vlm --with-dashboard scaffolds valid pipeline, signal_schema, and dashboard package"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-04",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage init scaffolds valid python-worker and rust-worker projects passing vantage validate --json"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-05",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage dev --fixture executes synthetic H.264 clip locally without NATS, CNPG, or Kubernetes"
+    },
+    {
+      "feature": "F7",
+      "tier": 1,
+      "test_id": "E2E-F7-T1-06",
+      "mode": "A+B",
+      "description": "serviceradar-cli built v2 .srpack archive round-trips deterministically through POSIX.1-1988 USTAR and Elixir PackArchive extraction"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-01",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack validate and pack build exit non-zero on stale/mismatched renderer SHA-256 without writing .srpack"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-02",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack build rejects renderer.js exceeding 8 MiB (8388609B) without emitting .srpack"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-03",
+      "mode": "A+B",
+      "description": "serviceradar-cli secret scan rejects embedded PAT/PEM/Bearer tokens in minified renderer.js while allowing benign JS identifiers"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-04",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage init fails closed on unknown --template argument"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-05",
+      "mode": "A+B",
+      "description": "serviceradar-cli vantage dev fails closed when --fixture clip path is missing or unreadable"
+    },
+    {
+      "feature": "F7",
+      "tier": 2,
+      "test_id": "E2E-F7-T2-06",
+      "mode": "A+B",
+      "description": "serviceradar-cli pack verify rejects tampered .srpack or mismatched Ed25519 signature"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-01",
+      "mode": "A+B",
+      "description": "io.serviceradar.vantage-alpr manifest declares pack_format_version 2, Apache-2.0 license, and optional vantage.alpr.v1 with camera_vlm fallback"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-02",
+      "mode": "A+B",
+      "description": "ALPR pipeline definition configures on_stage1_detection, vehicle class, ROI polygon, detection_crop, min_bbox_width_px >= 96, and <= 640px / 96 KiB policy"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-03",
+      "mode": "A+B",
+      "description": "alpr_plate_read.schema.json and alpr_plate_read.display.json validate synthetic plates SR-0100 and TEST-742 cleanly"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-04",
+      "mode": "A+B",
+      "description": "ALPR watchlist alert rule installs with install_state paused (disabled by default) and synthetic plate matchers"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-05",
+      "mode": "A+B",
+      "description": "ALPR pack includes alpr-worker-health check, alpr-overview dashboard, and trusted alpr-console module declaring camera.stream.view, events.subscribe, and srql.execute"
+    },
+    {
+      "feature": "F8",
+      "tier": 1,
+      "test_id": "E2E-F8-T1-06",
+      "mode": "A+B",
+      "description": "BuiltinPacks loads vantage-alpr offline and Reconciler reconciles pipeline, paused rule, check, dashboard, and staged/enabled alpr-console"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-01",
+      "mode": "A+B",
+      "description": "alpr_plate_read rejects lowercase, 1-char, >12-char, and punctuation-invalid plate_text values"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-02",
+      "mode": "A+B",
+      "description": "io.serviceradar.vantage-alpr tree passes synthetic-data hygiene (strictly synthetic plates/cameras/hosts) with zero copyleft references"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-03",
+      "mode": "A+B",
+      "description": "ALPR pack passes secret-free scanning across manifest, pipeline VLM config, rule, check, and alpr-console renderer.js"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-04",
+      "mode": "A+B",
+      "description": "Operator-enabled or operator-customized ALPR watchlist rule and pipeline parameter_overrides survive pack upgrade"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-05",
+      "mode": "A+B",
+      "description": "Missing or invalid alpr-console renderer digest in vantage-alpr fails pack validation cleanly"
+    },
+    {
+      "feature": "F8",
+      "tier": 2,
+      "test_id": "E2E-F8-T2-06",
+      "mode": "A+B",
+      "description": "ALPR crop_policy rejects min_bbox_width_px < 1 or max_dimension > 640 or max_bytes > 98304"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-01",
+      "mode": "A+B",
+      "description": "Authorized in:camera_observations query returns Gate West 01 SR-0100 observation with time_basis, bbox, and seek timestamp"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-02",
+      "mode": "A+B",
+      "description": "Last-in: SRQL precedence evaluates in:devices in:camera_observations as camera_observations requiring both devices.view and devices.cameras.recordings.view"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-03",
+      "mode": "A+B",
+      "description": "Authorized SemanticSearch for SR-0100 returns observation hit with timeline_path seek URL and writes RecordingAccessAudit event_kind semantic_search"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-04",
+      "mode": "A+B",
+      "description": "SemanticSearch matches exact observation attribute plate_text:TEST-742 via camera_vantage_observations FTS/attribute leg even without visual embedder"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-05",
+      "mode": "A+B",
+      "description": "SRQL in:camera_observations cursor pagination (next_cursor and prev_cursor) returns ordered disjoint slices and SRQL.Catalog registers camera_observations"
+    },
+    {
+      "feature": "F9",
+      "tier": 1,
+      "test_id": "E2E-F9-T1-06",
+      "mode": "A+B",
+      "description": "live_keyframe_tap observations with catalog_entry_id null remain queryable via in:camera_observations for authorized Source scopes"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-01",
+      "mode": "A+B",
+      "description": "Caller missing either devices.view or devices.cameras.recordings.view receives 403 forbidden on in:camera_observations and /api/cameras/search with zero leakage"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-02",
+      "mode": "A+B",
+      "description": "Caller scoped only to Bay 04 Approach receives zero Gate West 01 rows on in:camera_observations and SemanticSearch"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-03",
+      "mode": "A+B",
+      "description": "Observations tied to quarantined or reclaimed+deleted RecordingCatalogEntry are excluded from in:camera_observations and SemanticSearch"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-04",
+      "mode": "A+B",
+      "description": "SemanticSearch enforces 1..256 char query bounds and 31-day max window, rejecting 0-char, 257-char, and 31d+1s inputs"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-05",
+      "mode": "A+B",
+      "description": "SQL/SRQL injection payloads in label:, attributes.plate_text:, and q= execute safely via parameterized bindings with zero leakage"
+    },
+    {
+      "feature": "F9",
+      "tier": 2,
+      "test_id": "E2E-F9-T2-06",
+      "mode": "A+B",
+      "description": "RecordingAccessAudit rejects updates/deletes (append-only) and forbidden credential keys in details"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-01",
+      "mode": "A+B",
+      "description": "CameraLive.Recordings renders Vantage scrubber markers and clip modal SVG bbox + crop preview from display_contract without mutating media"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-02",
+      "mode": "A+B",
+      "description": "Selecting a SemanticSearch TEST-742 hit seeks CameraTimelinePlayer to timeline_ts_us and highlights matching observation bbox"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-03",
+      "mode": "A+B",
+      "description": "DashboardFrameChannel events:subscribe filters nested metadata.service_radar.signal_schema and camera_source_id to deliver OCSF 1008 events:batch"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-04",
+      "mode": "A+B",
+      "description": "alpr-console combines in:camera_observations frames:replace data frame with useDashboardEvents live push over DashboardFrameChannel"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-05",
+      "mode": "A+B",
+      "description": "events:subscribe omitting camera_source_id delivers events:batch only for cameras within viewer authorized Source scope"
+    },
+    {
+      "feature": "F10",
+      "tier": 1,
+      "test_id": "E2E-F10-T1-06",
+      "mode": "A+B",
+      "description": "PhoenixChannelClient v2 frame framing handles join, events:subscribe, events:unsubscribe, frames:refresh, and masked Ping/Pong cleanly"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-01",
+      "mode": "A+B",
+      "description": "Viewer lacking devices.cameras.recordings.view is denied camera observation events:subscribe and receives :forbidden on in:camera_observations frame"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-02",
+      "mode": "A+B",
+      "description": "Viewer authorized for Bay 04 Approach only receives zero events:batch deliveries when Gate West 01 emits alpr_plate_read OCSF 1008"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-03",
+      "mode": "A+B",
+      "description": "Revoking devices.cameras.recordings.view triggers DashboardFrameChannel events:error and drops active event subscriptions"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-04",
+      "mode": "A+B",
+      "description": "Observation with crop_jpeg: null renders bbox and label cleanly in clip modal with zero broken-image or null errors"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-05",
+      "mode": "A+B",
+      "description": "XSS-hostile display_contract/label strings and javascript: thumbnail URLs are escaped or rejected with zero script execution"
+    },
+    {
+      "feature": "F10",
+      "tier": 2,
+      "test_id": "E2E-F10-T2-06",
+      "mode": "A+B",
+      "description": "DashboardFrameChannel rejects malformed or oversized nested metadata filter payloads on events:subscribe"
+    }
+  ]
+}

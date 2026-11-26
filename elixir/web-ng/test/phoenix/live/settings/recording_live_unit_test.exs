@@ -3921,6 +3921,97 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         assert doc |> LazyHTML.query("#timeline-hold-preset-#{preset}") |> Enum.count() == 1
       end
     end
+
+    test "health tab renders Vantage ML workers, queue lag, Ramp 1 -> Ramp 2 routing, and handles heartbeat PubSub updates" do
+      scope = scope_with_permissions(["settings.recording.view"])
+
+      initial_vw = %{
+        workers: [],
+        online_count: 0,
+        stale_count: 0,
+        queue_lag: %{accessible?: true, pending_count: 3, dispatched_count: 0, oldest_pending_age_seconds: 45},
+        routing_mode: :ramp_1_fallback,
+        pipelines: [
+          %{
+            pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+            version: "1.0.0",
+            runner: "external_worker",
+            capability: "vantage.alpr.v1",
+            fallback_runner: "camera_vlm",
+            source_mode: "recorded_block",
+            active_route: :ramp_1_fallback,
+            worker_count: 0
+          }
+        ]
+      }
+
+      :persistent_term.put({__MODULE__, :vw_summary}, initial_vw)
+
+      on_exit(fn -> :persistent_term.erase({__MODULE__, :vw_summary}) end)
+
+      socket =
+        mounted_with_runtime(scope, installed_open_runtime(), %{
+          load_vantage_worker_summary: fn _scope -> :persistent_term.get({__MODULE__, :vw_summary}) end
+        })
+
+      {:noreply, socket} =
+        RecordingLive.handle_params(%{"tab" => "health"}, "http://localhost/settings/recording?tab=health", socket)
+
+      html = render_mounted(socket)
+
+      assert html =~ "health-vantage-workers-card"
+      assert html =~ "Ramp 1: camera_vlm active"
+      assert html =~ "45s"
+
+      updated_vw = %{
+        workers: [
+          %{
+            worker_id: "alpr-node-01",
+            worker_kind: "external_rust",
+            capabilities: ["vantage.alpr.v1"],
+            supported_source_modes: ["recorded_block"],
+            execution_backend: "onnx",
+            architecture: "arm64",
+            model_id: "fast-alpr",
+            model_version: "1.0.0",
+            active_jobs: 1,
+            max_concurrency: 4,
+            saturated?: false,
+            health: "ready",
+            expires_at: ~U[2026-11-25 12:00:30Z],
+            online?: true,
+            stale?: false
+          }
+        ],
+        online_count: 1,
+        stale_count: 0,
+        queue_lag: %{accessible?: true, pending_count: 0, dispatched_count: 1, oldest_pending_age_seconds: nil},
+        routing_mode: :ramp_2,
+        pipelines: [
+          %{
+            pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+            version: "1.0.0",
+            runner: "external_worker",
+            capability: "vantage.alpr.v1",
+            fallback_runner: "camera_vlm",
+            source_mode: "recorded_block",
+            active_route: :ramp_2,
+            worker_count: 1
+          }
+        ]
+      }
+
+      :persistent_term.put({__MODULE__, :vw_summary}, updated_vw)
+
+      {:noreply, refreshed_socket} =
+        RecordingLive.handle_info({:vantage_worker_heartbeat, %{worker_id: "alpr-node-01"}}, socket)
+
+      refreshed_html = render_mounted(refreshed_socket)
+
+      assert refreshed_html =~ "Ramp 2: vantage.worker.v1 active"
+      assert refreshed_html =~ "alpr-node-01"
+      assert refreshed_html =~ "1/4"
+    end
   end
 
   defp base_socket(scope) do
@@ -3963,7 +4054,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       recording_now: fn _ -> MapSet.new() end,
       what_if_policy_preview: &db_free_what_if_preview/3,
       list_storage_settings: fn _ -> [] end,
-      load_recording_health: fn _ -> CameraRecordingSettings.default_health_summary() end
+      load_recording_health: fn _ -> CameraRecordingSettings.default_health_summary() end,
+      load_vantage_worker_summary: fn _ -> ServiceRadarWebNG.CameraVantageWorkers.default_summary() end
     }
 
     socket =

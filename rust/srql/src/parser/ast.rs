@@ -82,6 +82,7 @@ pub enum Entity {
     EndpointInventoryScans,
     PublicEndpoints,
     CameraSources,
+    CameraObservations,
     Websites,
     SourceFactDisagreements,
     MergeAudit,

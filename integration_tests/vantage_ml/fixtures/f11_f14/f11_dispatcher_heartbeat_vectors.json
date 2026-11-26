@@ -1,0 +1,218 @@
+{
+  "capability_slug_cases": {
+    "positive": [
+      {
+        "input": "vantage.alpr.v1",
+        "expected_slug": "vantage_alpr_v1",
+        "live_job_subject": "media.jobs.vantage.vantage_alpr_v1.v1",
+        "backfill_job_subject": "media.jobs.vantage.vantage_alpr_v1.backfill.v1",
+        "live_tap_subject": "media.live.vantage.vantage_alpr_v1.v1"
+      },
+      {
+        "input": "vantage.bay_guidance.v1",
+        "expected_slug": "vantage_bay_guidance_v1",
+        "live_job_subject": "media.jobs.vantage.vantage_bay_guidance_v1.v1",
+        "backfill_job_subject": "media.jobs.vantage.vantage_bay_guidance_v1.backfill.v1",
+        "live_tap_subject": "media.live.vantage.vantage_bay_guidance_v1.v1"
+      },
+      {
+        "input": "vantage-hazard-v2",
+        "expected_slug": "vantage_hazard_v2",
+        "live_job_subject": "media.jobs.vantage.vantage_hazard_v2.v1",
+        "backfill_job_subject": "media.jobs.vantage.vantage_hazard_v2.backfill.v1",
+        "live_tap_subject": "media.live.vantage.vantage_hazard_v2.v1"
+      }
+    ],
+    "negative": [
+      {"name": "empty", "input": ""},
+      {"name": "whitespace_only", "input": "   "},
+      {"name": "nats_single_wildcard", "input": "vantage.*.v1"},
+      {"name": "nats_tail_wildcard", "input": "vantage.>"},
+      {"name": "embedded_space", "input": "vantage alpr v1"},
+      {"name": "leading_dot", "input": ".vantage.alpr.v1"},
+      {"name": "uppercase_slash", "input": "Vantage/ALPR"}
+    ]
+  },
+  "subjects": {
+    "heartbeat": "media.workers.heartbeat.v1",
+    "results": "media.results.vantage.v1",
+    "ramp1_vlm_live": "media.jobs.vantage.vlm.v1",
+    "ramp1_vlm_backfill": "media.jobs.vantage.vlm.backfill.v1"
+  },
+  "heartbeat_ttl_us": 30000000,
+  "now_us": 1700000010000000,
+  "workers": {
+    "fresh_rust_alpr": {
+      "schema_version": "vantage.heartbeat.v1",
+      "worker_id": "vantage-alpr-rust-gate-west-01",
+      "worker_kind": "external_rust",
+      "protocol_version": "vantage.worker.v1",
+      "capabilities": ["vantage.alpr.v1"],
+      "supported_source_modes": ["recorded_block", "live_keyframe_tap"],
+      "execution_backend": "onnx",
+      "architecture": "arm64",
+      "model_id": "alpr-plate-detector-synthetic",
+      "model_version": "1.0.0",
+      "max_concurrency": 4,
+      "active_jobs": 1,
+      "health": "ready",
+      "sent_at_us": 1700000000000000
+    },
+    "expired_rust_alpr": {
+      "schema_version": "vantage.heartbeat.v1",
+      "worker_id": "vantage-alpr-rust-stale-01",
+      "worker_kind": "external_rust",
+      "protocol_version": "vantage.worker.v1",
+      "capabilities": ["vantage.alpr.v1"],
+      "supported_source_modes": ["recorded_block"],
+      "execution_backend": "onnx",
+      "architecture": "amd64",
+      "model_id": "alpr-plate-detector-synthetic",
+      "model_version": "1.0.0",
+      "max_concurrency": 4,
+      "active_jobs": 0,
+      "health": "ready",
+      "sent_at_us": 1699999979999999
+    },
+    "draining_python_alpr": {
+      "schema_version": "vantage.heartbeat.v1",
+      "worker_id": "vantage-alpr-py-draining-01",
+      "worker_kind": "external_python",
+      "protocol_version": "vantage.worker.v1",
+      "capabilities": ["vantage.alpr.v1"],
+      "supported_source_modes": ["recorded_block"],
+      "execution_backend": "custom",
+      "architecture": "arm64",
+      "model_id": "alpr-plate-detector-synthetic",
+      "model_version": "1.0.0",
+      "max_concurrency": 2,
+      "active_jobs": 1,
+      "health": "draining",
+      "sent_at_us": 1700000005000000
+    },
+    "saturated_rust_alpr": {
+      "schema_version": "vantage.heartbeat.v1",
+      "worker_id": "vantage-alpr-rust-full-01",
+      "worker_kind": "external_rust",
+      "protocol_version": "vantage.worker.v1",
+      "capabilities": ["vantage.alpr.v1"],
+      "supported_source_modes": ["recorded_block"],
+      "execution_backend": "onnx",
+      "architecture": "amd64",
+      "model_id": "alpr-plate-detector-synthetic",
+      "model_version": "1.0.0",
+      "max_concurrency": 2,
+      "active_jobs": 2,
+      "health": "ready",
+      "sent_at_us": 1700000008000000
+    },
+    "bad_protocol_version": {
+      "schema_version": "vantage.heartbeat.v1",
+      "worker_id": "vantage-alpr-bad-proto",
+      "worker_kind": "external_rust",
+      "protocol_version": "vantage.worker.v99",
+      "capabilities": ["vantage.alpr.v1"],
+      "supported_source_modes": ["recorded_block"],
+      "execution_backend": "onnx",
+      "architecture": "arm64",
+      "model_id": "alpr-plate-detector-synthetic",
+      "model_version": "1.0.0",
+      "max_concurrency": 2,
+      "active_jobs": 0,
+      "health": "ready",
+      "sent_at_us": 1700000008000000
+    }
+  },
+  "routing_scenarios": [
+    {
+      "name": "ramp2_fresh_live_job",
+      "pipeline": {
+        "runner": "external_worker",
+        "capability": "vantage.alpr.v1",
+        "optional": true,
+        "fallback_runner": "camera_vlm"
+      },
+      "job_kind": "live",
+      "source_mode": "recorded_block",
+      "worker_keys": ["fresh_rust_alpr"],
+      "expected_disposition": "dispatch",
+      "expected_runner": "vantage.alpr.v1",
+      "expected_subject": "media.jobs.vantage.vantage_alpr_v1.v1"
+    },
+    {
+      "name": "ramp2_fresh_backfill_job",
+      "pipeline": {
+        "runner": "external_worker",
+        "capability": "vantage.alpr.v1",
+        "optional": true,
+        "fallback_runner": "camera_vlm"
+      },
+      "job_kind": "backfill",
+      "source_mode": "recorded_block",
+      "worker_keys": ["fresh_rust_alpr"],
+      "expected_disposition": "dispatch",
+      "expected_runner": "vantage.alpr.v1",
+      "expected_subject": "media.jobs.vantage.vantage_alpr_v1.backfill.v1"
+    },
+    {
+      "name": "expired_ttl_falls_back_to_ramp1_vlm",
+      "pipeline": {
+        "runner": "external_worker",
+        "capability": "vantage.alpr.v1",
+        "optional": true,
+        "fallback_runner": "camera_vlm"
+      },
+      "job_kind": "live",
+      "source_mode": "recorded_block",
+      "worker_keys": ["expired_rust_alpr"],
+      "expected_disposition": "fallback",
+      "expected_runner": "camera_vlm",
+      "expected_subject": "media.jobs.vantage.vlm.v1"
+    },
+    {
+      "name": "expired_ttl_backfill_falls_back_to_ramp1_vlm_backfill",
+      "pipeline": {
+        "runner": "external_worker",
+        "capability": "vantage.alpr.v1",
+        "optional": true,
+        "fallback_runner": "camera_vlm"
+      },
+      "job_kind": "backfill",
+      "source_mode": "recorded_block",
+      "worker_keys": ["expired_rust_alpr"],
+      "expected_disposition": "fallback",
+      "expected_runner": "camera_vlm",
+      "expected_subject": "media.jobs.vantage.vlm.backfill.v1"
+    },
+    {
+      "name": "strict_optional_false_holds_when_expired_or_draining",
+      "pipeline": {
+        "runner": "external_worker",
+        "capability": "vantage.alpr.v1",
+        "optional": false,
+        "fallback_runner": null
+      },
+      "job_kind": "live",
+      "source_mode": "recorded_block",
+      "worker_keys": ["expired_rust_alpr", "draining_python_alpr"],
+      "expected_disposition": "hold",
+      "expected_runner": null,
+      "expected_subject": null
+    },
+    {
+      "name": "saturated_worker_falls_back_when_optional_true",
+      "pipeline": {
+        "runner": "external_worker",
+        "capability": "vantage.alpr.v1",
+        "optional": true,
+        "fallback_runner": "camera_vlm"
+      },
+      "job_kind": "live",
+      "source_mode": "recorded_block",
+      "worker_keys": ["saturated_rust_alpr"],
+      "expected_disposition": "fallback",
+      "expected_runner": "camera_vlm",
+      "expected_subject": "media.jobs.vantage.vlm.v1"
+    }
+  ]
+}

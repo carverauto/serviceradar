@@ -1,0 +1,19 @@
+{
+  "description": "Canonical Solution Pack v1 compatibility reference tree (25/64 MiB bounds, zero v2 fields).",
+  "expected_validation": {
+    "pack_format_version": 1,
+    "has_dashboard_packages": false,
+    "limits": [
+      26214400,
+      67108864,
+      256
+    ]
+  },
+  "files": {
+    "README.md": "# Synthetic V1 Reference Pack\n\nBackward-compatible pack_format_version 1 fixture for Gate West 01.\n",
+    "checks/synthetic-health.json": "{\n  \"slug\": \"synthetic-health\",\n  \"name\": \"Synthetic Health Check\",\n  \"kind\": \"service_ping\",\n  \"interval_seconds\": 60\n}\n",
+    "dashboards/synthetic-overview.json": "{\n  \"slug\": \"synthetic-overview\",\n  \"title\": \"Synthetic Overview\",\n  \"widgets\": [\n    {\n      \"id\": \"checks_summary\",\n      \"query\": \"in:services limit:50\"\n    }\n  ]\n}\n",
+    "manifest.json": "{\n  \"pack_format_version\": 1,\n  \"id\": \"io.serviceradar.synthetic-v1-compat\",\n  \"slug\": \"synthetic-v1-compat\",\n  \"name\": \"Synthetic V1 Compatibility Pack\",\n  \"version\": \"1.0.0\",\n  \"license\": \"Apache-2.0\",\n  \"author\": \"ServiceRadar\",\n  \"description\": \"Canonical pack_format_version 1 reference tree for backward-compatibility validation.\",\n  \"min_serviceradar_version\": \"1.0.0\",\n  \"categories\": [\n    \"monitoring\"\n  ],\n  \"config\": [\n    {\n      \"key\": \"enabled\",\n      \"type\": \"boolean\",\n      \"default\": true,\n      \"required\": false,\n      \"description\": \"Enable check\"\n    }\n  ],\n  \"credential_slots\": [],\n  \"plugin_dependencies\": [],\n  \"resources\": {\n    \"checks\": [\n      {\n        \"file\": \"checks/synthetic-health.json\",\n        \"slug\": \"synthetic-health\",\n        \"name\": \"Synthetic Health Check\"\n      }\n    ],\n    \"rules\": [\n      {\n        \"file\": \"rules/synthetic-alert.json\",\n        \"install_state\": \"enabled\",\n        \"kind\": \"stateful_alert_rule\",\n        \"name\": \"Synthetic Alert Rule\"\n      }\n    ],\n    \"dashboards\": [\n      {\n        \"file\": \"dashboards/synthetic-overview.json\",\n        \"slug\": \"synthetic-overview\",\n        \"title\": \"Synthetic Overview\"\n      }\n    ]\n  },\n  \"files\": {\n    \"README.md\": \"bd4d0f825e2433c48844422821330cd09622796fba13f2757d48387a6cdb3e55\",\n    \"checks/synthetic-health.json\": \"739a3b455f40184b7d129e897feb8b41c8ce66ac5e3d5226187b8d7e82b35f6f\",\n    \"dashboards/synthetic-overview.json\": \"ecbd6b763ae152c1909fe1c6ef528dc162cf8876e8011aaffec244e89dc8a3cb\",\n    \"rules/synthetic-alert.json\": \"d2b82ada0eca866bc6d5d921aff44bd9765e8ab40d289615e98618b69eb676a5\"\n  }\n}\n",
+    "rules/synthetic-alert.json": "{\n  \"slug\": \"synthetic-alert\",\n  \"name\": \"Synthetic Alert Rule\",\n  \"kind\": \"stateful_alert_rule\",\n  \"severity\": \"medium\",\n  \"cooldown_seconds\": 300\n}\n"
+  }
+}

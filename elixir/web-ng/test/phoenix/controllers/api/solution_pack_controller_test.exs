@@ -53,13 +53,34 @@ defmodule ServiceRadarWebNGWeb.Api.SolutionPackControllerTest do
       {:ok, ~s({"pack_format_version":1,"slug":"#{slug}"}), "#{slug}.srpack.json"}
     end
 
-    def preview_install(pack_input, params, _opts) do
-      {:ok, %{dry_run: true, input_kind: if(is_map(pack_input), do: "files", else: "slug"), config: params["config"]}}
+    def preview_install(pack_input, params, opts) do
+      {:ok,
+       %{
+         dry_run: true,
+         input_kind: if(is_map(pack_input), do: "files", else: "slug"),
+         config: params["config"],
+         activate_dashboard_packages: Keyword.get(opts, :activate_dashboard_packages, false),
+         install_paused: Keyword.get(opts, :install_paused, false)
+       }}
     end
 
-    def install_pack(_pack_input, params, _opts) do
-      {:ok, %{dry_run: false, installed: true, config: params["config"]}}
+    def install_pack("conflict-version", _params, _opts) do
+      {:error, {:version_already_published, %{dashboard_id: "com.serviceradar.ui", version: "1.0.0"}}}
     end
+
+    def install_pack(_pack_input, params, opts) do
+      {:ok,
+       %{
+         dry_run: false,
+         installed: true,
+         config: params["config"],
+         activate_dashboard_packages: Keyword.get(opts, :activate_dashboard_packages, false),
+         install_paused: Keyword.get(opts, :install_paused, false)
+       }}
+    end
+
+    def uninstall_pack(slug, _opts), do: {:ok, %{slug: slug, mode: :delete}}
+    def detach_pack(slug, _opts), do: {:ok, %{slug: slug, mode: :detach}}
 
     def list_repositories(_opts) do
       {:ok, [%{"id" => "00000000-0000-4000-8000-000000000952", "name" => "Official", "mode" => "release_catalog"}]}
@@ -322,6 +343,71 @@ defmodule ServiceRadarWebNGWeb.Api.SolutionPackControllerTest do
 
       assert pull_preview["data"]["dry_run"] == true
       assert pull_preview["data"]["source_commit_sha"] == "def456"
+    end
+
+    test "routes DELETE /api/v2/catalog/packs/:slug, forwards v2 install flags, and returns 409 on version_already_published" do
+      assert %{plug: Controller, plug_opts: :uninstall} =
+               Phoenix.Router.route_info(
+                 Router,
+                 "DELETE",
+                 "/api/v2/catalog/packs/synthetic-vantage",
+                 "localhost"
+               )
+
+      full_scope =
+        scope_with_permissions([
+          "catalog.view",
+          "catalog.packs.install"
+        ])
+
+      conn = assign(build_conn(), :current_scope, full_scope)
+
+      install_resp =
+        json_response(
+          call(
+            conn,
+            :install,
+            %{
+              "slug" => "synthetic-vantage",
+              "activate_dashboard_packages" => "true",
+              "install_paused" => "true"
+            },
+            %{"slug" => "synthetic-vantage"}
+          ),
+          200
+        )
+
+      assert install_resp["data"]["activate_dashboard_packages"] == true
+      assert install_resp["data"]["install_paused"] == true
+
+      conflict_resp =
+        json_response(
+          call(conn, :install, %{"slug" => "conflict-version"}, %{"slug" => "conflict-version"}),
+          409
+        )
+
+      assert conflict_resp["error"] =~ "already published"
+
+      uninstall_resp =
+        json_response(
+          call(conn, :uninstall, %{"slug" => "synthetic-vantage"}, %{"slug" => "synthetic-vantage"}),
+          200
+        )
+
+      assert uninstall_resp["data"]["mode"] == "delete"
+
+      detach_resp =
+        json_response(
+          call(
+            conn,
+            :uninstall,
+            %{"slug" => "synthetic-vantage", "detach" => "true"},
+            %{"slug" => "synthetic-vantage"}
+          ),
+          200
+        )
+
+      assert detach_resp["data"]["mode"] == "detach"
     end
   end
 

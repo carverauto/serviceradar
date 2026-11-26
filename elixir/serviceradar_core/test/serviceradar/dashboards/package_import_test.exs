@@ -121,6 +121,54 @@ defmodule ServiceRadar.Dashboards.PackageImportTest do
     assert Enum.any?(errors, &String.contains?(&1, "missing required field"))
   end
 
+  test "accepts Solution Pack provenance opts and maps pack source types" do
+    bytes = "export default function mount() {}"
+    digest = sha256(bytes)
+
+    manifest = %{
+      "id" => "com.serviceradar.test-vantage-console",
+      "name" => "Test Vantage Console",
+      "version" => "1.0.0",
+      "renderer" => %{
+        "kind" => "browser_module",
+        "interface_version" => "dashboard-browser-module-v1",
+        "artifact" => "renderer.js",
+        "sha256" => digest,
+        "trust" => "trusted"
+      },
+      "data_frames" => [
+        %{"id" => "reads", "query" => "in:camera_observations", "encoding" => "json_rows"}
+      ],
+      "capabilities" => ["srql.execute"],
+      "settings_schema" => %{}
+    }
+
+    json = Jason.encode!(manifest)
+
+    for {input, expected} <- [
+          {:builtin, :first_party},
+          {:gitops_tree, :git},
+          {:release_catalog, :upload}
+        ] do
+      assert {:ok, attrs} =
+               PackageImport.attrs_from_json(json,
+                 source_type: input,
+                 pack_id: "io.serviceradar.test-vantage",
+                 pack_version: "1.0.0",
+                 managed: true,
+                 template_fingerprint: String.duplicate("a", 64),
+                 status: :staged
+               )
+
+      assert attrs.source_type == expected
+      assert attrs.pack_id == "io.serviceradar.test-vantage"
+      assert attrs.pack_version == "1.0.0"
+      assert attrs.managed == true
+      assert attrs.template_fingerprint == String.duplicate("a", 64)
+      assert attrs.status == :staged
+    end
+  end
+
   defp sha256(bytes) do
     :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
   end

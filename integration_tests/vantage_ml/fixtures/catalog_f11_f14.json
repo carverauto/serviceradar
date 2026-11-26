@@ -1,0 +1,340 @@
+{
+  "cases": [
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-01",
+      "mode": "A+B",
+      "description": "Capability slug normalization and Ramp 1 / Ramp 2 / backfill / live-tap NATS subject derivation"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-02",
+      "mode": "A+B",
+      "description": "Heartbeat validation, active capacity eligibility, and Ramp 2 routing for fresh ready worker"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-03",
+      "mode": "A+B",
+      "description": "Heartbeat TTL expiration falls back from Ramp 2 to Ramp 1 camera_vlm when optional is true"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-04",
+      "mode": "A+B",
+      "description": "Read-grant 200 archive response contract with no-store headers, reader-only grant, and RedactedCredential"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-05",
+      "mode": "A+B",
+      "description": "Read-grant 200 local analysis_read backing and coalesced range gap and chunk slice invariants"
+    },
+    {
+      "feature": "F11",
+      "tier": 1,
+      "test_id": "E2E-F11-T1-06",
+      "mode": "A+B",
+      "description": "Backfill job routing to .backfill.v1 subjects without displacing live job routing"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-01",
+      "mode": "A+B",
+      "description": "Invalid capability slugs with wildcards or spaces and malformed heartbeat payloads fail closed"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-02",
+      "mode": "A+B",
+      "description": "Strict external worker dependency (optional=false) holds rather than falling back on expired or non-ready heartbeat"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-03",
+      "mode": "A+B",
+      "description": "Read-grant request 8192B boundary and 400 invalid_read_grant_request / invalid_schema_version status responses"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-04",
+      "mode": "A+B",
+      "description": "Read-grant 401 unauthorized (missing/bad headers) and 403 forbidden responses with no-store headers"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-05",
+      "mode": "A+B",
+      "description": "Read-grant 409 conflict variants, 410 recording_gone, and 503 media_worker_grants_unavailable status contracts"
+    },
+    {
+      "feature": "F11",
+      "tier": 2,
+      "test_id": "E2E-F11-T2-06",
+      "mode": "A+B",
+      "description": "Read-grant coalesce gap > 262144B, chunk > 4194304B, slice overflow, and leaked credential key rejection"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-01",
+      "mode": "A+B",
+      "description": "Companion SDK vantage.job.v1 and vantage.result.v1 wire conformance for external_rust and external_python ALPR"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-02",
+      "mode": "A+B",
+      "description": "Live-tap vantage.result.v1 enforces strict nullity on job_id, catalog_entry_id, descriptor_sha256, and fragment_sequence"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-03",
+      "mode": "A+B",
+      "description": "Zero-credential worker config and environment passes secret-free and synthetic hygiene checks"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-04",
+      "mode": "A+B",
+      "description": "Shared vantage.heartbeat.v1 and vantage.frame.v1 rgb8 buffer conformance across Rust and Python SDKs"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-05",
+      "mode": "A+B",
+      "description": "Reference vantage-worker-alpr Ramp 1 to Ramp 2 upgrade preserves identical alpr_plate_read observation schema"
+    },
+    {
+      "feature": "F12",
+      "tier": 1,
+      "test_id": "E2E-F12-T1-06",
+      "mode": "A+B",
+      "description": "Offline serviceradar-cli vantage / run_local_harness synthetic fixture validation contract"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-01",
+      "mode": "A+B",
+      "description": "Worker config or environment leaking DB DSN, secret_access_key, credential_secret_id, or token literals fails closed"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-02",
+      "mode": "A+B",
+      "description": "Live-tap result envelope with non-null job_id, catalog_entry_id, descriptor_sha256, or fragment_sequence fails closed"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-03",
+      "mode": "A+B",
+      "description": "Corrupt init.mp4 or fragment SHA-256 mismatch aborts decode before process_frame and emits zero observations"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-04",
+      "mode": "A+B",
+      "description": "Handler error or malformed Observation fails gracefully without poisoning media.results.vantage.v1"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-05",
+      "mode": "A+B",
+      "description": "Zero-copy rgb8 frame dimension mismatch (len != width * height * 3) fails closed"
+    },
+    {
+      "feature": "F12",
+      "tier": 2,
+      "test_id": "E2E-F12-T2-06",
+      "mode": "A+B",
+      "description": "Disallowed copyleft engine reference or non-synthetic host/IP in worker fixtures fails synthetic hygiene"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-01",
+      "mode": "A+B",
+      "description": "Opt-in live_keyframe_tap emits vantage.frame.v1 on media.live.vantage.vantage_bay_guidance_v1.v1 for Bay 04 Approach"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-02",
+      "mode": "A+B",
+      "description": "Steady-state longshore_mailbox (cap=8) delivers monotonic frame_sequence with zero drops"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-03",
+      "mode": "A+B",
+      "description": "Per-camera mailbox sharding isolates burst pressure on Bay 04 Approach from Gate West 01"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-04",
+      "mode": "A+B",
+      "description": "vantage.frame.v1 supports frame_jpeg_b64, payload_format (jpeg/annex_b_idr/rgb8), read_token, and both time_basis values"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-05",
+      "mode": "A+B",
+      "description": "Deployment camera-cap admission admits enabled cameras up to configured camera cap"
+    },
+    {
+      "feature": "F13",
+      "tier": 1,
+      "test_id": "E2E-F13-T1-06",
+      "mode": "A+B",
+      "description": "Per-camera active track registry admits up to 128 concurrent tracks and tears down cleanly"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-01",
+      "mode": "A+B",
+      "description": "longshore_mailbox overflow burst (20 frames, cap=8) drops 12 oldest frames and increments serviceradar_vantage_live_tap_dropped_total"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-02",
+      "mode": "A+B",
+      "description": "Active track cap boundary rejects/bounds track 129 above LIVE_TAP_MAX_TRACKS (128)"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-03",
+      "mode": "A+B",
+      "description": "Deployment camera-cap overflow refuses (cap + 1)-th camera admission without disrupting active cameras"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-04",
+      "mode": "A+B",
+      "description": "Oversized vantage.frame.v1 exceeding 983040B NATS payload ceiling is rejected before publish"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-05",
+      "mode": "A+B",
+      "description": "vantage.frame.v1 missing carrier, non-null catalog_entry_id/fragment_sequence, or invalid detection fails closed"
+    },
+    {
+      "feature": "F13",
+      "tier": 2,
+      "test_id": "E2E-F13-T2-06",
+      "mode": "A+B",
+      "description": "Non-monotonic frame_sequence or downstream worker stall leaves CMAF recording and live viewer playback intact"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-01",
+      "mode": "A+B",
+      "description": "vantage.bay_guidance.v1 attributes validate across approach, aligning, stop, docked, and clear states"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-02",
+      "mode": "A+B",
+      "description": "Identical process_frame(ctx) contract produces schema-valid live-tap results from Rust and Python workers"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-03",
+      "mode": "A+B",
+      "description": "JetStream -> EventWriter -> PubSub -> DashboardFrameChannel nested signal_schema and camera_source_id event scoping"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-04",
+      "mode": "A+B",
+      "description": "Synthetic Bay 04 Approach guidance latency benchmark computes deterministic p50/p95/p99 percentiles"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-05",
+      "mode": "A+B",
+      "description": "live_observation_retention_days cleanup purges expired live-tap rows while preserving fresh live and held recorded rows"
+    },
+    {
+      "feature": "F14",
+      "tier": 1,
+      "test_id": "E2E-F14-T1-06",
+      "mode": "A+B",
+      "description": "Worker supporting both recorded_block and live_keyframe_tap handles interleaved workloads cleanly"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-01",
+      "mode": "A+B",
+      "description": "Latency percentile calculation fails closed on empty, negative, or non-finite samples and handles single-sample sets"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-02",
+      "mode": "A+B",
+      "description": "live_observation_retention_days exact boundary purges (cutoff - 1s) and preserves (cutoff + 1s) and RecordingHold rows"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-03",
+      "mode": "A+B",
+      "description": "Worker advertising only recorded_block is excluded from live_keyframe_tap routing for Bay 04 Approach"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-04",
+      "mode": "A+B",
+      "description": "Invalid bay_guidance attributes (unknown guidance_state, negative distance_m, legacy alignment_status) fail validation"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-05",
+      "mode": "A+B",
+      "description": "Unauthorized dashboard viewer without devices.cameras.recordings.view or Source access receives zero guidance overlays"
+    },
+    {
+      "feature": "F14",
+      "tier": 2,
+      "test_id": "E2E-F14-T2-06",
+      "mode": "A+B",
+      "description": "Worker crash and mailbox overflow injection during Bay 04 Approach benchmark preserves CMAF recording and recovers cleanly"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "__SCHEMA_ID__",
+  "version": "1.0.0",
+  "title": "__PACK_NAME__ Signal",
+  "badge": {
+    "label": "Plate",
+    "color": "#0EA5E9",
+    "icon": "hero-identification"
+  },
+  "scrubber_marker": {
+    "category": "license_plate",
+    "color": "#0EA5E9",
+    "label_field": "plate_text"
+  },
+  "overlay": {
+    "label_template": "{{plate_text}}",
+    "stroke_color": "#0EA5E9",
+    "show_confidence": true
+  },
+  "crop_preview": {
+    "enabled": true,
+    "max_bytes": 32768,
+    "alt_template": "Synthetic crop for {{plate_text}}"
+  }
+}

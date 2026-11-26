@@ -1,0 +1,173 @@
+{
+  "description": "Negative and boundary test vectors for Solution Pack v1/v2 validation, archive packaging, secret scanning, and package immutability.",
+  "tampered_renderer_case": {
+    "name": "tampered_renderer_after_stamp",
+    "target_file": "dashboard_packages/alpr-console/renderer.js",
+    "tampered_content": "export function mountAlprConsole() { return { tampered: true }; }\n",
+    "update_root_manifest_files_only": true,
+    "expected_error_substring": "!= actual renderer SHA-256"
+  },
+  "renderer_size_cases": {
+    "max_renderer_bytes": 8388608,
+    "exact_allowed_bytes": 8388608,
+    "rejected_over_bytes": 8388609,
+    "expected_error_substring": "MAX_RENDERER_BYTES"
+  },
+  "archive_bounds_cases": [
+    {
+      "name": "v1_exact_25mib_compressed_allowed",
+      "pack_format_version": 1,
+      "has_dashboard_packages": false,
+      "compressed_bytes": 26214400,
+      "should_pass": true
+    },
+    {
+      "name": "v1_over_25mib_compressed_rejected",
+      "pack_format_version": 1,
+      "has_dashboard_packages": false,
+      "compressed_bytes": 26214401,
+      "should_pass": false,
+      "expected_error_substring": "exceeds 26214400"
+    },
+    {
+      "name": "v2_without_dashboard_packages_uses_25_64_limits",
+      "pack_format_version": 2,
+      "has_dashboard_packages": false,
+      "compressed_bytes": 26214401,
+      "should_pass": false,
+      "expected_error_substring": "exceeds 26214400"
+    },
+    {
+      "name": "v2_with_dashboard_packages_exact_32mib_allowed",
+      "pack_format_version": 2,
+      "has_dashboard_packages": true,
+      "compressed_bytes": 33554432,
+      "should_pass": true
+    },
+    {
+      "name": "v2_with_dashboard_packages_over_32mib_rejected",
+      "pack_format_version": 2,
+      "has_dashboard_packages": true,
+      "compressed_bytes": 33554433,
+      "should_pass": false,
+      "expected_error_substring": "exceeds 33554432"
+    },
+    {
+      "name": "v2_with_dashboard_packages_uncompressed_over_96mib_rejected",
+      "pack_format_version": 2,
+      "has_dashboard_packages": true,
+      "max_uncompressed_bytes": 100663296,
+      "attempted_uncompressed_bytes": 100663297,
+      "should_pass": false,
+      "expected_error_substring": "exceeds 100663296"
+    }
+  ],
+  "v1_with_v2_fields": [
+    {
+      "name": "v1_declares_vantage_pipelines_in_resources",
+      "scope": "resources",
+      "field": "vantage_pipelines",
+      "value": [],
+      "expected_error_substring": "forbidden in pack_format_version=1"
+    },
+    {
+      "name": "v1_declares_signal_schemas_in_resources",
+      "scope": "resources",
+      "field": "signal_schemas",
+      "value": [],
+      "expected_error_substring": "forbidden in pack_format_version=1"
+    },
+    {
+      "name": "v1_declares_dashboard_packages_in_resources",
+      "scope": "resources",
+      "field": "dashboard_packages",
+      "value": [],
+      "expected_error_substring": "forbidden in pack_format_version=1"
+    },
+    {
+      "name": "v1_declares_worker_dependencies_at_root",
+      "scope": "root",
+      "field": "worker_dependencies",
+      "value": [],
+      "expected_error_substring": "forbidden in pack_format_version=1"
+    },
+    {
+      "name": "v1_declares_dashboard_package_dependencies_at_root",
+      "scope": "root",
+      "field": "dashboard_package_dependencies",
+      "value": [],
+      "expected_error_substring": "forbidden in pack_format_version=1"
+    }
+  ],
+  "unsafe_paths": [
+    "../escape.json",
+    "checks/../secret.json",
+    "/etc/passwd",
+    "checks\\backslash.json",
+    "dashboard_packages/alpr-console/sub/",
+    "a/long_segment_path_padding_exceeds_240_bytes_01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789.json"
+  ],
+  "symlink_entry": {
+    "path": "dashboard_packages/alpr-console/link.js",
+    "typeflag": "2",
+    "linkname": "../../etc/passwd",
+    "expected_error": "symlink_forbidden"
+  },
+  "secret_leaks": {
+    "token_literal_parts": [
+      {
+        "name": "github_classic_pat",
+        "expected_code": "github_pat",
+        "parts": ["ghp_", "SyntheticToken0123456789"]
+      },
+      {
+        "name": "github_fine_grained_pat",
+        "expected_code": "github_fine_grained_pat",
+        "parts": ["github_pat_", "11SYNTHETIC_0123456789abcdef"]
+      },
+      {
+        "name": "pem_private_key",
+        "expected_code": "pem_private_key",
+        "parts": ["-----BEGIN ", "RSA PRIVATE KEY-----\nMIIE_SYNTHETIC_KEY_DATA"]
+      },
+      {
+        "name": "auth_header_bearer",
+        "expected_code": "auth_header_literal",
+        "parts": ["Authorization: Bearer ", "synthetic-bearer-token-value-12345"]
+      }
+    ],
+    "json_forbidden_keys": [
+      {
+        "name": "credential_secret_id_in_pipeline",
+        "file": "vantage_pipelines/alpr-vehicle-plate.json",
+        "key": "credential_secret_id",
+        "value": "55555555-5555-4555-8555-555555555501",
+        "expected_codes": ["forbidden_secret_key"]
+      },
+      {
+        "name": "literal_bearer_header_in_check",
+        "file": "checks/alpr-worker-health.json",
+        "key": "headers",
+        "value": {
+          "Authorization": "Bearer synthetic-inline-secret",
+          "X-Custom-Auth": "Basic c3ludGhldGljOnRva2Vu"
+        },
+        "expected_codes": ["forbidden_auth_header", "forbidden_auth_header_value"]
+      }
+    ]
+  },
+  "benign_minified_js_identifiers": {
+    "file": "dashboard_packages/alpr-console/renderer.js",
+    "source": "export function render(token,secretKey,password,authHeader){return{token,secretKey,password,authHeader};}\n",
+    "expected_violations": 0
+  },
+  "version_already_published": {
+    "dashboard_id": "io.serviceradar.alpr-console",
+    "version": "1.0.0",
+    "existing_status": "enabled",
+    "existing_verification_status": "verified",
+    "existing_content_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "incoming_content_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+    "expected_error_atom": "version_already_published"
+  }
+}

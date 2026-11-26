@@ -2917,6 +2917,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :can_operate?, :boolean, default: false
   attr :can_hold?, :boolean, default: false
   attr :health_summary, :map, required: true
+  attr :vantage_worker_summary, :map, default: %{}
   attr :timezone, :string, default: "Etc/UTC"
 
   def health_panel(assigns) do
@@ -2966,6 +2967,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
           timezone={@timezone}
         />
       <% end %>
+
+      <HealthComponents.vantage_workers_card
+        vantage_workers={@vantage_worker_summary}
+        timezone={@timezone}
+      />
     </div>
     """
   end

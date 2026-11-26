@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
   alias ServiceRadar.Camera.RecordingPubSub
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.CameraLive.Recordings
+  alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
 
   @moduletag :db_free
 
@@ -32,11 +33,23 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
         list_window_overlays: fn _, _, _, _, _ ->
           flunk("disconnected mount/params must not list window overlays")
         end,
+        list_vantage_observations: fn _, _, _, _, _ ->
+          flunk("disconnected mount/params must not list Vantage observations")
+        end,
+        list_vantage_pipelines: fn _, _ ->
+          flunk("disconnected mount/params must not list Vantage pipelines")
+        end,
         get_frame_overlay: fn _, _, _ ->
           flunk("disconnected mount/params must not load frame overlay")
         end,
         subscribe: fn _ -> flunk("disconnected mount/params must not subscribe to PubSub") end,
-        unsubscribe: fn _ -> flunk("disconnected mount/params must not unsubscribe from PubSub") end
+        unsubscribe: fn _ -> flunk("disconnected mount/params must not unsubscribe from PubSub") end,
+        subscribe_vantage: fn _ ->
+          flunk("disconnected mount/params must not subscribe to Vantage PubSub")
+        end,
+        unsubscribe_vantage: fn _ ->
+          flunk("disconnected mount/params must not unsubscribe from Vantage PubSub")
+        end
       }
 
       socket =
@@ -1471,9 +1484,13 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
            }}
         end,
         list_window_overlays: fn _source_id, _from_us, _to_us, _profile_id, _scope -> [] end,
+        list_vantage_observations: fn _source_id, _from_us, _to_us, _profile_id, _scope -> [] end,
+        list_vantage_pipelines: fn _pipeline_keys, _scope -> %{} end,
         get_frame_overlay: fn _source_id, _frame_id, _scope -> [] end,
         subscribe: &RecordingPubSub.subscribe/1,
         unsubscribe: &RecordingPubSub.unsubscribe/1,
+        subscribe_vantage: fn _source_id -> :ok end,
+        unsubscribe_vantage: fn _source_id -> :ok end,
         now_us: fn -> @base_now_us end
       },
       overrides
@@ -2430,6 +2447,291 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
     if is_binary(socket.assigns[:recording_subscribed_source_id]) do
       RecordingPubSub.unsubscribe(socket.assigns.recording_subscribed_source_id)
+    end
+  end
+
+  describe "Vantage display sanitization, overlays, scrubber markers, and PubSub refresh" do
+    test "VantageDisplay strips forbidden UI-code keys, resolves dotted paths, and falls back when empty" do
+      alias ServiceRadarWebNGWeb.Camera.VantageDisplay
+
+      contract = %{
+        "color" => "amber",
+        "icon" => "hero-identification",
+        "html" => "<script>alert(1)</script>",
+        "widgets" => [
+          %{
+            "type" => "summary",
+            "message" => "label",
+            "raw_html" => "<b>bad</b>"
+          },
+          %{
+            "type" => "facts",
+            "fields" => [
+              %{"label" => "Plate", "path" => "attributes.plate_text"},
+              %{"label" => "Region", "path" => "attributes.region"},
+              %{"label" => "Bad", "path" => "attributes.js"}
+            ]
+          },
+          %{
+            "type" => "badges",
+            "fields" => [
+              %{"label" => "Vehicle", "path" => "attributes.vehicle_type", "tone" => "info"}
+            ]
+          }
+        ]
+      }
+
+      sanitized = VantageDisplay.sanitize_contract(contract)
+      refute Map.has_key?(sanitized, "html")
+      refute Map.has_key?(hd(sanitized["widgets"]), "raw_html")
+
+      obs = %{
+        id: "00000000-0000-7000-8000-000000000901",
+        camera_source_id: @camera_id,
+        category: "license_plate",
+        label: "SR-0100",
+        confidence: 0.94,
+        timeline_ts_us: @base_now_us - 30_000_000,
+        time_basis: :received,
+        source_mode: :recorded_block,
+        bbox: [0.32, 0.58, 0.48, 0.66],
+        has_crop: true,
+        pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+        attributes: %{"plate_text" => "SR-0100", "region" => "US-CO", "vehicle_type" => "sedan", "js" => "evil"}
+      }
+
+      formatted = VantageDisplay.format_observation(obs, contract, @camera_id)
+      assert formatted.label == "SR-0100"
+      assert formatted.color_hex == "#f59e0b"
+      assert formatted.icon == "hero-identification"
+      assert formatted.crop_url == "/api/cameras/#{@camera_id}/timeline/thumbnails/vantage/#{obs.id}.jpg"
+      assert formatted.facts == [%{label: "Plate", value: "SR-0100"}, %{label: "Region", value: "US-CO"}]
+      assert formatted.badges == [%{label: "Vehicle", value: "sedan", tone: "info"}]
+
+      fallback = VantageDisplay.format_observation(Map.put(obs, :has_crop, false), %{}, @camera_id)
+      assert fallback.label == "SR-0100"
+      assert fallback.crop_url == nil
+      assert Enum.any?(fallback.facts, &(&1.value == "SR-0100"))
+      refute Enum.any?(fallback.facts, &(&1.value == "evil"))
+    end
+
+    test "connected mount loads Vantage observations into overlays, vertical rail, clip modal crop preview, and refreshes on PubSub" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+      obs_ts = to_us - 30_000_000
+      obs_id = "00000000-0000-7000-8000-000000000902"
+      block = playable_block(from_us, to_us, :verified)
+      parent = self()
+
+      vantage_obs = %{
+        id: obs_id,
+        pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+        pipeline_version: "1.0.0",
+        camera_source_id: @camera_id,
+        source_mode: :recorded_block,
+        timeline_ts_us: obs_ts,
+        time_basis: :received,
+        category: "license_plate",
+        label: "SR-0100",
+        confidence: 0.94,
+        bbox: %{"x1" => 0.32, "y1" => 0.58, "x2" => 0.48, "y2" => 0.66},
+        attributes: %{"plate_text" => "SR-0100", "region" => "US-CO"},
+        signal_schema_id: "alpr_plate_read",
+        display_contract_id: "alpr_plate_read",
+        has_crop: true
+      }
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end,
+          subscribe_vantage: fn id ->
+            send(parent, {:vantage_subscribed, id})
+            :ok
+          end,
+          list_vantage_observations: fn _source_id, _f, _t, _prof, _scope ->
+            [vantage_obs]
+          end,
+          list_vantage_pipelines: fn keys, _scope ->
+            assert {"io.serviceradar.vantage-alpr.vehicle-plate", "1.0.0"} in keys
+
+            %{
+              {"io.serviceradar.vantage-alpr.vehicle-plate", "1.0.0"} => %{
+                "color" => "#f59e0b",
+                "widgets" => [
+                  %{"type" => "facts", "fields" => [%{"label" => "Plate", "path" => "attributes.plate_text"}]}
+                ]
+              }
+            }
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      assert_receive {:vantage_subscribed, @camera_id}
+      assert [formatted_obs] = socket.assigns.timeline_vantage_observations
+      assert formatted_obs.label == "SR-0100"
+
+      assert Enum.any?(
+               socket.assigns.timeline_overlay_detections,
+               &(&1[:source] == "vantage" and &1[:label] == "SR-0100")
+             )
+
+      html =
+        render_component(
+          &RecordingsComponents.recordings/1,
+          Map.put(socket.assigns, :timezone, "Etc/UTC")
+        )
+
+      assert html =~ "data-role=\"vantage-observation-marker\""
+      assert html =~ "SR-0100"
+
+      {:noreply, modal_socket} =
+        Recordings.handle_event(
+          "select_vantage_observation",
+          %{"id" => obs_id, "ts_us" => Integer.to_string(obs_ts)},
+          socket
+        )
+
+      modal_html =
+        render_component(
+          &RecordingsComponents.recordings/1,
+          Map.put(modal_socket.assigns, :timezone, "Etc/UTC")
+        )
+
+      assert modal_html =~ "id=\"camera-clip-modal-vantage-observations\""
+      assert modal_html =~ "/api/cameras/#{@camera_id}/timeline/thumbnails/vantage/#{obs_id}.jpg"
+      assert modal_html =~ "Plate:"
+      assert modal_html =~ "SR-0100"
+
+      # PubSub :camera_vantage_observations schedules refresh cleanly when debounce_ms > 0
+      {:noreply, debounced_socket} =
+        Recordings.handle_info(
+          {:camera_vantage_observations, %{camera_source_id: @camera_id}},
+          assign(socket, recording_debounce_ms: 500)
+        )
+
+      assert is_reference(debounced_socket.assigns.recording_debounce_timer_ref)
+      cancel_timers(debounced_socket)
+    end
+
+    test "RecordingsComponents strips unsafe thumbnail_url and crop_url schemes from data-overlay-detections and img src" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+
+      unsafe_overlay_detections = [
+        %{
+          source: "vantage",
+          vantage_observation_id: "obs-unsafe-1",
+          timeline_ts_us: to_us - 10_000_000,
+          bbox: [0.1, 0.2, 0.3, 0.4],
+          category: "license_plate",
+          label: "SR-0100",
+          thumbnail_url: "javascript:alert(1)",
+          crop_url: "//evil.example.com/crop.jpg"
+        },
+        %{
+          source: "vantage",
+          vantage_observation_id: "obs-safe-1",
+          timeline_ts_us: to_us - 5_000_000,
+          bbox: [0.2, 0.3, 0.4, 0.5],
+          category: "license_plate",
+          label: "TEST-742",
+          thumbnail_url: "/api/cameras/#{@camera_id}/timeline/thumbnails/vantage/obs-safe-1.jpg",
+          crop_url: "https://cdn.example.com/crop.jpg"
+        }
+      ]
+
+      coverage = populated_coverage(@camera_id, from_us, to_us, [playable_block(from_us, to_us, :verified)])
+
+      html =
+        render_component(&RecordingsComponents.recordings/1,
+          source: %{id: @camera_id, device_uid: "sr:synthetic-cam-1", display_name: "Gate West 01"},
+          mode: :timeline,
+          items: [],
+          timezone: "Etc/UTC",
+          timeline_coverage: coverage,
+          timeline_playlist_path:
+            "/api/cameras/#{@camera_id}/timeline/playlist.m3u8?from=#{from_us}&to=#{to_us}&source=auto",
+          timeline_play_from_us: from_us,
+          timeline_play_to_us: to_us,
+          timeline_playlist_origin_us: from_us,
+          timeline_overlay_detections: unsafe_overlay_detections,
+          timeline_vantage_observations: [
+            %{
+              id: "obs-unsafe-1",
+              label: "SR-0100",
+              category: "license_plate",
+              confidence: 0.94,
+              timeline_ts_us: to_us - 10_000_000,
+              color_hex: "#f59e0b",
+              badge_class: "bg-amber-600/85",
+              icon: "hero-identification",
+              crop_url: "javascript:alert(1)",
+              summary: nil,
+              facts: [],
+              badges: []
+            }
+          ],
+          clip_modal: %{
+            kind: :clip,
+            clip_id: "clip-1",
+            camera_name: "Gate West 01",
+            category: :vehicle,
+            label: "Vehicle",
+            confidence: 0.9,
+            timestamp_us: to_us - 10_000_000,
+            started_at: nil,
+            start_us: to_us - 15_000_000,
+            end_us: to_us - 5_000_000,
+            play_from_us: from_us,
+            play_to_us: to_us,
+            playlist_origin_us: from_us,
+            playlist_path: "/api/cameras/#{@camera_id}/timeline/playlist.m3u8?from=#{from_us}&to=#{to_us}&source=auto",
+            seek_us: to_us - 10_000_000,
+            seek_offset_seconds: 10.0,
+            highlight_frame_id: nil,
+            overlay_detections: unsafe_overlay_detections,
+            vantage_observations: [
+              %{
+                id: "obs-unsafe-1",
+                label: "SR-0100",
+                category: "license_plate",
+                confidence: 0.94,
+                timeline_ts_us: to_us - 10_000_000,
+                color_hex: "#f59e0b",
+                badge_class: "bg-amber-600/85",
+                icon: "hero-identification",
+                crop_url: "javascript:alert(1)",
+                summary: nil,
+                facts: [],
+                badges: []
+              }
+            ],
+            clip: nil
+          }
+        )
+
+      refute html =~ "javascript:alert(1)"
+      refute html =~ "//evil.example.com/crop.jpg"
+      assert html =~ "/api/cameras/#{@camera_id}/timeline/thumbnails/vantage/obs-safe-1.jpg"
+      assert html =~ "https://cdn.example.com/crop.jpg"
+
+      document = LazyHTML.from_fragment(html)
+
+      for selector <- ["#camera-timeline-player", "#camera-clip-modal-player"] do
+        [encoded] = document |> LazyHTML.query(selector) |> LazyHTML.attribute("data-overlay-detections")
+        decoded = Jason.decode!(encoded)
+        unsafe_det = Enum.find(decoded, &(&1["vantage_observation_id"] == "obs-unsafe-1"))
+        safe_det = Enum.find(decoded, &(&1["vantage_observation_id"] == "obs-safe-1"))
+
+        assert unsafe_det["thumbnail_url"] == nil
+        assert unsafe_det["crop_url"] == nil
+        assert safe_det["thumbnail_url"] == "/api/cameras/#{@camera_id}/timeline/thumbnails/vantage/obs-safe-1.jpg"
+        assert safe_det["crop_url"] == "https://cdn.example.com/crop.jpg"
+      end
     end
   end
 end

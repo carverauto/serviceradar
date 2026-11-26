@@ -1,0 +1,144 @@
+{
+  "request_positive": {
+    "schema_version": 1,
+    "job_id": "11111111-1111-4111-8111-111111111101",
+    "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+    "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "request_negative": [
+    {
+      "name": "invalid_schema_version_2",
+      "expected_status": 400,
+      "expected_code": "invalid_schema_version",
+      "payload": {
+        "schema_version": 2,
+        "job_id": "11111111-1111-4111-8111-111111111101",
+        "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+        "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "invalid_job_id_not_uuid",
+      "expected_status": 400,
+      "expected_code": "invalid_job_id",
+      "payload": {
+        "schema_version": 1,
+        "job_id": "not-a-uuid",
+        "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+        "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "invalid_catalog_entry_id_not_uuid",
+      "expected_status": 400,
+      "expected_code": "invalid_catalog_entry_id",
+      "payload": {
+        "schema_version": 1,
+        "job_id": "11111111-1111-4111-8111-111111111101",
+        "catalog_entry_id": "bad-entry",
+        "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "invalid_descriptor_sha256_uppercase",
+      "expected_status": 400,
+      "expected_code": "invalid_descriptor_sha256",
+      "payload": {
+        "schema_version": 1,
+        "job_id": "11111111-1111-4111-8111-111111111101",
+        "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+        "descriptor_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    }
+  ],
+  "required_security_headers": {
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff"
+  },
+  "http_error_responses": [
+    {"http_status": 400, "body": {"status": "invalid_read_grant_request"}},
+    {"http_status": 400, "body": {"status": "invalid_schema_version"}},
+    {"http_status": 401, "body": {"status": "unauthorized"}},
+    {"http_status": 403, "body": {"status": "forbidden"}},
+    {"http_status": 409, "body": {"status": "job_not_found"}},
+    {"http_status": 409, "body": {"status": "job_catalog_mismatch"}},
+    {"http_status": 409, "body": {"status": "descriptor_sha256_mismatch"}},
+    {"http_status": 409, "body": {"status": "job_already_terminal"}},
+    {"http_status": 410, "body": {"status": "recording_gone"}},
+    {"http_status": 503, "body": {"status": "media_worker_grants_unavailable"}}
+  ],
+  "coalesce_boundary": {
+    "max_gap_bytes": 262144,
+    "max_chunk_bytes": 4194304,
+    "exact_gap_coalesced_fragments": [
+      {
+        "sequence": 0,
+        "offset": 0,
+        "first": 0,
+        "last": 32767,
+        "length": 32768,
+        "start_ns": 0,
+        "duration_ns": 2000000000,
+        "sha256": "7878787878787878787878787878787878787878787878787878787878787878"
+      },
+      {
+        "sequence": 2,
+        "offset": 294912,
+        "first": 294912,
+        "last": 327679,
+        "length": 32768,
+        "start_ns": 4000000000,
+        "duration_ns": 2000000000,
+        "sha256": "7979797979797979797979797979797979797979797979797979797979797979"
+      }
+    ],
+    "exact_gap_coalesced_range": {
+      "first": 0,
+      "last": 327679,
+      "length": 327680,
+      "fragment_sequences": [0, 2],
+      "slices": [
+        {
+          "sequence": 0,
+          "offset": 0,
+          "relative_offset": 0,
+          "length": 32768,
+          "start_ns": 0,
+          "duration_ns": 2000000000,
+          "sha256": "7878787878787878787878787878787878787878787878787878787878787878"
+        },
+        {
+          "sequence": 2,
+          "offset": 294912,
+          "relative_offset": 294912,
+          "length": 32768,
+          "start_ns": 4000000000,
+          "duration_ns": 2000000000,
+          "sha256": "7979797979797979797979797979797979797979797979797979797979797979"
+        }
+      ]
+    },
+    "over_gap_fragments": [
+      {
+        "sequence": 0,
+        "offset": 0,
+        "first": 0,
+        "last": 32767,
+        "length": 32768,
+        "start_ns": 0,
+        "duration_ns": 2000000000,
+        "sha256": "7878787878787878787878787878787878787878787878787878787878787878"
+      },
+      {
+        "sequence": 3,
+        "offset": 294913,
+        "first": 294913,
+        "last": 327680,
+        "length": 32768,
+        "start_ns": 6000000000,
+        "duration_ns": 2000000000,
+        "sha256": "8080808080808080808080808080808080808080808080808080808080808080"
+      }
+    ]
+  }
+}

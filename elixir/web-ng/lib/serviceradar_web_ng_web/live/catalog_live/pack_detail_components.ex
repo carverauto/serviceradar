@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.PackDetailComponents do
   attr :pack, :map, required: true
   attr :active_tab, :string, default: "overview"
   attr :selected_check_slug, :string, default: nil
+  attr :vantage_worker_summary, :map, default: %{}
   attr :can_install, :boolean, default: false
   attr :can_export, :boolean, default: false
   attr :can_gitops_sync, :boolean, default: false
@@ -88,6 +89,17 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.PackDetailComponents do
           </div>
 
           <div class="flex shrink-0 items-center gap-2">
+            <.ui_button
+              :if={@can_install and @pack["installed"]}
+              id="detail-uninstall-pack-btn"
+              type="button"
+              size="sm"
+              variant="outline"
+              phx-click="open_uninstall_confirm"
+              phx-value-slug={@pack["slug"]}
+            >
+              Uninstall
+            </.ui_button>
             <.ui_button
               :if={@can_install}
               id="detail-open-install-wizard-btn"
@@ -178,7 +190,12 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.PackDetailComponents do
             <% "dag" -> %>
               <.dag_tab checks={@checks} selected_check={@selected_check} />
             <% "resources" -> %>
-              <.resources_tab pack={@pack} rules={@rules} dashboards={@dashboards} />
+              <.resources_tab
+                pack={@pack}
+                rules={@rules}
+                dashboards={@dashboards}
+                vantage_worker_summary={@vantage_worker_summary}
+              />
             <% "json" -> %>
               <.json_tab pack={@pack} selected_check={@selected_check} />
           <% end %>
@@ -186,6 +203,47 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.PackDetailComponents do
       </div>
     </div>
     """
+  end
+
+  defp pipeline_route_badge_variant(pipeline, workers) do
+    case resolve_pack_pipeline_route(pipeline, workers) do
+      :ramp_2 -> "success"
+      :ramp_1_fallback -> "warning"
+      :camera_vlm -> "info"
+      :held -> "error"
+    end
+  end
+
+  defp pipeline_route_badge_label(pipeline, workers) do
+    case resolve_pack_pipeline_route(pipeline, workers) do
+      :ramp_2 -> "Ramp 2: vantage.worker.v1 ready"
+      :ramp_1_fallback -> "Ramp 1 fallback: camera_vlm"
+      :camera_vlm -> "Ramp 1: camera_vlm"
+      :held -> "Held (no eligible worker)"
+    end
+  end
+
+  defp resolve_pack_pipeline_route(pipeline, workers) do
+    runner = to_string(pipeline["runner"] || "camera_vlm")
+    capability = pipeline["capability"]
+    fallback = pipeline["fallback_runner"]
+    source_mode = to_string(pipeline["source_mode"] || "recorded_block")
+
+    eligible? =
+      Enum.any?(workers, fn w ->
+        Map.get(w, :online?, false) and
+          Map.get(w, :health) == "ready" and
+          not Map.get(w, :saturated?, false) and
+          is_binary(capability) and capability in List.wrap(Map.get(w, :capabilities)) and
+          source_mode in List.wrap(Map.get(w, :supported_source_modes))
+      end)
+
+    cond do
+      runner == "camera_vlm" -> :camera_vlm
+      eligible? -> :ramp_2
+      fallback == "camera_vlm" and source_mode == "recorded_block" -> :ramp_1_fallback
+      true -> :held
+    end
   end
 
   defp overview_tab(assigns) do
@@ -408,8 +466,107 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.PackDetailComponents do
   end
 
   defp resources_tab(assigns) do
+    vantage_pipelines = List.wrap(assigns.pack["vantage_pipelines"])
+    signal_schemas = List.wrap(assigns.pack["signal_schemas"])
+    dashboard_packages = List.wrap(assigns.pack["dashboard_packages"])
+    worker_summary = Map.get(assigns, :vantage_worker_summary) || %{}
+    workers = List.wrap(Map.get(worker_summary, :workers))
+
+    assigns =
+      assigns
+      |> assign(:vantage_pipelines, vantage_pipelines)
+      |> assign(:signal_schemas, signal_schemas)
+      |> assign(:dashboard_packages, dashboard_packages)
+      |> assign(:vantage_workers, workers)
+
     ~H"""
     <div class="space-y-6">
+      <section :if={@vantage_pipelines != []} class="space-y-2">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
+          Bundled Vantage ML Pipelines ({length(@vantage_pipelines)})
+        </h3>
+        <div class="space-y-2">
+          <div
+            :for={pipeline <- @vantage_pipelines}
+            class="flex items-center justify-between gap-3 rounded-lg border border-sr-line bg-sr-surface px-4 py-3 text-sm"
+          >
+            <div>
+              <div class="font-mono font-medium text-sr-ink">
+                {pipeline["name"] || pipeline["pipeline_id"]}
+              </div>
+              <div class="text-xs font-mono text-sr-muted">
+                {pipeline["pipeline_id"]} · v{pipeline["version"] || "1.0.0"} · {pipeline[
+                  "capability"
+                ] ||
+                  "vantage.vlm.v1"}
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <.ui_badge
+                variant={pipeline_route_badge_variant(pipeline, @vantage_workers)}
+                size="xs"
+              >
+                {pipeline_route_badge_label(pipeline, @vantage_workers)}
+              </.ui_badge>
+              <.ui_badge
+                variant={if(pipeline["install_state"] == "paused", do: "warning", else: "success")}
+                size="xs"
+              >
+                install_state: {pipeline["install_state"] || "enabled"}
+              </.ui_badge>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section :if={@signal_schemas != []} class="space-y-2">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
+          Bundled Signal Schemas ({length(@signal_schemas)})
+        </h3>
+        <div class="space-y-2">
+          <div
+            :for={schema <- @signal_schemas}
+            class="flex items-center justify-between gap-3 rounded-lg border border-sr-line bg-sr-surface px-4 py-3 text-sm"
+          >
+            <div>
+              <div class="font-mono font-medium text-sr-ink">
+                {schema["schema_id"] || schema["id"]}
+              </div>
+              <div class="text-xs text-sr-muted">
+                v{schema["version"] || "1.0.0"} · display: {schema["display_contract_id"] ||
+                  schema["schema_id"]}
+              </div>
+            </div>
+            <.ui_badge variant="info" size="xs">JSON Schema + Display</.ui_badge>
+          </div>
+        </div>
+      </section>
+
+      <section :if={@dashboard_packages != []} class="space-y-2">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
+          Bundled Dashboard SDK Modules ({length(@dashboard_packages)})
+        </h3>
+        <div class="space-y-2">
+          <div
+            :for={pkg <- @dashboard_packages}
+            class="flex items-center justify-between gap-3 rounded-lg border border-sr-line bg-sr-surface px-4 py-3 text-sm"
+          >
+            <div>
+              <div class="font-medium text-sr-ink">
+                {pkg["name"] || pkg["dashboard_id"] || pkg["slug"]}
+              </div>
+              <div class="text-xs font-mono text-sr-muted">
+                {pkg["dashboard_id"] || pkg["slug"]} · route: /dashboards/{pkg["route_slug"] ||
+                  pkg["slug"]}
+              </div>
+            </div>
+            <.ui_badge variant="outline" size="xs">
+              {pkg["interface_version"] || "dashboard-browser-module-v1"}
+            </.ui_badge>
+          </div>
+        </div>
+      </section>
+
       <section class="space-y-2">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
           Bundled Alert & Normalization Rules ({length(@rules)})
@@ -482,7 +639,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.PackDetailComponents do
     <div class="space-y-3">
       <div class="flex items-center justify-between">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
-          manifest.json (pack_format_version: 1)
+          manifest.json (pack_format_version: {@pack["pack_format_version"] || 1})
         </h3>
         <span class="text-xs font-mono text-sr-muted">Secret-free canonical JSON</span>
       </div>

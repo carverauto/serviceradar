@@ -18,12 +18,14 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   @media_token "synthetic-media-installation-token-with-more-than-32-bytes"
   @entitlement_token "synthetic-entitlement-purpose-token-with-more-than-32-bytes"
   @media_worker_token "synthetic-media-worker-purpose-token-with-more-than-32-bytes"
+  @vantage_worker_token "synthetic-vantage-worker-purpose-token-with-more-than-32b"
   @deployment_ref "ce032564-a123-4bc5-89ab-000000000001"
   @authorization_header "x-serviceradar-control-plane-authorization"
   @deployment_header "x-serviceradar-deployment-ref"
   @generation_header "x-serviceradar-media-generation"
   @entitlement_generation_header "x-serviceradar-entitlement-generation"
   @media_worker_generation_header "x-serviceradar-media-worker-generation"
+  @vantage_worker_generation_header "x-serviceradar-vantage-worker-generation"
 
   defmodule FakeCoreProcess do
     @moduledoc false
@@ -74,7 +76,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
       port: 4001,
       media: [token: @media_token, deployment_ref: @deployment_ref, generation: "1"],
       entitlements: [token: @entitlement_token, deployment_ref: @deployment_ref, generation: "1"],
-      media_worker: [token: @media_worker_token, deployment_ref: @deployment_ref, generation: "1"]
+      media_worker: [token: @media_worker_token, deployment_ref: @deployment_ref, generation: "1"],
+      vantage_worker: [token: @vantage_worker_token, deployment_ref: @deployment_ref, generation: "1"]
     )
 
     Application.put_env(
@@ -1248,6 +1251,84 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
       assert large_conn.status == 413
       assert json_response(large_conn) == %{"status" => "request_too_large"}
     end
+
+    test "authenticates dedicated :vantage_worker purpose via X-ServiceRadar-Vantage-Worker-Generation and enforces isolation" do
+      assert ControlPlaneRuntimeAccess.vantage_worker_enabled?()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :control_plane_media_worker_grants_test_response,
+        {:ok, %{"backing" => "local", "fragments" => [%{"sequence" => 0}]}}
+      )
+
+      req = %{
+        "schema_version" => 1,
+        "job_id" => Ecto.UUID.generate(),
+        "catalog_entry_id" => Ecto.UUID.generate(),
+        "descriptor_sha256" => String.duplicate("c", 64)
+      }
+
+      ok_conn = vantage_worker_grant_request(Jason.encode!(req))
+      assert ok_conn.status == 200
+      assert json_response(ok_conn) == %{"backing" => "local", "fragments" => [%{"sequence" => 0}]}
+
+      assert_received {:media_worker_read_grant_requested, installation, ^req, _opts}
+      assert installation == %{purpose: :vantage_worker, deployment_ref: @deployment_ref, generation: 1}
+
+      # Rejects conflicting dual generation headers and cross-purpose token replay
+      both_headers_conn =
+        :post
+        |> conn("/v1/media/workers/read-grants", Jason.encode!(req))
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @vantage_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@media_worker_generation_header, "1")
+        |> put_req_header(@vantage_worker_generation_header, "1")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert both_headers_conn.status == 401
+
+      cross_token_conn =
+        :post
+        |> conn("/v1/media/workers/read-grants", Jason.encode!(req))
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @media_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@vantage_worker_generation_header, "1")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert cross_token_conn.status == 401
+
+      # SDK-compatible wire format: @vantage_worker_token with x-serviceradar-media-worker-generation
+      # resolves to :vantage_worker (never :media_worker) when sent alone
+      sdk_vantage_conn =
+        :post
+        |> conn("/v1/media/workers/read-grants", Jason.encode!(req))
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @vantage_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@media_worker_generation_header, "1")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert sdk_vantage_conn.status == 200
+      assert_received {:media_worker_read_grant_requested, sdk_installation, ^req, _opts}
+
+      assert sdk_installation == %{
+               purpose: :vantage_worker,
+               deployment_ref: @deployment_ref,
+               generation: 1
+             }
+    end
+  end
+
+  defp vantage_worker_grant_request(body, path \\ "/v1/media/workers/read-grants", content_type \\ "application/json") do
+    :post
+    |> conn(path, body)
+    |> put_req_header("content-type", content_type)
+    |> put_req_header(@authorization_header, "Bearer " <> @vantage_worker_token)
+    |> put_req_header(@deployment_header, @deployment_ref)
+    |> put_req_header(@vantage_worker_generation_header, "1")
+    |> ControlPlaneRuntimeRouter.call([])
   end
 
   defp media_worker_grant_request(body, path \\ "/v1/media/workers/read-grants", content_type \\ "application/json") do

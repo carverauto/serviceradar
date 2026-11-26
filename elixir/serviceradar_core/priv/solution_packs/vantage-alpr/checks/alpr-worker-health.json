@@ -1,0 +1,147 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [],
+    "priority": 2,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Monitors ALPR Vantage observation event flow via SRQL to detect stalled Gate West 01 plate ingestion or offline vantage.alpr.v1 workers.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "srql_1",
+      "source_handle": "signal",
+      "target": "extract_count",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "extract_count",
+      "source_handle": "value",
+      "target": "assert_lag",
+      "target_handle": "in"
+    },
+    {
+      "id": "e3",
+      "source": "assert_lag",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "observation_backlog_warn_count"
+      },
+      "description": "Warning threshold for queued ALPR failure/backlog events",
+      "key": "observation_backlog_warn_count",
+      "max": 100000,
+      "min": 1,
+      "type": "integer"
+    },
+    {
+      "default": {
+        "$pack_param": "observation_backlog_crit_count"
+      },
+      "description": "Critical threshold for queued ALPR failure/backlog events",
+      "key": "observation_backlog_crit_count",
+      "max": 100000,
+      "min": 1,
+      "type": "integer"
+    }
+  ],
+  "managed": true,
+  "name": "ALPR Worker Health",
+  "nodes": [
+    {
+      "config": {
+        "limit": 100,
+        "query": "in:events log_name:\"camera.vantage.job_failed\" time:last_15m stats:\"count() as failed_jobs\"",
+        "result_mode": "first_row",
+        "timeout_ms": 5000
+      },
+      "id": "srql_1",
+      "kind": "srql_query",
+      "label": "ALPR Worker Failure Query"
+    },
+    {
+      "config": {
+        "cast": "integer",
+        "field": "failed_jobs",
+        "output_key": "failed_jobs",
+        "source_type": "srql_field"
+      },
+      "id": "extract_count",
+      "kind": "extract_field",
+      "label": "Extract Failed ALPR Job Count"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": "{{inputs.observation_backlog_crit_count}}"
+        },
+        "field": "failed_jobs",
+        "warn": {
+          "op": ">=",
+          "value": "{{inputs.observation_backlog_warn_count}}"
+        }
+      },
+      "id": "assert_lag",
+      "kind": "threshold_assert",
+      "label": "ALPR Backlog Thresholds"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "alpr_worker_degraded",
+          "down": "alpr_worker_stalled",
+          "healthy": "alpr_worker_healthy",
+          "unknown": "alpr_worker_unknown"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "ALPR Worker Health Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.vantage-alpr",
+  "pack_version": "1.0.0",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 120,
+    "jitter_seconds": 15,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "alpr-worker-health",
+  "state": "enabled",
+  "target_binding": {
+    "mode": "singleton"
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_lag": {
+        "x": 640,
+        "y": 120
+      },
+      "extract_count": {
+        "x": 360,
+        "y": 120
+      },
+      "out_1": {
+        "x": 920,
+        "y": 120
+      },
+      "srql_1": {
+        "x": 80,
+        "y": 120
+      }
+    }
+  }
+}

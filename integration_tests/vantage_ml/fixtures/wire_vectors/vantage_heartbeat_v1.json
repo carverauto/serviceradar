@@ -1,0 +1,60 @@
+{
+  "positive": {
+    "schema_version": "vantage.heartbeat.v1",
+    "worker_id": "vantage-alpr-rust-01",
+    "worker_kind": "external_rust",
+    "protocol_version": "vantage.worker.v1",
+    "capabilities": ["vantage.alpr.v1"],
+    "supported_source_modes": ["recorded_block", "live_keyframe_tap"],
+    "execution_backend": "onnx",
+    "architecture": "arm64",
+    "model_id": "alpr-plate-detector-synthetic",
+    "model_version": "1.0.0",
+    "max_concurrency": 4,
+    "active_jobs": 1,
+    "health": "ready",
+    "sent_at_us": 1700000000000000
+  },
+  "negative": [
+    {
+      "name": "active_jobs_exceeds_max_concurrency",
+      "expected_error": "active_jobs",
+      "payload": {
+        "schema_version": "vantage.heartbeat.v1",
+        "worker_id": "vantage-alpr-rust-01",
+        "worker_kind": "external_rust",
+        "protocol_version": "vantage.worker.v1",
+        "capabilities": ["vantage.alpr.v1"],
+        "supported_source_modes": ["recorded_block"],
+        "execution_backend": "onnx",
+        "architecture": "amd64",
+        "model_id": "alpr-plate-detector-synthetic",
+        "model_version": "1.0.0",
+        "max_concurrency": 2,
+        "active_jobs": 3,
+        "health": "ready",
+        "sent_at_us": 1700000000000000
+      }
+    },
+    {
+      "name": "empty_capabilities",
+      "expected_error": "capabilities",
+      "payload": {
+        "schema_version": "vantage.heartbeat.v1",
+        "worker_id": "vantage-alpr-py-01",
+        "worker_kind": "external_python",
+        "protocol_version": "vantage.worker.v1",
+        "capabilities": [],
+        "supported_source_modes": ["live_keyframe_tap"],
+        "execution_backend": "custom",
+        "architecture": "arm64",
+        "model_id": "guidance-model",
+        "model_version": "1.0.0",
+        "max_concurrency": 2,
+        "active_jobs": 0,
+        "health": "ready",
+        "sent_at_us": 1700000000000000
+      }
+    }
+  ]
+}

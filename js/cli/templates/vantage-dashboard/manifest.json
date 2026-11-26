@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "id": "__DASHBOARD_PACKAGE_ID__",
+  "name": "__PACK_NAME__ Console",
+  "version": "0.1.0",
+  "description": "Synthetic Vantage Dashboard SDK browser module for Gate West 01 (SR-0100, TEST-742).",
+  "vendor": "ServiceRadar",
+  "renderer": {
+    "kind": "browser_module",
+    "interface_version": "dashboard-browser-module-v1",
+    "artifact": "renderer.js",
+    "entrypoint": "mountDashboard",
+    "trust": "trusted",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "data_frames": [
+    {
+      "id": "recent_observations",
+      "query": "in:camera_observations category:license_plate sort:timeline_ts_us:desc limit:100",
+      "encoding": "json_rows",
+      "required": true,
+      "limit": 100,
+      "refresh_interval_ms": 5000
+    }
+  ],
+  "capabilities": [
+    "camera.stream.view",
+    "events.subscribe",
+    "srql.execute"
+  ],
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "camera_source_id": {
+        "type": "string"
+      }
+    }
+  }
+}

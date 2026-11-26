@@ -18,6 +18,7 @@ mod advisory_coordinates;
 mod agents;
 mod alerts;
 mod bmp_events;
+mod camera_observations;
 mod camera_sources;
 mod capacity_forecasts;
 mod composite_results;

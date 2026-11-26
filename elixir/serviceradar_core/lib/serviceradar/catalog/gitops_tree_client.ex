@@ -23,7 +23,7 @@ defmodule ServiceRadar.Catalog.GitOpsTreeClient do
   alias ServiceRadar.Catalog.SecretFreeValidator
   alias ServiceRadar.HTTP.EgressClient
 
-  @max_blob_bytes 4 * 1024 * 1024
+  @max_blob_bytes 8 * 1024 * 1024
   @max_pack_files 256
 
   @doc """

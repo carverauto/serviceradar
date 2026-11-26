@@ -52,8 +52,11 @@ defmodule ServiceRadar.Camera.SemanticSearch do
   @rrf_weight_visual 1.0
   @rrf_weight_caption_fts 1.5
   @rrf_weight_caption_vector 1.0
+  @rrf_weight_observation 1.75
   @rrf_max_score (@rrf_weight_visual + @rrf_weight_caption_fts + @rrf_weight_caption_vector) /
                    (@rrf_k + 1)
+  @max_observation_attr_filters 8
+  @obs_attr_token_regex ~r/\A([A-Za-z][A-Za-z0-9_.-]{0,63}):(.+)\z/
 
   @cache_table :camera_semantic_search_query_cache
   @cache_ttl_ms 60_000
@@ -171,55 +174,106 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         {:ok, build_search_response(parsed.query, model_cfg, [])}
       end
     else
-      with {:ok, query_vec} <-
-             resolve_query_embedding(parsed.query, query_sha256, model_cfg, opts),
-           {:ok, raw_candidates} <-
-             execute_vector_candidates_query(
-               query_vec,
-               model_cfg,
-               effective_ids,
-               parsed,
-               target_sources,
-               opts
-             ),
-           {:ok, caption_candidates} <-
-             execute_caption_candidates_query(
-               query_vec,
-               model_cfg,
-               effective_ids,
-               parsed,
-               target_sources,
-               opts
-             ) do
-        coalesce_gap_us =
-          clamp_int(
-            Keyword.get(opts, :coalesce_gap_us, @default_coalesce_gap_us),
-            0,
-            60_000_000
-          )
+      with {:ok, observation_candidates} <-
+             execute_observation_candidates_query(effective_ids, parsed, target_sources, opts) do
+        case resolve_query_embedding(parsed.query, query_sha256, model_cfg, opts) do
+          {:ok, query_vec} ->
+            with {:ok, raw_candidates} <-
+                   execute_vector_candidates_query(
+                     query_vec,
+                     model_cfg,
+                     effective_ids,
+                     parsed,
+                     target_sources,
+                     opts
+                   ),
+                 {:ok, caption_candidates} <-
+                   execute_caption_candidates_query(
+                     query_vec,
+                     model_cfg,
+                     effective_ids,
+                     parsed,
+                     target_sources,
+                     opts
+                   ) do
+              coalesce_gap_us =
+                clamp_int(
+                  Keyword.get(opts, :coalesce_gap_us, @default_coalesce_gap_us),
+                  0,
+                  60_000_000
+                )
 
-        visual_clips =
-          coalesce_candidates_into_clips(raw_candidates, target_sources, coalesce_gap_us)
+              visual_clips =
+                coalesce_candidates_into_clips(raw_candidates, target_sources, coalesce_gap_us)
 
-        clips =
-          visual_clips
-          |> fuse_hybrid_rrf(caption_candidates, target_sources, parsed)
-          |> Enum.take(parsed.limit)
+              clips =
+                visual_clips
+                |> fuse_hybrid_rrf(
+                  caption_candidates,
+                  observation_candidates,
+                  target_sources,
+                  parsed
+                )
+                |> Enum.take(parsed.limit)
 
-        with :ok <-
-               append_search_audit(
-                 auth_ctx,
-                 parsed,
-                 model_cfg,
-                 query_sha256,
-                 Map.get(auth_ctx, :authorized_total, map_size(target_sources)),
-                 length(effective_ids),
-                 clips,
-                 opts
-               ) do
-          {:ok, build_search_response(parsed.query, model_cfg, clips)}
+              finish_authorized_search(
+                auth_ctx,
+                parsed,
+                model_cfg,
+                query_sha256,
+                target_sources,
+                effective_ids,
+                clips,
+                opts
+              )
+            end
+
+          {:error, :search_embedder_unavailable} when observation_candidates != [] ->
+            clips =
+              []
+              |> fuse_hybrid_rrf([], observation_candidates, target_sources, parsed)
+              |> Enum.take(parsed.limit)
+
+            finish_authorized_search(
+              auth_ctx,
+              parsed,
+              model_cfg,
+              query_sha256,
+              target_sources,
+              effective_ids,
+              clips,
+              opts
+            )
+
+          {:error, _reason} = err ->
+            err
         end
       end
+    end
+  end
+
+  defp finish_authorized_search(
+         auth_ctx,
+         parsed,
+         model_cfg,
+         query_sha256,
+         target_sources,
+         effective_ids,
+         clips,
+         opts
+       ) do
+    with :ok <-
+           append_search_audit(
+             auth_ctx,
+             parsed,
+             model_cfg,
+             query_sha256,
+             Map.get(auth_ctx, :authorized_total, map_size(target_sources)),
+             length(effective_ids),
+             clips,
+             opts
+           ) do
+      {:ok, build_search_response(parsed.query, model_cfg, clips)}
     end
   end
 
@@ -1237,13 +1291,324 @@ defmodule ServiceRadar.Camera.SemanticSearch do
   end
 
   # ---------------------------------------------------------------------------
-  # Step 4c: Hybrid Reciprocal Rank Fusion (RRF) across visual + caption legs
+  # Step 4b-obs: Pre-filtered Vantage observation FTS + attribute search
   # ---------------------------------------------------------------------------
 
-  defp fuse_hybrid_rrf(visual_clips, [], _sources_by_id, _parsed), do: visual_clips
+  defp execute_observation_candidates_query(effective_ids, parsed, _target_sources, opts) do
+    loaders = Keyword.get(opts, :loaders, %{})
+    {attribute_filters, free_text} = parse_observation_query(parsed.query)
 
-  defp fuse_hybrid_rrf(visual_clips, caption_candidates, sources_by_id, parsed) do
+    ctx = %{
+      query: parsed.query,
+      free_text: free_text,
+      attribute_filters: attribute_filters,
+      camera_source_ids: effective_ids,
+      parsed: parsed
+    }
+
+    cond do
+      is_function(Map.get(loaders, :observations_loader), 2) ->
+        loaders.observations_loader.(parsed.query, ctx)
+
+      is_function(Map.get(loaders, :observations_loader), 1) ->
+        loaders.observations_loader.(ctx)
+
+      map_size(loaders) > 0 and Map.has_key?(loaders, :observations) ->
+        {:ok, List.wrap(loaders.observations)}
+
+      is_function(Map.get(loaders, :embeddings_loader), 2) or
+        is_function(Map.get(loaders, :captions_loader), 2) or
+          Map.get(loaders, :skip_db_observations, false) == true ->
+        {:ok, []}
+
+      true ->
+        query_postgres_observation_candidates(effective_ids, parsed, attribute_filters, free_text)
+    end
+  end
+
+  @doc false
+  def parse_observation_query(query) when is_binary(query) do
+    tokens = tokenize_observation_query(query)
+
+    {attrs_rev, text_rev} =
+      Enum.reduce(tokens, {[], []}, fn token, {attrs, text_acc} ->
+        case Regex.run(@obs_attr_token_regex, token) do
+          [_, key, raw_val] ->
+            val = strip_surrounding_quotes(raw_val)
+
+            if val != "" and length(attrs) < @max_observation_attr_filters do
+              {[{key, val} | attrs], text_acc}
+            else
+              {attrs, [token | text_acc]}
+            end
+
+          _ ->
+            {attrs, [token | text_acc]}
+        end
+      end)
+
+    {Enum.reverse(attrs_rev), text_rev |> Enum.reverse() |> Enum.join(" ") |> String.trim()}
+  end
+
+  defp tokenize_observation_query(query) do
+    {tokens_rev, current, _in_quotes} =
+      query
+      |> String.trim()
+      |> String.graphemes()
+      |> Enum.reduce({[], "", false}, fn ch, {acc, cur, in_q} ->
+        cond do
+          ch == "\"" ->
+            {acc, cur <> ch, not in_q}
+
+          Regex.match?(~r/\s/u, ch) and not in_q ->
+            if cur == "", do: {acc, "", false}, else: {[cur | acc], "", false}
+
+          true ->
+            {acc, cur <> ch, in_q}
+        end
+      end)
+
+    tokens_rev = if current == "", do: tokens_rev, else: [current | tokens_rev]
+    Enum.reverse(tokens_rev)
+  end
+
+  defp strip_surrounding_quotes(val) do
+    trimmed = String.trim(val)
+
+    if byte_size(trimmed) >= 2 and String.starts_with?(trimmed, "\"") and
+         String.ends_with?(trimmed, "\"") do
+      trimmed |> String.slice(1..-2//1) |> String.trim()
+    else
+      trimmed
+    end
+  end
+
+  defp query_postgres_observation_candidates(effective_ids, parsed, attribute_filters, free_text) do
+    if is_nil(Process.whereis(Repo)) do
+      {:ok, []}
+    else
+      do_query_postgres_observation_candidates(
+        effective_ids,
+        parsed,
+        attribute_filters,
+        free_text
+      )
+    end
+  end
+
+  defp do_query_postgres_observation_candidates(
+         effective_ids,
+         parsed,
+         attribute_filters,
+         free_text
+       ) do
+    candidate_limit = clamp_int(parsed.limit * 4, 32, 200)
+    cam_bins = Enum.map(effective_ids, &Ecto.UUID.dump!/1)
+
+    {clauses, args, idx} =
+      {[], [cam_bins, parsed.from_us, parsed.to_us], 4}
+
+    {clauses, args, idx} =
+      if parsed.stream_profile_id do
+        {["obs.stream_profile_id = $#{idx}::uuid" | clauses],
+         args ++ [Ecto.UUID.dump!(parsed.stream_profile_id)], idx + 1}
+      else
+        {clauses, args, idx}
+      end
+
+    {clauses, args, idx} =
+      if parsed.object_class do
+        {["lower(obs.category) = lower($#{idx})" | clauses], args ++ [parsed.object_class],
+         idx + 1}
+      else
+        {clauses, args, idx}
+      end
+
+    {clauses, args, idx} =
+      Enum.reduce(attribute_filters, {clauses, args, idx}, fn {key, val}, {c_acc, a_acc, i} ->
+        case key do
+          "category" ->
+            {["lower(obs.category) = lower($#{i})" | c_acc], a_acc ++ [val], i + 1}
+
+          "label" ->
+            {["lower(obs.label) = lower($#{i})" | c_acc], a_acc ++ [val], i + 1}
+
+          "pipeline_id" ->
+            {["obs.pipeline_id = $#{i}" | c_acc], a_acc ++ [val], i + 1}
+
+          "signal_schema_id" ->
+            {["obs.signal_schema_id = $#{i}" | c_acc], a_acc ++ [val], i + 1}
+
+          attr_key ->
+            {["lower(obs.attributes ->> $#{i}) = lower($#{i + 1})" | c_acc],
+             a_acc ++ [attr_key, val], i + 2}
+        end
+      end)
+
+    {text_rank_sql, text_where_sql, exact_label_sql, args, idx} =
+      if free_text == "" do
+        {"1.0::double precision", "", "0", args, idx}
+      else
+        q_idx = idx
+
+        {
+          "ts_rank_cd(obs.search_tsv, websearch_to_tsquery('english', $#{q_idx}))::double precision",
+          "AND (obs.search_tsv @@ websearch_to_tsquery('english', $#{q_idx}) OR lower(obs.label) = lower($#{q_idx}))",
+          "CASE WHEN lower(obs.label) = lower($#{q_idx}) THEN 1 ELSE 0 END",
+          args ++ [free_text],
+          idx + 1
+        }
+      end
+
+    extra_sql =
+      case Enum.reverse(clauses) do
+        [] -> ""
+        list -> "AND " <> Enum.join(list, "\n      AND ")
+      end
+
+    limit_idx = idx
+
+    sql = """
+    SELECT
+      obs.id,
+      obs.catalog_entry_id,
+      obs.camera_source_id,
+      obs.stream_profile_id,
+      obs.timeline_ts_us,
+      obs.time_basis,
+      obs.category,
+      obs.label,
+      obs.confidence,
+      obs.bbox,
+      obs.attributes,
+      obs.signal_schema_id,
+      obs.display_contract_id,
+      obs.pipeline_id,
+      obs.pipeline_version,
+      obs.track_id,
+      (obs.crop_jpeg IS NOT NULL) AS has_crop,
+      c.timeline_start_us,
+      c.timeline_end_us,
+      c.time_uncertainty_us,
+      (c.thumbnail_jpeg IS NOT NULL) AS has_block_thumbnail,
+      #{text_rank_sql} AS text_rank
+    FROM platform.camera_vantage_observations obs
+    JOIN platform.camera_recording_catalog c
+      ON c.id = obs.catalog_entry_id
+    WHERE obs.source_mode = 'recorded_block'
+      AND obs.camera_source_id = ANY($1::uuid[])
+      AND obs.timeline_ts_us >= $2
+      AND obs.timeline_ts_us < $3
+      AND c.recording_block_id IS NOT NULL
+      AND c.local_state <> 'quarantined'
+      AND c.quarantine_reason IS NULL
+      AND (c.local_state = 'present' OR c.archive_state = 'verified')
+      #{extra_sql}
+      #{text_where_sql}
+    ORDER BY #{exact_label_sql} DESC,
+             text_rank DESC,
+             obs.confidence DESC,
+             obs.timeline_ts_us DESC,
+             obs.id ASC
+    LIMIT $#{limit_idx}
+    """
+
+    params = args ++ [candidate_limit]
+
+    case SQL.query(Repo, sql, params) do
+      {:ok, %{rows: rows}} ->
+        {:ok,
+         Enum.map(
+           rows,
+           &decode_observation_candidate_row(&1, attribute_filters != [], free_text != "")
+         )}
+
+      {:error, reason} ->
+        Logger.warning("Camera Vantage observation search skipped due to database error",
+          reason: inspect(reason)
+        )
+
+        {:ok, []}
+    end
+  end
+
+  defp decode_observation_candidate_row(
+         [
+           id,
+           catalog_id,
+           cam_id,
+           profile_id,
+           timeline_ts_us,
+           time_basis,
+           category,
+           label,
+           confidence,
+           bbox,
+           attributes,
+           signal_schema_id,
+           display_contract_id,
+           pipeline_id,
+           pipeline_version,
+           track_id,
+           has_crop,
+           catalog_start_us,
+           catalog_end_us,
+           time_uncertainty_us,
+           has_block_thumbnail,
+           text_rank
+         ],
+         has_attr_filters?,
+         has_free_text?
+       ) do
+    match_sources =
+      []
+      |> then(fn acc -> if has_attr_filters?, do: ["observation_attribute" | acc], else: acc end)
+      |> then(fn acc ->
+        if has_free_text? or not has_attr_filters?, do: ["observation_fts" | acc], else: acc
+      end)
+
+    %{
+      id: decode_uuid(id),
+      catalog_entry_id: decode_uuid(catalog_id),
+      camera_source_id: decode_uuid(cam_id),
+      stream_profile_id: decode_uuid(profile_id),
+      timeline_ts_us: timeline_ts_us,
+      time_basis: to_string(time_basis || "received"),
+      category: category,
+      label: label,
+      confidence: if(is_number(confidence), do: confidence * 1.0, else: 0.0),
+      bbox: format_bbox_list(bbox),
+      attributes: if(is_map(attributes), do: attributes, else: %{}),
+      signal_schema_id: signal_schema_id,
+      display_contract_id: display_contract_id,
+      pipeline_id: pipeline_id,
+      pipeline_version: pipeline_version,
+      track_id: track_id,
+      has_crop: has_crop == true,
+      catalog_start_us: catalog_start_us,
+      catalog_end_us: catalog_end_us,
+      time_uncertainty_us: time_uncertainty_us,
+      has_block_thumbnail: has_block_thumbnail == true,
+      text_rank: if(is_number(text_rank), do: text_rank * 1.0, else: 0.0),
+      match_sources: match_sources
+    }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Step 4c: Hybrid Reciprocal Rank Fusion (RRF) across visual + caption + obs
+  # ---------------------------------------------------------------------------
+
+  defp fuse_hybrid_rrf(visual_clips, [], [], _sources_by_id, _parsed), do: visual_clips
+
+  defp fuse_hybrid_rrf(
+         visual_clips,
+         caption_candidates,
+         observation_candidates,
+         sources_by_id,
+         parsed
+       ) do
     normalized_captions = Enum.map(caption_candidates, &normalize_caption_candidate/1)
+    normalized_observations = Enum.map(observation_candidates, &normalize_observation_candidate/1)
 
     fts_ranked =
       normalized_captions
@@ -1261,7 +1626,13 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       |> Enum.with_index(1)
       |> Map.new(fn {cap, rank} -> {caption_fusion_key(cap), {rank, cap}} end)
 
-    if map_size(fts_ranked) == 0 and map_size(cap_vec_ranked) == 0 do
+    obs_ranked =
+      normalized_observations
+      |> Enum.sort_by(fn o -> {-o.text_rank, -o.confidence, -o.timeline_ts_us, o.id} end)
+      |> Enum.with_index(1)
+      |> Map.new(fn {obs, rank} -> {observation_fusion_key(obs), {rank, obs}} end)
+
+    if map_size(fts_ranked) == 0 and map_size(cap_vec_ranked) == 0 and map_size(obs_ranked) == 0 do
       attach_captions_to_visual_clips(visual_clips, normalized_captions)
     else
       visual_by_key =
@@ -1273,37 +1644,58 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         end)
 
       all_keys =
-        Enum.uniq(Map.keys(visual_by_key) ++ Map.keys(fts_ranked) ++ Map.keys(cap_vec_ranked))
+        Enum.uniq(
+          Map.keys(visual_by_key) ++
+            Map.keys(fts_ranked) ++
+            Map.keys(cap_vec_ranked) ++
+            Map.keys(obs_ranked)
+        )
 
       all_keys
       |> Enum.map(fn key ->
         vis_entry = Map.get(visual_by_key, key)
         fts_entry = Map.get(fts_ranked, key)
         cap_vec_entry = Map.get(cap_vec_ranked, key)
+        obs_entry = Map.get(obs_ranked, key)
 
-        {rrf_raw, sources} =
-          {0.0, []}
-          |> add_rrf_leg(vis_entry, @rrf_weight_visual, "visual_vector")
-          |> add_rrf_leg(fts_entry, @rrf_weight_caption_fts, "caption_fts")
-          |> add_rrf_leg(cap_vec_entry, @rrf_weight_caption_vector, "caption_vector")
+        case obs_entry do
+          {_rank, obs} ->
+            {rrf_raw, obs_sources} =
+              add_observation_rrf_leg({0.0, []}, obs_entry, @rrf_weight_observation)
 
-        fused_score = min(1.0, Float.round(rrf_raw / @rrf_max_score, 4))
-        caption = pick_caption(fts_entry, cap_vec_entry)
+            fused_score = min(1.0, Float.round(rrf_raw / @rrf_max_score, 4))
 
-        base_clip =
-          case vis_entry do
-            {_rank, clip} -> clip
-            nil -> build_clip_from_caption(caption, sources_by_id, parsed)
-          end
+            obs
+            |> build_clip_from_observation(sources_by_id)
+            |> Map.put(:score, fused_score)
+            |> Map.put(:match_sources, obs_sources)
 
-        base_clip
-        |> Map.put(:score, fused_score)
-        |> Map.put(:caption_text, caption && caption.caption_text)
-        |> Map.put(:action_tags, if(caption, do: caption.action_tags, else: []))
-        |> Map.put(:match_sources, Enum.reverse(sources))
+          nil ->
+            {rrf_raw, sources} =
+              {0.0, []}
+              |> add_rrf_leg(vis_entry, @rrf_weight_visual, "visual_vector")
+              |> add_rrf_leg(fts_entry, @rrf_weight_caption_fts, "caption_fts")
+              |> add_rrf_leg(cap_vec_entry, @rrf_weight_caption_vector, "caption_vector")
+
+            fused_score = min(1.0, Float.round(rrf_raw / @rrf_max_score, 4))
+            caption = pick_caption(fts_entry, cap_vec_entry)
+
+            base_clip =
+              case vis_entry do
+                {_rank, clip} -> clip
+                nil -> build_clip_from_caption(caption, sources_by_id, parsed)
+              end
+
+            base_clip
+            |> Map.put(:score, fused_score)
+            |> Map.put(:caption_text, caption && caption.caption_text)
+            |> Map.put(:action_tags, if(caption, do: caption.action_tags, else: []))
+            |> Map.put(:match_sources, Enum.reverse(sources))
+        end
       end)
       |> Enum.sort_by(fn clip ->
-        {-clip.score, -clip.best_timeline_ts_us, to_string(clip.visual_frame_id)}
+        {-clip.score, -clip.best_timeline_ts_us,
+         to_string(clip.visual_frame_id || clip[:vantage_observation_id] || "")}
       end)
     end
   end
@@ -1329,6 +1721,136 @@ defmodule ServiceRadar.Camera.SemanticSearch do
 
   defp add_rrf_leg({score, sources}, {rank, _item}, weight, label) do
     {score + weight / (@rrf_k + rank), [label | sources]}
+  end
+
+  defp add_observation_rrf_leg({score, _sources}, {rank, obs}, weight) do
+    sources =
+      case obs.match_sources do
+        list when is_list(list) and list != [] -> list
+        _ -> ["observation_fts"]
+      end
+
+    {score + weight / (@rrf_k + rank), sources}
+  end
+
+  defp observation_fusion_key(%{id: id}) when is_binary(id) and id != "", do: "obs:#{id}"
+  defp observation_fusion_key(obs), do: "obs:#{obs.camera_source_id}:#{obs.timeline_ts_us}"
+
+  defp normalize_observation_candidate(item) do
+    raw_conf = fetch_val(item, :confidence)
+    raw_rank = fetch_val(item, :text_rank)
+
+    %{
+      id: to_string(fetch_val(item, :id) || fetch_val(item, :vantage_observation_id) || ""),
+      catalog_entry_id: to_string(fetch_val(item, :catalog_entry_id) || ""),
+      camera_source_id: to_string(fetch_val(item, :camera_source_id) || ""),
+      stream_profile_id: to_string(fetch_val(item, :stream_profile_id) || ""),
+      timeline_ts_us: fetch_val(item, :timeline_ts_us) || 0,
+      time_basis: to_string(fetch_val(item, :time_basis) || "received"),
+      category:
+        to_string(
+          fetch_val(item, :category) || fetch_val(item, :observation_category) || "observation"
+        ),
+      label: to_string(fetch_val(item, :label) || fetch_val(item, :observation_label) || ""),
+      confidence: if(is_number(raw_conf), do: clamp_score(raw_conf), else: 0.0),
+      bbox: format_bbox_list(fetch_val(item, :bbox)),
+      attributes:
+        case fetch_val(item, :attributes) do
+          %{} = map -> map
+          _ -> %{}
+        end,
+      signal_schema_id: fetch_val(item, :signal_schema_id),
+      display_contract_id: fetch_val(item, :display_contract_id),
+      pipeline_id: fetch_val(item, :pipeline_id),
+      pipeline_version: fetch_val(item, :pipeline_version),
+      track_id: fetch_val(item, :track_id),
+      has_crop: fetch_val(item, :has_crop) == true,
+      catalog_start_us: fetch_val(item, :catalog_start_us),
+      catalog_end_us: fetch_val(item, :catalog_end_us),
+      time_uncertainty_us: fetch_val(item, :time_uncertainty_us),
+      has_block_thumbnail: fetch_val(item, :has_block_thumbnail) == true,
+      text_rank: if(is_number(raw_rank), do: raw_rank * 1.0, else: 0.0),
+      match_sources:
+        item
+        |> fetch_val(:match_sources)
+        |> List.wrap()
+        |> Enum.map(&to_string/1)
+        |> Enum.reject(&(&1 == ""))
+    }
+  end
+
+  defp build_clip_from_observation(obs, sources_by_id) do
+    {clip_start_us, clip_end_us} =
+      compute_clip_bounds(
+        obs.timeline_ts_us,
+        obs.timeline_ts_us,
+        obs.timeline_ts_us,
+        obs.catalog_start_us,
+        obs.catalog_end_us
+      )
+
+    source_meta = Map.get(sources_by_id, obs.camera_source_id, %{})
+    camera_label = format_camera_label(Map.get(source_meta, :display_name))
+    uncertainty = format_time_uncertainty(obs.time_basis, obs.time_uncertainty_us)
+
+    frame_detections =
+      if is_list(obs.bbox) do
+        [
+          %{
+            source: "vantage",
+            vantage_observation_id: obs.id,
+            visual_frame_id: nil,
+            timeline_ts_us: obs.timeline_ts_us,
+            start_us: max(obs.timeline_ts_us - 1_500_000, 0),
+            end_us: obs.timeline_ts_us + 1_500_000,
+            bbox: obs.bbox,
+            object_class: obs.category,
+            category: obs.category,
+            label: obs.label,
+            score: Float.round(obs.confidence, 4),
+            dominant_colors: [],
+            time_basis: obs.time_basis,
+            has_crop: obs.has_crop,
+            pipeline_id: obs.pipeline_id,
+            display_contract_id: obs.display_contract_id,
+            attributes: obs.attributes
+          }
+        ]
+      else
+        []
+      end
+
+    %{
+      catalog_entry_id: obs.catalog_entry_id,
+      visual_frame_id: nil,
+      vantage_observation_id: obs.id,
+      camera_source_id: obs.camera_source_id,
+      camera_display_name: camera_label,
+      device_uid: Map.get(source_meta, :device_uid),
+      stream_profile_id: obs.stream_profile_id,
+      clip_start_us: clip_start_us,
+      clip_end_us: clip_end_us,
+      best_timeline_ts_us: obs.timeline_ts_us,
+      time_basis: obs.time_basis,
+      time_uncertainty: uncertainty,
+      score: 0.0,
+      region_kind: "vantage_observation",
+      object_class: obs.category,
+      observation_category: obs.category,
+      observation_label: obs.label,
+      signal_schema_id: obs.signal_schema_id,
+      display_contract_id: obs.display_contract_id,
+      pipeline_id: obs.pipeline_id,
+      pipeline_version: obs.pipeline_version,
+      track_id: obs.track_id,
+      attributes: obs.attributes,
+      has_crop: obs.has_crop,
+      dominant_colors: [],
+      bbox: obs.bbox,
+      frame_detections: frame_detections,
+      has_frame_thumbnail: false,
+      has_block_thumbnail: obs.has_block_thumbnail
+    }
   end
 
   defp pick_caption({_rank, cap}, _), do: cap
@@ -1713,7 +2235,12 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         "filtered_camera_count" => filtered_count,
         "object_class_filter" => parsed.object_class,
         "dominant_color_filter" => parsed.dominant_color,
-        "result_count" => length(results)
+        "result_count" => length(results),
+        "observation_result_count" =>
+          Enum.count(results, fn item ->
+            v = Map.get(item, :vantage_observation_id)
+            is_binary(v) and v != ""
+          end)
       }
     }
 

@@ -1,0 +1,147 @@
+{
+  "feature": "F2",
+  "catalog_purge_matrix": [
+    {
+      "name": "quarantined_purges_observations_and_cancels_active_jobs",
+      "initial_local_state": "present",
+      "initial_archive_state": "pending",
+      "target_local_state": "quarantined",
+      "target_archive_state": "pending",
+      "expect_observations_purged": true,
+      "expect_active_jobs_cancelled": true,
+      "expect_completed_jobs_preserved": true,
+      "expected_last_error_class": "source_deleted_or_quarantined"
+    },
+    {
+      "name": "reclaimed_deleted_purges_observations_and_cancels_active_jobs",
+      "initial_local_state": "present",
+      "initial_archive_state": "deleting",
+      "target_local_state": "reclaimed",
+      "target_archive_state": "deleted",
+      "expect_observations_purged": true,
+      "expect_active_jobs_cancelled": true,
+      "expect_completed_jobs_preserved": true,
+      "expected_last_error_class": "source_deleted_or_quarantined"
+    },
+    {
+      "name": "reclaimed_not_required_purges_observations_and_cancels_active_jobs",
+      "initial_local_state": "present",
+      "initial_archive_state": "not_required",
+      "target_local_state": "reclaimed",
+      "target_archive_state": "not_required",
+      "expect_observations_purged": true,
+      "expect_active_jobs_cancelled": true,
+      "expect_completed_jobs_preserved": true,
+      "expected_last_error_class": "source_deleted_or_quarantined"
+    },
+    {
+      "name": "reclaimed_with_verified_archive_preserves_observations",
+      "initial_local_state": "present",
+      "initial_archive_state": "verified",
+      "target_local_state": "reclaimed",
+      "target_archive_state": "verified",
+      "expect_observations_purged": false,
+      "expect_active_jobs_cancelled": false,
+      "expect_completed_jobs_preserved": true,
+      "expected_last_error_class": null
+    },
+    {
+      "name": "archive_verified_on_present_block_does_not_purge",
+      "initial_local_state": "present",
+      "initial_archive_state": "pending",
+      "target_local_state": "present",
+      "target_archive_state": "verified",
+      "expect_observations_purged": false,
+      "expect_active_jobs_cancelled": false,
+      "expect_completed_jobs_preserved": true,
+      "expected_last_error_class": null
+    }
+  ],
+  "recording_hold_cases": [
+    {
+      "name": "overlapping_hold_local_only_pins_local_copy",
+      "entry": {
+        "timeline_start_us": 1760000000000000,
+        "timeline_end_us": 1760000010000000,
+        "local_state": "present",
+        "archive_state": "not_required"
+      },
+      "hold": {
+        "state": "accepted",
+        "start_us": 1760000005000000,
+        "end_us": 1760000015000000
+      },
+      "expect_covered": true,
+      "expected_pinned_copy": "local"
+    },
+    {
+      "name": "overlapping_hold_with_verified_archive_pins_archive_copy",
+      "entry": {
+        "timeline_start_us": 1760000000000000,
+        "timeline_end_us": 1760000010000000,
+        "local_state": "present",
+        "archive_state": "verified"
+      },
+      "hold": {
+        "state": "accepted",
+        "start_us": 1760000000000000,
+        "end_us": 1760000010000000
+      },
+      "expect_covered": true,
+      "expected_pinned_copy": "archive"
+    },
+    {
+      "name": "half_open_boundary_end_equals_hold_start_not_covered",
+      "entry": {
+        "timeline_start_us": 1760000000000000,
+        "timeline_end_us": 1760000010000000,
+        "local_state": "present",
+        "archive_state": "not_required"
+      },
+      "hold": {
+        "state": "accepted",
+        "start_us": 1760000010000000,
+        "end_us": 1760000020000000
+      },
+      "expect_covered": false,
+      "expected_pinned_copy": null
+    },
+    {
+      "name": "half_open_boundary_start_equals_hold_end_not_covered",
+      "entry": {
+        "timeline_start_us": 1760000020000000,
+        "timeline_end_us": 1760000030000000,
+        "local_state": "present",
+        "archive_state": "not_required"
+      },
+      "hold": {
+        "state": "accepted",
+        "start_us": 1760000010000000,
+        "end_us": 1760000020000000
+      },
+      "expect_covered": false,
+      "expected_pinned_copy": null
+    },
+    {
+      "name": "released_hold_no_longer_pins_entry",
+      "entry": {
+        "timeline_start_us": 1760000000000000,
+        "timeline_end_us": 1760000010000000,
+        "local_state": "present",
+        "archive_state": "not_required"
+      },
+      "hold": {
+        "state": "released",
+        "start_us": 1760000000000000,
+        "end_us": 1760000010000000
+      },
+      "expect_covered": false,
+      "expected_pinned_copy": null
+    }
+  ],
+  "live_tap_isolation": {
+    "sibling_block_reclaim_preserves_live_observations": true,
+    "source_delete_cascades_live_and_recorded": true,
+    "default_live_observation_retention_days": 30
+  }
+}

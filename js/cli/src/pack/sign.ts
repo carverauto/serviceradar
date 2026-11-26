@@ -245,7 +245,10 @@ export function signSrpackFile(params: {
   const resolvedBundle = resolve(params.bundlePath)
   const archiveBytes = readFileSync(resolvedBundle)
   const archiveFiles = readSrpackArchive(archiveBytes)
-  const validation = validatePackFiles(archiveFiles, {verifyHashes: true})
+  const validation = validatePackFiles(archiveFiles, {
+    verifyHashes: true,
+    compressedBytes: archiveBytes.length,
+  })
   if (!validation.ok) {
     throw new PackValidationError(validation.issues)
   }
@@ -466,7 +469,10 @@ export async function verifyCommand(options: Record<string, unknown>): Promise<v
 
   const archiveBytes = readFileSync(resolvedBundle)
   const archiveFiles = readSrpackArchive(archiveBytes)
-  const validation = validatePackFiles(archiveFiles, {verifyHashes: true})
+  const validation = validatePackFiles(archiveFiles, {
+    verifyHashes: true,
+    compressedBytes: archiveBytes.length,
+  })
   if (!validation.ok) {
     throw new PackValidationError(validation.issues)
   }

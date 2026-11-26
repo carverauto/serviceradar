@@ -32,6 +32,7 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
   alias ServiceRadar.Camera.RecordingPubSub
+  alias ServiceRadar.Camera.VantageTriggerAdmitter
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -128,9 +129,11 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
       end
 
       result =
-        with_recovery(:nvr_recovery_closed_after_freeze, fn ->
+        :nvr_recovery_closed_after_freeze
+        |> with_recovery(fn ->
           RecorderOwnership.with_current(ingest, claim, freeze, opts)
         end)
+        |> unwrap_vantage_post_commit(descriptor)
 
       case result do
         {:ok, %RecordingCatalogEntry{camera_source_id: camera_source_id}} ->
@@ -167,11 +170,13 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
     with :ok <- authorize_system_reconciler(call_opts),
          :ok <- check_history_reconciliation_ready(call_opts),
          {:ok, bytes} <- Descriptor.encode(descriptor) do
-      with_recovery(fn ->
+      fn ->
         transaction(fn ->
           execute_freeze_historical(block_or_id, descriptor, bytes, catalog_attrs, call_opts)
         end)
-      end)
+      end
+      |> with_recovery()
+      |> unwrap_vantage_post_commit(descriptor)
     end
   end
 
@@ -856,14 +861,17 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
     case Ash.read_one(existing_query, actor: @catalog_actor) do
       {:ok, %RecordingCatalogEntry{} = existing} ->
         if matches_catalog_retry?(existing, frozen, prepared) do
-          maybe_admit_visual_index_job(existing, frozen.descriptor, now)
+          with {:ok, admitted} <- maybe_admit_visual_index_job(existing, frozen.descriptor, now) do
+            {:ok, {admitted, now}}
+          end
         else
           {:error, :recording_descriptor_conflict}
         end
 
       {:ok, nil} ->
-        with {:ok, created} <- insert_sealed_catalog_entry(frozen, now, prepared) do
-          maybe_admit_visual_index_job(created, frozen.descriptor, now)
+        with {:ok, created} <- insert_sealed_catalog_entry(frozen, now, prepared),
+             {:ok, admitted} <- maybe_admit_visual_index_job(created, frozen.descriptor, now) do
+          {:ok, {admitted, now}}
         end
 
       {:error, _} = error ->
@@ -951,6 +959,44 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   end
 
   defp maybe_admit_visual_index_job(%RecordingCatalogEntry{} = entry, _descriptor, _now) do
+    {:ok, entry}
+  end
+
+  defp unwrap_vantage_post_commit({:ok, {%RecordingCatalogEntry{} = entry, now}}, descriptor) do
+    if RecordingCatalogEntry.playable?(entry) do
+      maybe_admit_vantage_jobs(entry, descriptor, now)
+    end
+
+    {:ok, entry}
+  end
+
+  defp unwrap_vantage_post_commit({:ok, %RecordingCatalogEntry{} = entry}, descriptor) do
+    if RecordingCatalogEntry.playable?(entry) do
+      maybe_admit_vantage_jobs(entry, descriptor, DateTime.utc_now())
+    end
+
+    {:ok, entry}
+  end
+
+  defp unwrap_vantage_post_commit(other, _descriptor), do: other
+
+  defp maybe_admit_vantage_jobs(%RecordingCatalogEntry{} = entry, descriptor, now)
+       when is_map(descriptor) do
+    if VantageTriggerAdmitter.deployment_enabled?() do
+      try do
+        _ = VantageTriggerAdmitter.admit_for_sealed_block(entry, descriptor, now: now)
+        {:ok, entry}
+      rescue
+        _ -> {:ok, entry}
+      catch
+        _, _ -> {:ok, entry}
+      end
+    else
+      {:ok, entry}
+    end
+  end
+
+  defp maybe_admit_vantage_jobs(%RecordingCatalogEntry{} = entry, _descriptor, _now) do
     {:ok, entry}
   end
 
@@ -1383,13 +1429,15 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
     case Ash.read_one(existing_query, actor: @catalog_actor) do
       {:ok, %RecordingCatalogEntry{} = existing} ->
         with {:ok, verified} <-
-               verify_historical_catalog_retry(existing, frozen, prepared, explicit_attrs) do
-          maybe_admit_visual_index_job(verified, frozen.descriptor, now)
+               verify_historical_catalog_retry(existing, frozen, prepared, explicit_attrs),
+             {:ok, admitted} <- maybe_admit_visual_index_job(verified, frozen.descriptor, now) do
+          {:ok, {admitted, now}}
         end
 
       {:ok, nil} ->
-        with {:ok, created} <- insert_sealed_catalog_entry(frozen, now, prepared) do
-          maybe_admit_visual_index_job(created, frozen.descriptor, now)
+        with {:ok, created} <- insert_sealed_catalog_entry(frozen, now, prepared),
+             {:ok, admitted} <- maybe_admit_visual_index_job(created, frozen.descriptor, now) do
+          {:ok, {admitted, now}}
         end
 
       {:error, _} = error ->
@@ -1454,7 +1502,7 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
          :ok <- check_history_reconciliation_ready(call_opts) do
       case Descriptor.encode(candidate_descriptor) do
         {:ok, bytes} ->
-          with_recovery(fn ->
+          fn ->
             transaction(fn ->
               execute_adopt_rotated_block(
                 predecessor_or_id,
@@ -1465,7 +1513,9 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
                 call_opts
               )
             end)
-          end)
+          end
+          |> with_recovery()
+          |> unwrap_vantage_post_commit(candidate_descriptor)
 
         {:error, _} ->
           {:error,

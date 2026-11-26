@@ -5,8 +5,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
   alias ServiceRadar.Camera.NVRStorageSettings
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RetentionCalculator
+  alias ServiceRadar.Camera.VantagePubSub
   alias ServiceRadarWebNG.CameraRecordingRuntime
   alias ServiceRadarWebNG.CameraRecordingSettings
+  alias ServiceRadarWebNG.CameraVantageWorkers
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.RecordingLive.Components
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -88,6 +90,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         |> assign(:storage_settings_form, CameraRecordingSettings.default_storage_settings_form())
         |> assign(:storage_settings_errors, %{})
         |> assign(:health_summary, CameraRecordingSettings.default_health_summary(default_settings))
+        |> assign(:vantage_worker_summary, CameraVantageWorkers.default_summary())
+        |> assign(:vantage_worker_subscribed?, false)
         |> stream(:recording_blocks, [], reset: true)
 
       if connected?(socket) do
@@ -863,6 +867,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
   end
 
   @impl true
+  def handle_info({:vantage_worker_heartbeat, _payload}, socket) do
+    if connected?(socket) do
+      {:noreply, load_vantage_workers_data(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(_other, socket), do: {:noreply, socket}
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -986,6 +1001,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             can_operate?={@can_operate?}
             can_hold?={@can_hold?}
             health_summary={@health_summary}
+            vantage_worker_summary={@vantage_worker_summary}
             timezone={user_timezone(@current_scope)}
           />
         </section>
@@ -1023,6 +1039,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
       save_storage_settings: &CameraRecordingSettings.save_storage_settings/3,
       fetch_nvr_member_statuses: &CameraRecordingRuntime.member_statuses/1,
       load_recording_health: &CameraRecordingSettings.load_recording_health/2,
+      load_vantage_worker_summary: &CameraVantageWorkers.summary/1,
       request_quarantine_delete: &CameraRecordingSettings.request_quarantine_delete/3,
       request_quarantine_export: &CameraRecordingSettings.request_quarantine_export/3,
       accept_missing_archive_loss: &CameraRecordingSettings.accept_missing_archive_loss/3,
@@ -1047,11 +1064,26 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     dependencies = deps(socket)
 
     socket
+    |> maybe_subscribe_vantage_workers()
     |> assign(:runtime, dependencies.runtime_status.())
     |> load_archive_data()
     |> load_cameras_data()
     |> load_policies_data()
     |> load_storage_and_health_data()
+    |> load_vantage_workers_data()
+  end
+
+  defp maybe_subscribe_vantage_workers(%{assigns: %{vantage_worker_subscribed?: true}} = socket), do: socket
+
+  defp maybe_subscribe_vantage_workers(socket) do
+    _ = VantagePubSub.subscribe_worker_health()
+    assign(socket, :vantage_worker_subscribed?, true)
+  end
+
+  defp load_vantage_workers_data(socket) do
+    dependencies = deps(socket)
+    summary = dependencies.load_vantage_worker_summary.(socket.assigns.current_scope)
+    assign(socket, :vantage_worker_summary, summary)
   end
 
   defp load_archive_data(socket) do

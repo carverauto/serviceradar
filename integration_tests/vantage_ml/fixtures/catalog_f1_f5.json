@@ -1,0 +1,406 @@
+{
+  "milestone": "E2E-M2",
+  "features": ["F1", "F2", "F3", "F4", "F5"],
+  "cases": [
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-01",
+      "mode": "A+B",
+      "description": "Upsert VantagePipeline with on_stage1_detection, detection_crop, camera_vlm, signal_schema, and managed provenance",
+      "requirement": "vantage-ml-pipelines §1, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-02",
+      "mode": "A+B",
+      "description": "Enqueue VantageJob idempotently twice with identical unique_job_key returning a single row",
+      "requirement": "vantage-ml-pipelines §1, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-03",
+      "mode": "A+B",
+      "description": "Persist recorded_block VantageObservation with <= 32 KiB Baseline JFIF crop_jpeg, Ash bbox map, and GIN search_tsv match",
+      "requirement": "vantage-ml-pipelines §1/§3, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-04",
+      "mode": "A+B",
+      "description": "Persist live_keyframe_tap VantageObservation with catalog_entry_id null linked to camera_source_id",
+      "requirement": "vantage-ml-pipelines §1/§7, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 1,
+      "test_id": "E2E-F1-T1-05",
+      "mode": "A+B",
+      "description": "Upsert VantageWorkerRegistration active_for_capability plus DashboardPackage/Instance provenance and dashboards.packages.manage RBAC",
+      "requirement": "vantage-ml-pipelines §1, solution-packs-catalog §2, tasks.md 1.1/1.4"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-01",
+      "mode": "A+B",
+      "description": "Enforce exact 32768-byte crop_jpeg acceptance and 32769-byte rejection at both Ash validation and PostgreSQL CHECK constraint",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-02",
+      "mode": "A+B",
+      "description": "Reject Progressive SOF2 (0xC2) and non-JFIF bytes in crop_jpeg",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-03",
+      "mode": "A+B",
+      "description": "Reject out-of-bounds or inverted bbox coordinates and out-of-range confidence (< 0.0 or > 1.0)",
+      "requirement": "vantage-ml-pipelines §1/§2, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-04",
+      "mode": "A+B",
+      "description": "Enforce Ash RBAC fail-closed: deny non-system writes to VantageObservation/VantageJob and reject bare devices.view without devices.cameras.recordings.view",
+      "requirement": "vantage-ml-pipelines §6, tasks.md 1.1"
+    },
+    {
+      "feature": "F1",
+      "tier": 2,
+      "test_id": "E2E-F1-T2-05",
+      "mode": "A+B",
+      "description": "Reject invalid time_basis, invalid source_mode, recorded_block missing catalog_entry_id, and invalid VantagePipeline pipeline_id or empty version",
+      "requirement": "vantage-ml-pipelines §1, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-01",
+      "mode": "A+B",
+      "description": "Quarantining RecordingCatalogEntry immediately purges linked VantageObservations and cancels pending/dispatched VantageJobs while preserving completed history",
+      "requirement": "vantage-ml-pipelines §4, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-02",
+      "mode": "A+B",
+      "description": "Terminal reclaim (local_state=reclaimed with archive_state=deleted or not_required) purges observations and cancels active jobs",
+      "requirement": "vantage-ml-pipelines §4, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-03",
+      "mode": "A+B",
+      "description": "Local-only cache eviction (local_state=reclaimed, archive_state=verified) preserves observations and search_tsv searchability",
+      "requirement": "vantage-ml-pipelines §4, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-04",
+      "mode": "A+B",
+      "description": "Accepted RecordingHold pins surviving copy under PD5 blocking deletion intent until release_hold and terminal reclaim",
+      "requirement": "vantage-ml-pipelines §4, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 1,
+      "test_id": "E2E-F2-T1-05",
+      "mode": "A+B",
+      "description": "Deleting camera Source cascades to both recorded_block and live_keyframe_tap (catalog_entry_id null) observations and jobs",
+      "requirement": "vantage-ml-pipelines §4, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-01",
+      "mode": "A+B",
+      "description": "Direct DELETE on RecordingCatalogEntry cascades via ON DELETE CASCADE FKs to observations and jobs",
+      "requirement": "vantage-ml-pipelines §4, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-02",
+      "mode": "A+B",
+      "description": "Quarantining while VantageJob is dispatched cancels the job and causes late result ingestion to drop with recording_gone",
+      "requirement": "vantage-ml-pipelines §2/§4, tasks.md 1.1/1.2"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-03",
+      "mode": "A+B",
+      "description": "Enforce RecordingHold half-open [h_start, h_end) boundary where timeline_end_us == h_start is unprotected while overlapping blocks are pinned",
+      "requirement": "vantage-ml-pipelines §4, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-04",
+      "mode": "A+B",
+      "description": "Live-tap observations (catalog_entry_id null) survive sibling recorded block reclaim on the same camera",
+      "requirement": "vantage-ml-pipelines §4/§7, tasks.md 1.1"
+    },
+    {
+      "feature": "F2",
+      "tier": 2,
+      "test_id": "E2E-F2-T2-05",
+      "mode": "A+B",
+      "description": "Updating unrelated catalog fields (e.g., archive_state pending -> verified while local_state=present) does not fire observation purge",
+      "requirement": "vantage-ml-pipelines §4, tasks.md 1.1"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-01",
+      "mode": "A+B",
+      "description": "Ingest valid recorded_block vantage.result.v1 over JetStream media.results.vantage.v1, complete job, and emit OCSF class 1008 with signal_schema metadata",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-02",
+      "mode": "A+B",
+      "description": "Enforce deterministic Nats-Msg-Id (vantage-result:<job_id>) and duplicate observation_key replay idempotency yielding 1 row",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-03",
+      "mode": "A+B",
+      "description": "Ingest valid live_keyframe_tap result envelope (job_id null, catalog_entry_id null, external_python) and broadcast VantagePubSub",
+      "requirement": "vantage-ml-pipelines §2/§7, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-04",
+      "mode": "A+B",
+      "description": "Pipeline with emit_ocsf_events=false persists VantageObservation row while emitting zero OCSF events",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 1,
+      "test_id": "E2E-F3-T1-05",
+      "mode": "A+B",
+      "description": "Valid empty observations: [] batch completes active VantageJob cleanly with 0 rows inserted",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-01",
+      "mode": "A+B",
+      "description": "Reject alpr_plate_read signal_schema violations (regex mismatch, missing required field, wrong type) with TerminalMessageError and failed_terminal job",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-02",
+      "mode": "A+B",
+      "description": "Reject 32769-byte crop_jpeg_b64 and non-JPEG crop payloads cleanly as terminal drop without persisting unvalidated rows",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-03",
+      "mode": "A+B",
+      "description": "Reject inverted/out-of-range bbox and out-of-range confidence (1.05 / -0.1) as terminal drop",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-04",
+      "mode": "A+B",
+      "description": "Reject quarantined catalog_entry_id, descriptor_sha256 mismatch, or unknown job_id with zero observation writes",
+      "requirement": "vantage-ml-pipelines §2/§4, tasks.md 1.2"
+    },
+    {
+      "feature": "F3",
+      "tier": 2,
+      "test_id": "E2E-F3-T2-05",
+      "mode": "A+B",
+      "description": "Reject > 960 KiB payload (983041 B), invalid schema_version (vantage.result.v99), and missing recorded_block IDs without crashing EventWriter pipeline",
+      "requirement": "vantage-ml-pipelines §2, tasks.md 1.2"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-01",
+      "mode": "A+B",
+      "description": "Extract native 1920x1080 RGB padded vehicle crop with padding_ratio=0.15, <= 640px, <= 96 KiB Baseline JFIF and sha256_hex",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-02",
+      "mode": "A+B",
+      "description": "Downscale 4K (3840x2160) large detection preserving aspect ratio to max dimension 640px within <= 96 KiB",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-03",
+      "mode": "A+B",
+      "description": "Clamp border-touching detection [0.0, 0.0, 0.25, 0.30] cleanly to frame bounds without OOB read",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-04",
+      "mode": "A+B",
+      "description": "Step down JPEG quality and apply bounded 3/4 downscale on high-detail texture to satisfy <= 32 KiB stored preview and <= 96 KiB VLM bounds",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 1,
+      "test_id": "E2E-F4-T1-05",
+      "mode": "A+B",
+      "description": "Round-trip vantage_protocol wire envelopes across recorded_block and live_keyframe_tap plus ROI polygon crop extraction",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-01",
+      "mode": "A+B",
+      "description": "Skip distant 76.8px detection (1920x1080 [0.40, 0.40, 0.44, 0.50]) with explicit crop_below_min_dimension reason",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-02",
+      "mode": "A+B",
+      "description": "Enforce exact 96px acceptance vs 95px crop_below_min_dimension skip (and outside-ROI crop_outside_roi gate)",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-03",
+      "mode": "A+B",
+      "description": "Reject zero-area, inverted, negative, out-of-unit, and NaN bounding boxes cleanly without panic",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-04",
+      "mode": "A+B",
+      "description": "Reject empty 0x0 frame, max_dimension=0, and max_bytes < 512 with typed configuration/frame errors",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F4",
+      "tier": 2,
+      "test_id": "E2E-F4-T2-05",
+      "mode": "A+B",
+      "description": "Return bounded encoding error when high-frequency noise cannot fit impossibly small max_bytes without exceeding cap",
+      "requirement": "vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-01",
+      "mode": "A+B",
+      "description": "Execute single-frame Ramp 1 VLM job sending enable_thinking=false, response_format, SHA-256 verify, and publish-before-ACK to media.results.vantage.v1",
+      "requirement": "vantage-ml-pipelines §5, vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-02",
+      "mode": "A+B",
+      "description": "Compute 3-frame track consensus vote [TEST-742@0.94, TEST-742@0.91, TEST-74Z@0.62] -> TEST-742 with <= 32 KiB stored preview",
+      "requirement": "vantage-ml-pipelines §5, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-03",
+      "mode": "A+B",
+      "description": "Process mixed detections skipping distant <96px vehicle (vantage_crops_skipped_total{reason=crop_below_min_dimension}) while completing valid target",
+      "requirement": "vantage-ml-pipelines §5, vms-media-workers §1, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-04",
+      "mode": "A+B",
+      "description": "Handle 410 recording_gone from read-grant endpoint by ACKing job cleanly, incrementing vantage_jobs_gone_total, and publishing zero results",
+      "requirement": "vantage-ml-pipelines §5, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 1,
+      "test_id": "E2E-F5-T1-05",
+      "mode": "A+B",
+      "description": "Decode and SHA-256 verify identical synthetic CMAF blocks across both local NVR byte-range and archive presigned range read grants",
+      "requirement": "vantage-ml-pipelines §5, vms-media-workers §2, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-01",
+      "mode": "A+B",
+      "description": "Strip closed <think> blocks cleanly while rejecting unclosed <think> as truncated_thinking with zero fabricated observations",
+      "requirement": "vantage-ml-pipelines §5, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-02",
+      "mode": "A+B",
+      "description": "Reject non-JSON prose and plate_text regex violations from VLM without fabricating observations",
+      "requirement": "vantage-ml-pipelines §5, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-03",
+      "mode": "A+B",
+      "description": "Abort before VLM invocation (0 HTTP calls) and NAK job when init.mp4 or fragment SHA-256 mismatches descriptor",
+      "requirement": "vantage-ml-pipelines §5, vms-media-workers §2, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-04",
+      "mode": "A+B",
+      "description": "Handle VLM HTTP 500/503 or timeout by NAKing job without fabricating observations",
+      "requirement": "vantage-ml-pipelines §5, tasks.md 1.3"
+    },
+    {
+      "feature": "F5",
+      "tier": 2,
+      "test_id": "E2E-F5-T2-05",
+      "mode": "A+B",
+      "description": "Trim lowest-confidence crop_jpeg_b64 previews first so large multi-track result envelope fits <= 960 KiB (983040 B) ceiling",
+      "requirement": "vantage-ml-pipelines §2/§5, tasks.md 1.3"
+    }
+  ]
+}

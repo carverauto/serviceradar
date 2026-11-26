@@ -30,13 +30,19 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if RBAC.can?(scope, "plugins.view") do
+    if can_view_dashboard_packages?(scope) do
+      can_enable = can_enable_packages?(scope)
+      can_disable = can_disable_packages?(scope)
+
       socket =
         socket
         |> assign(:page_title, "Dashboard Packages")
         |> assign(:current_path, "/settings/dashboards/packages")
-        |> assign(:can_import_packages, RBAC.can?(scope, "plugins.stage"))
-        |> assign(:can_manage_packages, RBAC.can?(scope, "plugins.approve"))
+        |> assign(:can_import_packages, can_import_packages?(scope))
+        |> assign(:can_enable_packages, can_enable)
+        |> assign(:can_disable_packages, can_disable)
+        |> assign(:can_manage_packages, can_enable or can_disable)
+        |> assign(:status_filter, "all")
         |> assign(:packages, if(connected?(socket), do: list_packages(scope), else: []))
         |> assign(:enabled_instances, if(connected?(socket), do: list_enabled_instances(scope), else: []))
         |> assign(:show_import_modal, false)
@@ -141,6 +147,11 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     {:noreply, assign(socket, :instance_form, params)}
   end
 
+  def handle_event("filter_status", %{"status" => status}, socket)
+      when status in ["all", "staged", "enabled", "disabled", "revoked"] do
+    {:noreply, assign(socket, :status_filter, status)}
+  end
+
   def handle_event("refresh", _params, socket) do
     scope = socket.assigns.current_scope
 
@@ -157,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   def handle_event(
         "import_package",
         %{"import" => %{"enable" => "true"}},
-        %{assigns: %{can_manage_packages: false}} = socket
+        %{assigns: %{can_enable_packages: false}} = socket
       ) do
     {:noreply, put_flash(socket, :error, "You don't have permission to enable dashboard packages.")}
   end
@@ -165,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   def handle_event(
         "import_package",
         %{"import" => %{"create_instance" => "true"}},
-        %{assigns: %{can_manage_packages: false}} = socket
+        %{assigns: %{can_enable_packages: false}} = socket
       ) do
     {:noreply, put_flash(socket, :error, "You don't have permission to create dashboard routes.")}
   end
@@ -195,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     end
   end
 
-  def handle_event("enable_package", %{"id" => _id}, %{assigns: %{can_manage_packages: false}} = socket) do
+  def handle_event("enable_package", %{"id" => _id}, %{assigns: %{can_enable_packages: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to enable dashboard packages.")}
   end
 
@@ -214,7 +225,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     end
   end
 
-  def handle_event("disable_package", %{"id" => _id}, %{assigns: %{can_manage_packages: false}} = socket) do
+  def handle_event("disable_package", %{"id" => _id}, %{assigns: %{can_disable_packages: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to disable dashboard packages.")}
   end
 
@@ -233,7 +244,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     end
   end
 
-  def handle_event("create_instance", _params, %{assigns: %{can_manage_packages: false}} = socket) do
+  def handle_event("create_instance", _params, %{assigns: %{can_enable_packages: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to create dashboard routes.")}
   end
 
@@ -385,15 +396,52 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
         <.ui_panel>
           <:header>
-            <div>
-              <div class="text-sm font-semibold">Imported Packages</div>
-              <p class="text-xs text-sr-muted">{length(@packages)} package(s)</p>
+            <div class="flex flex-wrap items-center justify-between gap-3 w-full">
+              <div>
+                <div class="text-sm font-semibold">Imported Packages</div>
+                <p class="text-xs text-sr-muted">{length(@packages)} package(s)</p>
+              </div>
+              <div
+                class="flex flex-wrap items-center gap-1.5"
+                role="group"
+                aria-label="Filter dashboard packages by status"
+              >
+                <button
+                  :for={
+                    {filter_key, filter_label} <- [
+                      {"all", "All (#{length(@packages)})"},
+                      {"staged",
+                       "Staged Approval (#{Enum.count(@packages, &(&1.status == :staged))})"},
+                      {"enabled", "Enabled (#{Enum.count(@packages, &(&1.status == :enabled))})"},
+                      {"disabled", "Disabled (#{Enum.count(@packages, &(&1.status == :disabled))})"}
+                    ]
+                  }
+                  id={"dashboard-packages-filter-#{filter_key}"}
+                  type="button"
+                  phx-click="filter_status"
+                  phx-value-status={filter_key}
+                  class={[
+                    "rounded-sr-control px-2.5 py-1 text-xs font-medium transition-colors",
+                    if(@status_filter == filter_key,
+                      do: "bg-sr-brand text-white",
+                      else: "border border-sr-line bg-sr-surface text-sr-muted hover:text-sr-ink"
+                    )
+                  ]}
+                >
+                  {filter_label}
+                </button>
+              </div>
             </div>
           </:header>
 
-          <%= if @packages == [] do %>
+          <%= if filter_packages(@packages, @status_filter) == [] do %>
             <div class="rounded-sr-surface border border-dashed border-sr-line bg-sr-surface p-8 text-center">
-              <div class="text-sm font-semibold">No dashboard packages imported</div>
+              <div class="text-sm font-semibold">
+                {if(@packages == [],
+                  do: "No dashboard packages imported",
+                  else: "No packages match status \"#{@status_filter}\""
+                )}
+              </div>
               <p class="mt-1 text-xs text-sr-muted">
                 Import a manifest JSON file and matching renderer artifact to create the first package.
               </p>
@@ -412,11 +460,29 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   </tr>
                 </thead>
                 <tbody>
-                  <tr :for={package <- @packages} class="hover:bg-sr-subtle/40">
+                  <tr
+                    :for={package <- filter_packages(@packages, @status_filter)}
+                    class="hover:bg-sr-subtle/40"
+                  >
                     <td>
                       <div class="font-medium">{package.name}</div>
                       <div class="font-mono text-xs text-sr-muted">
                         {package.dashboard_id} · {package.version}
+                      </div>
+                      <div
+                        :if={is_binary(package.pack_id) and package.pack_id != ""}
+                        class="mt-1 flex flex-wrap items-center gap-1"
+                        data-role="package-pack-provenance"
+                      >
+                        <.ui_badge size="xs" variant="info">
+                          Pack: {package.pack_id} v{package.pack_version || "?"}
+                        </.ui_badge>
+                        <.ui_badge
+                          size="xs"
+                          variant={if(package.managed, do: "success", else: "warning")}
+                        >
+                          {if(package.managed, do: "managed: true", else: "managed: false")}
+                        </.ui_badge>
                       </div>
                     </td>
                     <td>
@@ -462,16 +528,16 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                           Details
                         </.ui_button>
                         <.ui_button
-                          :if={@can_manage_packages and package.status != :enabled}
+                          :if={@can_enable_packages and package.status != :enabled}
                           phx-click="enable_package"
                           phx-value-id={package.id}
                           size="xs"
                           variant="primary"
                         >
-                          Enable
+                          {if(package.status == :staged, do: "Approve & Enable", else: "Enable")}
                         </.ui_button>
                         <.ui_button
-                          :if={@can_manage_packages and package.status == :enabled}
+                          :if={@can_disable_packages and package.status == :enabled}
                           phx-click="disable_package"
                           phx-value-id={package.id}
                           size="xs"
@@ -502,6 +568,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           instance_form={@instance_form}
           errors={@form_errors}
           can_manage_packages={@can_manage_packages}
+          can_enable_packages={@can_enable_packages}
+          can_disable_packages={@can_disable_packages}
         />
       </Shell.settings_chrome>
     </Layouts.app>
@@ -683,6 +751,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   attr(:instance_form, :map, required: true)
   attr(:errors, :list, required: true)
   attr(:can_manage_packages, :boolean, required: true)
+  attr(:can_enable_packages, :boolean, required: true)
+  attr(:can_disable_packages, :boolean, required: true)
 
   defp details_modal(assigns) do
     ~H"""
@@ -762,16 +832,16 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </div>
               <div class="mt-4 flex gap-2">
                 <.ui_button
-                  :if={@can_manage_packages and @package.status != :enabled}
+                  :if={@can_enable_packages and @package.status != :enabled}
                   phx-click="enable_package"
                   phx-value-id={@package.id}
                   size="sm"
                   variant="primary"
                 >
-                  Enable
+                  {if(@package.status == :staged, do: "Approve & Enable", else: "Enable")}
                 </.ui_button>
                 <.ui_button
-                  :if={@can_manage_packages and @package.status == :enabled}
+                  :if={@can_disable_packages and @package.status == :enabled}
                   phx-click="disable_package"
                   phx-value-id={@package.id}
                   size="sm"
@@ -779,6 +849,19 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                 >
                   Disable
                 </.ui_button>
+              </div>
+              <div
+                :if={is_binary(@package.pack_id) and @package.pack_id != ""}
+                class="mt-4 border-t border-sr-line pt-3 text-xs space-y-1"
+                data-role="details-pack-provenance"
+              >
+                <div class="font-semibold text-sr-ink">Solution Pack Provenance</div>
+                <div class="font-mono text-sr-muted">
+                  pack_id: {@package.pack_id} · v{@package.pack_version || "?"}
+                </div>
+                <div class="font-mono text-sr-muted">
+                  managed: {to_string(@package.managed == true)}
+                </div>
               </div>
             </div>
 
@@ -1247,6 +1330,45 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp capability_review_note("events.subscribe"), do: "Receives live events the viewer is allowed to read"
 
   defp capability_review_note(_capability), do: nil
+
+  defp can_view_dashboard_packages?(scope) do
+    RBAC.can?(scope, "plugins.view") or
+      RBAC.can?(scope, "dashboards.packages.view_all") or
+      RBAC.can?(scope, "dashboards.packages.manage") or
+      RBAC.can?(scope, "dashboards.packages.publish") or
+      RBAC.can?(scope, "dashboards.packages.enable") or
+      RBAC.can?(scope, "dashboards.packages.disable") or
+      RBAC.can?(scope, "cli.dashboard.publish") or
+      RBAC.can?(scope, "cli.dashboard.enable") or
+      RBAC.can?(scope, "cli.dashboard.disable")
+  end
+
+  defp can_import_packages?(scope) do
+    RBAC.can?(scope, "plugins.stage") or
+      RBAC.can?(scope, "dashboards.packages.manage") or
+      RBAC.can?(scope, "dashboards.packages.publish") or
+      RBAC.can?(scope, "cli.dashboard.publish")
+  end
+
+  defp can_enable_packages?(scope) do
+    RBAC.can?(scope, "plugins.approve") or
+      RBAC.can?(scope, "dashboards.packages.manage") or
+      RBAC.can?(scope, "dashboards.packages.enable") or
+      RBAC.can?(scope, "cli.dashboard.enable")
+  end
+
+  defp can_disable_packages?(scope) do
+    RBAC.can?(scope, "plugins.approve") or
+      RBAC.can?(scope, "dashboards.packages.manage") or
+      RBAC.can?(scope, "dashboards.packages.disable") or
+      RBAC.can?(scope, "cli.dashboard.disable")
+  end
+
+  defp filter_packages(packages, "all"), do: packages
+
+  defp filter_packages(packages, status_filter) do
+    Enum.filter(packages, &(Atom.to_string(&1.status) == status_filter))
+  end
 
   defp format_error({:invalid_settings, errors}) when is_list(errors), do: Enum.join(errors, "; ")
   defp format_error(errors) when is_list(errors), do: Enum.join(errors, "; ")

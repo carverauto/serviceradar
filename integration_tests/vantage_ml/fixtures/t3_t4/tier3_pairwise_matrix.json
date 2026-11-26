@@ -1,0 +1,383 @@
+{
+  "schema_version": "1.0.0",
+  "milestone": "E2E-M5",
+  "description": "Synthetic Tier 3 pairwise cross-feature contract vectors (15 pairs across F1-F14).",
+  "pairs": [
+    {
+      "test_id": "E2E-T3-01",
+      "pair": "F1xF2",
+      "feature": "F1+F2",
+      "boundary": "CNPG schema FKs/checks <-> RecordingCatalogEntry quarantine/reclaim trigger & RecordingHold",
+      "camera_name": "Gate West 01",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "hold_window": {
+        "state": "accepted",
+        "start_us": 1760000000000000,
+        "end_us": 1760000020000000
+      },
+      "transitions": [
+        {
+          "name": "quarantined_purges_recorded_and_cancels_active_jobs",
+          "source_mode": "recorded_block",
+          "local_state": "quarantined",
+          "archive_state": "verified",
+          "held": false,
+          "expected_observations_purged": true,
+          "expected_active_jobs_cancelled": true,
+          "expected_completed_jobs_preserved": true
+        },
+        {
+          "name": "reclaimed_verified_preserves_observations",
+          "source_mode": "recorded_block",
+          "local_state": "reclaimed",
+          "archive_state": "verified",
+          "held": false,
+          "expected_observations_purged": false,
+          "expected_active_jobs_cancelled": false,
+          "expected_completed_jobs_preserved": true
+        },
+        {
+          "name": "reclaimed_deleted_purges_unheld_observations",
+          "source_mode": "recorded_block",
+          "local_state": "reclaimed",
+          "archive_state": "deleted",
+          "held": false,
+          "expected_observations_purged": true,
+          "expected_active_jobs_cancelled": true,
+          "expected_completed_jobs_preserved": true
+        },
+        {
+          "name": "accepted_hold_blocks_terminal_reclaim",
+          "source_mode": "recorded_block",
+          "local_state": "present",
+          "archive_state": "verified",
+          "held": true,
+          "expected_observations_purged": false,
+          "expected_hold_pinned_copy": "archive",
+          "expected_active_jobs_cancelled": false
+        },
+        {
+          "name": "live_tap_null_catalog_survives_sibling_block_reclaim",
+          "source_mode": "live_keyframe_tap",
+          "local_state": "reclaimed",
+          "archive_state": "deleted",
+          "held": false,
+          "expected_observations_purged": false,
+          "expected_survives_until_source_cascade": true
+        }
+      ]
+    },
+    {
+      "test_id": "E2E-T3-02",
+      "pair": "F1xF3",
+      "feature": "F1+F3",
+      "boundary": "Ash constraints (32 KiB crop_jpeg, bbox, search_tsv) <-> EventWriter pre-upsert projector validation",
+      "expected_persisted_crop_max_bytes": 32768,
+      "search_tokens": ["SR-0100", "Gate", "West", "silver", "sedan"],
+      "negative_cases": [
+        {
+          "name": "crop_32769_bytes_rejected_before_ash_upsert",
+          "crop_bytes": 32769,
+          "expected_disposition": "dead_letter",
+          "expected_rows_written": 0
+        },
+        {
+          "name": "invalid_plate_text_rejected_before_ash_upsert",
+          "plate_text": "bad plate!",
+          "expected_disposition": "dead_letter",
+          "expected_rows_written": 0
+        },
+        {
+          "name": "inverted_bbox_rejected_before_ash_upsert",
+          "bbox": [0.7, 0.2, 0.3, 0.8],
+          "expected_disposition": "dead_letter",
+          "expected_rows_written": 0
+        }
+      ]
+    },
+    {
+      "test_id": "E2E-T3-03",
+      "pair": "F2xF3",
+      "feature": "F2+F3",
+      "boundary": "Quarantine/terminal deletion race <-> In-flight media.results.vantage.v1 projection",
+      "race_scenarios": [
+        {
+          "name": "quarantined_before_result_arrival",
+          "catalog_local_state": "quarantined",
+          "catalog_archive_state": "verified",
+          "expected_disposition": "drop_recording_gone",
+          "expected_job_state": "cancelled",
+          "expected_observations_persisted": 0
+        },
+        {
+          "name": "reclaimed_deleted_before_result_arrival",
+          "catalog_local_state": "reclaimed",
+          "catalog_archive_state": "deleted",
+          "expected_disposition": "drop_recording_gone",
+          "expected_job_state": "cancelled",
+          "expected_observations_persisted": 0
+        },
+        {
+          "name": "present_and_playable_persists_cleanly",
+          "catalog_local_state": "present",
+          "catalog_archive_state": "not_required",
+          "expected_disposition": "persisted",
+          "expected_job_state": "completed",
+          "expected_observations_persisted": 1
+        }
+      ]
+    },
+    {
+      "test_id": "E2E-T3-04",
+      "pair": "F2xF11",
+      "feature": "F2+F11",
+      "boundary": "Quarantine/reclaim state <-> POST /v1/media/workers/read-grants 410 recording_gone",
+      "cases": [
+        {
+          "name": "playable_present_issues_200_reader_grant",
+          "local_state": "present",
+          "archive_state": "not_required",
+          "descriptor_match": true,
+          "expected_http_status": 200,
+          "expected_job_state_after": "dispatched"
+        },
+        {
+          "name": "quarantined_returns_410_and_cancels_job",
+          "local_state": "quarantined",
+          "archive_state": "verified",
+          "descriptor_match": true,
+          "expected_http_status": 410,
+          "expected_body_status": "recording_gone",
+          "expected_job_state_after": "cancelled"
+        },
+        {
+          "name": "reclaimed_deleted_returns_410_and_cancels_job",
+          "local_state": "reclaimed",
+          "archive_state": "deleted",
+          "descriptor_match": true,
+          "expected_http_status": 410,
+          "expected_body_status": "recording_gone",
+          "expected_job_state_after": "cancelled"
+        },
+        {
+          "name": "descriptor_mismatch_returns_409",
+          "local_state": "present",
+          "archive_state": "not_required",
+          "descriptor_match": false,
+          "expected_http_status": 409,
+          "expected_body_status": "descriptor_sha256_mismatch"
+        }
+      ]
+    },
+    {
+      "test_id": "E2E-T3-05",
+      "pair": "F3xF9",
+      "feature": "F3+F9",
+      "boundary": "EventWriter persistence <-> SRQL in:camera_observations & SemanticSearch RBAC/playability",
+      "query_positive": "in:camera_observations category:license_plate label:SR-0100 sort:timeline_ts_us:desc limit:50",
+      "query_bypass_attempt": "in:devices in:camera_observations label:SR-0100",
+      "expected_last_in_entity": "camera_observations",
+      "required_permissions": ["devices.view", "devices.cameras.recordings.view"],
+      "authorized_camera_id": "22222222-2222-4222-8222-222222222201",
+      "unauthorized_camera_id": "22222222-2222-4222-8222-222222222204",
+      "expected_audit_event_kind": "semantic_search"
+    },
+    {
+      "test_id": "E2E-T3-06",
+      "pair": "F3xF10",
+      "feature": "F3+F10",
+      "boundary": "EventWriter OCSF 1008 emission <-> DashboardFrameChannel.Events nested filtering & RBAC",
+      "subscription_filter": {
+        "class_uid": 1008,
+        "camera_source_id": "22222222-2222-4222-8222-222222222201",
+        "metadata": {
+          "service_radar": {
+            "signal_schema": {
+              "schema_id": "alpr_plate_read"
+            }
+          }
+        }
+      },
+      "required_permissions": ["devices.view", "devices.cameras.recordings.view"],
+      "required_dashboard_capability": "events.subscribe",
+      "emit_ocsf_false_expected_deliveries": 0
+    },
+    {
+      "test_id": "E2E-T3-07",
+      "pair": "F4xF5",
+      "feature": "F4+F5",
+      "boundary": "media-core full-res crop_detection_jpeg <-> media-worker VLM invocation & 96 KiB/32 KiB bounds",
+      "frame_width": 1920,
+      "frame_height": 1080,
+      "crop_policy": {
+        "padding_ratio": 0.15,
+        "min_bbox_width_px": 96,
+        "max_dimension": 640,
+        "max_bytes": 98304
+      },
+      "persisted_crop_max_bytes": 32768,
+      "targets": [
+        {
+          "name": "gate_west_close_vehicle",
+          "bbox": [0.3, 0.45, 0.55, 0.8],
+          "expected_raw_width_px": 480,
+          "expected_crop_accepted": true,
+          "expected_vlm_called": true,
+          "expected_plate": "SR-0100"
+        },
+        {
+          "name": "distant_small_vehicle_below_96px",
+          "bbox": [0.4, 0.4, 0.44, 0.5],
+          "expected_raw_width_px": 76,
+          "expected_crop_accepted": false,
+          "expected_skip_reason": "crop_below_min_dimension",
+          "expected_vlm_called": false
+        }
+      ]
+    },
+    {
+      "test_id": "E2E-T3-08",
+      "pair": "F5xF11",
+      "feature": "F5+F11",
+      "boundary": "Ramp 1 media-worker VLM lane <-> VantagePipelineDispatcher fallback & read-grant verification",
+      "pipeline": {
+        "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+        "runner": "external_worker",
+        "capability": "vantage.alpr.v1",
+        "optional": true,
+        "fallback_runner": "camera_vlm"
+      },
+      "expected_subject_without_workers": "media.jobs.vantage.vlm.v1",
+      "expected_max_job_envelope_bytes": 4096,
+      "expected_worker_kind": "camera_vlm",
+      "expected_result_subject": "media.results.vantage.v1"
+    },
+    {
+      "test_id": "E2E-T3-09",
+      "pair": "F6xF7",
+      "feature": "F6+F7",
+      "boundary": "Elixir Pack v2 PackArchive/PackManifest/UploadSignature <-> CLI pack build/validate/sign",
+      "expected_v2_limits": {
+        "max_compressed_bytes": 33554432,
+        "max_uncompressed_bytes": 100663296,
+        "max_renderer_bytes": 8388608,
+        "max_entries": 256
+      },
+      "expected_v1_limits": {
+        "max_compressed_bytes": 26214400,
+        "max_uncompressed_bytes": 67108864,
+        "max_entries": 256
+      },
+      "ustar_invariants": {
+        "mode": "0000644",
+        "uid": 0,
+        "gid": 0,
+        "mtime": 0
+      }
+    },
+    {
+      "test_id": "E2E-T3-10",
+      "pair": "F6xF8",
+      "feature": "F6+F8",
+      "boundary": "Pack v2 Reconciler/RBAC <-> Reference io.serviceradar.vantage-alpr pack invariants",
+      "pack_id": "io.serviceradar.vantage-alpr",
+      "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+      "signal_schema_id": "alpr_plate_read",
+      "watchlist_rule_slug": "alpr-watchlist-alert",
+      "expected_rule_initial_enabled": false,
+      "expected_rule_install_state": "paused",
+      "operator_overrides": {
+        "min_confidence": 0.72
+      }
+    },
+    {
+      "test_id": "E2E-T3-11",
+      "pair": "F6xF10",
+      "feature": "F6+F10",
+      "boundary": "Bundled dashboard_packages staging/enablement <-> DashboardFrameChannel & route slug binding",
+      "route_slug": "alpr-console",
+      "transitions": [
+        {
+          "name": "staged_cannot_serve_channel",
+          "package_status": "staged",
+          "instance_bound": false,
+          "expected_channel_join_allowed": false
+        },
+        {
+          "name": "enabled_verified_hash_binds_and_serves",
+          "package_status": "enabled",
+          "content_hash_match": true,
+          "instance_bound": true,
+          "expected_channel_join_allowed": true
+        },
+        {
+          "name": "uninstall_detaches_managed_keeps_detached",
+          "action": "uninstall",
+          "managed_instance_after": false,
+          "detached_instance_enabled_after": true,
+          "expected_managed_channel_join_allowed": false
+        }
+      ]
+    },
+    {
+      "test_id": "E2E-T3-12",
+      "pair": "F8xF11xF12",
+      "feature": "F8+F11+F12",
+      "boundary": "io.serviceradar.vantage-alpr <-> Dispatcher <-> vantage-worker-alpr Ramp 1->2->1 transition",
+      "capability": "vantage.alpr.v1",
+      "ramp1_subject": "media.jobs.vantage.vlm.v1",
+      "ramp2_subject": "media.jobs.vantage.vantage_alpr_v1.v1",
+      "heartbeat_ttl_us": 30000000,
+      "expected_signal_schema_id": "alpr_plate_read",
+      "expected_plates": ["SR-0100", "TEST-742"]
+    },
+    {
+      "test_id": "E2E-T3-13",
+      "pair": "F11xF12",
+      "feature": "F11+F12",
+      "boundary": "Control Plane read-grants/jobs <-> serviceradar-sdk-vantage zero-credential workload auth",
+      "worker_identity": "vantage_worker",
+      "forbidden_env_keys": [
+        "DATABASE_URL",
+        "SERVICERADAR_E2E_DATABASE_URL",
+        "CNPG_PASSWORD",
+        "STARROCKS_PASSWORD",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "S3_SECRET_KEY"
+      ],
+      "negative_status_checks": [
+        {"case": "missing_auth", "expected_status": 401, "expected_error": "unauthorized"},
+        {"case": "terminal_job", "expected_status": 409, "expected_error": "job_already_terminal"},
+        {"case": "descriptor_mismatch", "expected_status": 409, "expected_error": "descriptor_sha256_mismatch"},
+        {"case": "quarantined_entry", "expected_status": 410, "expected_error": "recording_gone"}
+      ]
+    },
+    {
+      "test_id": "E2E-T3-14",
+      "pair": "F12xF13",
+      "feature": "F12+F13",
+      "boundary": "serviceradar-sdk-vantage process_frame(ctx) <-> longshore_mailbox vantage.frame.v1",
+      "capability": "vantage.bay_guidance.v1",
+      "live_subject": "media.live.vantage.vantage_bay_guidance_v1.v1",
+      "camera_name": "Bay 04 Approach",
+      "camera_source_id": "22222222-2222-4222-8222-222222222204",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333304",
+      "expected_null_fields": ["job_id", "catalog_entry_id", "descriptor_sha256", "fragment_sequence"]
+    },
+    {
+      "test_id": "E2E-T3-15",
+      "pair": "F13xF14",
+      "feature": "F13+F14",
+      "boundary": "longshore_mailbox drop-oldest backpressure <-> Bay 04 guidance p50/p95/p99 latency & live retention",
+      "mailbox_cap": 8,
+      "burst_frames": 20,
+      "expected_dropped": 12,
+      "expected_retained_sequences": [13, 14, 15, 16, 17, 18, 19, 20],
+      "drop_metric": "serviceradar_vantage_live_tap_dropped_total",
+      "live_observation_retention_days": 7,
+      "sample_latencies_ms": [6.4, 8.2, 9.1, 10.5, 11.8, 13.0, 14.2, 16.5, 19.0, 24.4]
+    }
+  ]
+}

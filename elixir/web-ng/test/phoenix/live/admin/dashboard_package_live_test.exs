@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLiveTest do
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.PluginStorageTestClient
+  alias ServiceRadarWebNGWeb.Settings.Catalog
 
   @moduletag :web_ng_shared_fixture_db
 
@@ -238,6 +239,60 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLiveTest do
     {:ok, second} = Dashboards.get_instance(second.id)
     assert second.name == "Second Route Updated"
     assert second.settings == %{"title" => "Updated", "defaultZoom" => 4}
+  end
+
+  test "supports dashboards.packages.* RBAC access without plugins.* and displays staged Solution Pack provenance", %{
+    conn: conn
+  } do
+    {:ok, pkg} =
+      Dashboards.import_package_json(manifest_json(), @renderer,
+        source_type: :first_party,
+        pack_id: "io.serviceradar.synthetic-vantage",
+        pack_version: "1.0.0",
+        managed: true,
+        verification_status: "verified"
+      )
+
+    assert pkg.status == :staged
+    assert pkg.pack_id == "io.serviceradar.synthetic-vantage"
+
+    # 1. Verify Settings.Catalog and LiveView mount accept dashboards.packages.* without plugins.*
+    dash_scope =
+      ServiceRadarWebNG.Accounts.Scope.for_user(
+        %{id: Ecto.UUID.generate(), email: "dash-approver@example.com", role: :operator},
+        permissions: MapSet.new(["dashboards.packages.view_all", "dashboards.packages.enable"])
+      )
+
+    view = Catalog.view_for_path("/settings/dashboards/packages")
+    assert Catalog.visible_view?(dash_scope, view)
+
+    socket = %Phoenix.LiveView.Socket{
+      endpoint: ServiceRadarWebNGWeb.Endpoint,
+      assigns: %{__changed__: %{}, flash: %{}, live_action: :index, current_scope: dash_scope}
+    }
+
+    assert {:ok, mounted} = ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index.mount(%{}, %{}, socket)
+    assert mounted.assigns.can_enable_packages == true
+    assert mounted.assigns.can_disable_packages == false
+
+    # 2. Verify live table displays staged filter, provenance badges, and Approve & Enable flow
+    {:ok, lv, html} = live(conn, ~p"/settings/dashboards/packages")
+    assert html =~ "io.serviceradar.synthetic-vantage"
+    assert html =~ "Approve &amp; Enable"
+    assert html =~ "Staged Approval"
+
+    lv
+    |> element("#dashboard-packages-filter-staged")
+    |> render_click()
+
+    assert render(lv) =~ pkg.dashboard_id
+
+    lv
+    |> element("button[phx-click='enable_package'][phx-value-id='#{pkg.id}']")
+    |> render_click()
+
+    {:ok, refreshed} = Dashboards.get_package(pkg.id)
+    assert refreshed.status == :enabled
   end
 
   defp manifest_json do

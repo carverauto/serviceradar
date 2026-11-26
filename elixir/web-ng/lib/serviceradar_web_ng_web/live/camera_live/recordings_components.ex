@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   use ServiceRadarWebNGWeb, :html
 
   alias ServiceRadar.Camera.Thumbnail
+  alias ServiceRadarWebNGWeb.Camera.VantageDisplay
   alias ServiceRadarWebNGWeb.CameraLive.Recordings
   alias ServiceRadarWebNGWeb.CameraRelayComponents
 
@@ -49,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_search_error, :string, default: nil
   attr :timeline_embedder_unavailable?, :boolean, default: false
   attr :timeline_overlay_detections, :list, default: []
+  attr :timeline_vantage_observations, :list, default: []
   attr :timeline_jump_at, :string, default: ""
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
@@ -224,6 +226,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_search_error={@timeline_search_error}
         timeline_embedder_unavailable?={@timeline_embedder_unavailable?}
         timeline_overlay_detections={@timeline_overlay_detections}
+        timeline_vantage_observations={@timeline_vantage_observations}
         timeline_jump_at={@timeline_jump_at}
         timeline_has_adjacent_window={@timeline_has_adjacent_window}
         timeline_holds={@timeline_holds}
@@ -439,6 +442,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_search_error, :string, default: nil
   attr :timeline_embedder_unavailable?, :boolean, default: false
   attr :timeline_overlay_detections, :list, default: []
+  attr :timeline_vantage_observations, :list, default: []
   attr :timeline_jump_at, :string, default: ""
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
@@ -516,7 +520,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         assigns.timeline_event_markers || [],
         assigns.timeline_event_clips || [],
         play_origin_us,
-        assigns.timeline_play_to_us
+        assigns.timeline_play_to_us,
+        assigns.timeline_vantage_observations || []
+      )
+
+    vantage_markers =
+      build_vantage_markers(
+        assigns.timeline_vantage_observations || [],
+        cov_from_us,
+        cov_to_us,
+        now_us
       )
 
     window_scrubber_thumbnails =
@@ -567,6 +580,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:event_markers, event_markers)
       |> assign(:vertical_event_thumbs, vertical_event_thumbs)
       |> assign(:window_scrubber_events, window_scrubber_events)
+      |> assign(:vantage_markers, vantage_markers)
       |> assign(:window_scrubber_thumbnails, window_scrubber_thumbnails)
       |> assign(:play_window_band, play_window_band)
       |> assign(:time_ticks, time_ticks)
@@ -1128,6 +1142,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               >
                 <span class="sr-only">{marker.title}</span>
               </button>
+
+              <%!-- Vantage Observation Markers along Vertical Rail --%>
+              <button
+                :for={marker <- @vantage_markers}
+                id={"camera-timeline-vantage-marker-#{marker.idx}"}
+                type="button"
+                data-role="vantage-observation-marker"
+                data-vantage-category={marker.category}
+                data-event-ts-us={marker.ts_us}
+                phx-click="select_vantage_observation"
+                phx-value-id={marker.id}
+                phx-value-ts_us={marker.ts_us}
+                title={marker.title}
+                style={"top: #{marker.top_pct}%; background-color: #{marker.color_hex};"}
+                class="absolute left-[6px] z-[9] flex h-2.5 w-[16px] -translate-y-1/2 items-center justify-center rounded-full shadow-xs ring-1 ring-black/70 transition-all hover:scale-125 hover:ring-white"
+              >
+                <span class="sr-only">{marker.title}</span>
+              </button>
             </div>
           </div>
 
@@ -1493,7 +1525,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               data-window-end-us={@timeline_play_to_us}
               data-seek-offset-seconds={format_seek_offset_attr(@timeline_seek_offset_seconds)}
               data-highlight-frame-id={@timeline_highlight_frame_id || ""}
-              data-overlay-detections={Jason.encode!(@timeline_overlay_detections)}
+              data-overlay-detections={encode_overlay_detections(@timeline_overlay_detections)}
               data-window-events={Jason.encode!(@window_scrubber_events)}
               data-window-thumbnails={Jason.encode!(@window_scrubber_thumbnails)}
               class={[@timeline_playlist_path in [nil, ""] && "hidden"]}
@@ -2138,9 +2170,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             ]}
           >
             <div class="relative aspect-video w-full overflow-hidden bg-zinc-950">
-              <%= if is_binary(clip.thumbnail_url) and clip.thumbnail_url != "" do %>
+              <%= if safe_clip_thumb = VantageDisplay.sanitize_url(clip.thumbnail_url) do %>
                 <img
-                  src={clip.thumbnail_url}
+                  src={safe_clip_thumb}
                   alt={"#{clip.label} detection clip"}
                   loading="lazy"
                   class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
@@ -2701,6 +2733,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timezone={@timezone}
         timeline_event_markers={@timeline_event_markers}
         timeline_event_clips={@timeline_event_clips}
+        timeline_vantage_observations={@timeline_vantage_observations}
         blocks={@blocks}
         active_source_id={@active_source_id}
       />
@@ -2712,6 +2745,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timezone, :string, required: true
   attr :timeline_event_markers, :list, default: []
   attr :timeline_event_clips, :list, default: []
+  attr :timeline_vantage_observations, :list, default: []
   attr :blocks, :list, default: []
   attr :active_source_id, :string, default: nil
 
@@ -2719,13 +2753,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     modal = assigns.modal
     modal_origin_us = Map.get(modal, :playlist_origin_us) || Map.get(modal, :play_from_us)
     modal_to_us = Map.get(modal, :play_to_us)
+    modal_vantage = Map.get(modal, :vantage_observations) || assigns.timeline_vantage_observations || []
 
     modal_scrubber_events =
       build_window_scrubber_events(
         assigns.timeline_event_markers || [],
         assigns.timeline_event_clips || [],
         modal_origin_us,
-        modal_to_us
+        modal_to_us,
+        modal_vantage
       )
 
     modal_scrubber_thumbnails =
@@ -2836,7 +2872,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             data-window-end-us={@modal.play_to_us}
             data-seek-offset-seconds={format_seek_offset_attr(@modal.seek_offset_seconds)}
             data-highlight-frame-id={@modal.highlight_frame_id || ""}
-            data-overlay-detections={Jason.encode!(@modal.overlay_detections || [])}
+            data-overlay-detections={encode_overlay_detections(@modal.overlay_detections || [])}
             data-window-events={Jason.encode!(@modal_scrubber_events)}
             data-window-thumbnails={Jason.encode!(@modal_scrubber_thumbnails)}
             class={[@modal.playlist_path in [nil, ""] && "hidden"]}
@@ -3021,6 +3057,79 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               </div>
             </div>
           </div>
+
+          <div
+            :if={Map.get(@modal, :vantage_observations, []) != []}
+            id="camera-clip-modal-vantage-observations"
+            data-role="vantage-observations-panel"
+            class="mt-3 space-y-2 rounded-lg border border-sr-line bg-sr-canvas p-3"
+          >
+            <div class="flex items-center justify-between text-xs font-semibold text-sr-ink">
+              <span>Vantage ML Observations</span>
+              <span class="font-mono text-[11px] text-sr-muted">
+                {length(Map.get(@modal, :vantage_observations, []))}
+              </span>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <div
+                :for={obs <- Map.get(@modal, :vantage_observations, [])}
+                id={"camera-clip-vantage-obs-#{obs.id}"}
+                data-role="vantage-observation-card"
+                class="flex items-start gap-2.5 rounded-md border border-sr-line bg-sr-surface p-2"
+              >
+                <% safe_crop_url = VantageDisplay.sanitize_url(Map.get(obs, :crop_url)) %>
+                <img
+                  :if={is_binary(safe_crop_url)}
+                  src={safe_crop_url}
+                  alt={obs.label}
+                  data-role="vantage-crop-preview"
+                  loading="lazy"
+                  class="h-14 w-20 shrink-0 rounded border border-sr-line bg-zinc-950 object-cover"
+                />
+                <div class="min-w-0 flex-1 space-y-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span
+                      class={[
+                        "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-white",
+                        obs.badge_class
+                      ]}
+                      style={"background-color: #{obs.color_hex};"}
+                    >
+                      <.icon name={obs.icon} class="size-3 shrink-0" />
+                      <span data-role="vantage-observation-label">{obs.label}</span>
+                    </span>
+                    <span class="font-mono text-[10px] text-sr-muted">{obs.category}</span>
+                    <span
+                      :if={is_number(obs.confidence)}
+                      class="font-mono text-[10px] text-sr-muted"
+                    >
+                      {format_confidence_pct(obs.confidence)}
+                    </span>
+                  </div>
+                  <p :if={is_binary(obs.summary)} class="text-xs text-sr-ink">
+                    {obs.summary}
+                  </p>
+                  <div :if={obs.badges != []} class="flex flex-wrap gap-1">
+                    <span
+                      :for={badge <- obs.badges}
+                      class="rounded border border-sr-line bg-sr-canvas px-1.5 py-0.5 text-[10px] text-sr-ink"
+                    >
+                      {badge.label}: {badge.value}
+                    </span>
+                  </div>
+                  <dl
+                    :if={obs.facts != []}
+                    class="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px]"
+                  >
+                    <div :for={fact <- obs.facts} class="flex items-baseline gap-1 truncate">
+                      <dt class="text-sr-muted">{fact.label}:</dt>
+                      <dd class="truncate font-mono text-sr-ink">{fact.value}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </dialog>
@@ -3029,8 +3138,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
   defp latest_clip_thumbnail_url(clips) when is_list(clips) do
     Enum.find_value(clips, fn clip ->
-      url = Map.get(clip, :thumbnail_url)
-      if is_binary(url) and url != "", do: url
+      VantageDisplay.sanitize_url(Map.get(clip, :thumbnail_url))
     end)
   end
 
@@ -3366,7 +3474,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   end
 
   defp hit_thumbnail_url(%{thumbnail_url: url}, _active_source_id) when is_binary(url) and url != "" do
-    url
+    VantageDisplay.sanitize_url(url)
   end
 
   defp hit_thumbnail_url(%{thumbnail_url: nil}, _active_source_id), do: nil
@@ -3560,19 +3668,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   defp build_vertical_thumbnail_markers(_, _, _, _, _), do: []
 
   defp resolve_marker_thumbnail_url(clip, clip_thumbs_by_id) do
-    direct = Map.get(clip, :thumbnail_url)
-    from_page = Map.get(clip_thumbs_by_id, to_string(Map.get(clip, :id)))
+    direct = VantageDisplay.sanitize_url(Map.get(clip, :thumbnail_url))
+    from_page = VantageDisplay.sanitize_url(Map.get(clip_thumbs_by_id, to_string(Map.get(clip, :id))))
 
-    cond do
-      is_binary(direct) and direct != "" ->
-        direct
-
-      is_binary(from_page) and from_page != "" ->
-        from_page
-
-      true ->
-        nil
-    end
+    direct || from_page
   end
 
   @max_scrubber_thumbnails 24
@@ -3581,10 +3680,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     page_clips
     |> List.wrap()
     |> Enum.reduce(%{}, fn clip, acc ->
-      url = Map.get(clip, :thumbnail_url)
+      url = VantageDisplay.sanitize_url(Map.get(clip, :thumbnail_url))
       id = Map.get(clip, :id)
 
-      if is_binary(url) and url != "" and not is_nil(id) do
+      if is_binary(url) and not is_nil(id) do
         Map.put(acc, to_string(id), url)
       else
         acc
@@ -3592,46 +3691,120 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     end)
   end
 
-  defp build_window_scrubber_events(markers, page_clips, play_from_us, play_to_us)
+  defp build_window_scrubber_events(markers, page_clips, play_from_us, play_to_us, vantage_observations)
        when is_list(markers) and is_integer(play_from_us) and is_integer(play_to_us) and play_to_us > play_from_us do
     clip_thumbs_by_id = index_clip_thumbnail_urls(page_clips)
 
-    markers
-    |> Enum.filter(&scrubber_event_marker?/1)
-    |> Enum.reduce([], fn clip, acc ->
-      clip_start = Map.get(clip, :start_us) || Map.get(clip, :peak_ts_us)
-      clip_end = Map.get(clip, :end_us) || clip_start
+    stage1_events =
+      markers
+      |> Enum.filter(&scrubber_event_marker?/1)
+      |> Enum.reduce([], fn clip, acc ->
+        clip_start = Map.get(clip, :start_us) || Map.get(clip, :peak_ts_us)
+        clip_end = Map.get(clip, :end_us) || clip_start
 
-      if is_integer(clip_start) and is_integer(clip_end) and
-           clip_end >= play_from_us and clip_start <= play_to_us do
-        start_offset = max((clip_start - play_from_us) / 1_000_000, 0.0)
-        end_offset = max((min(clip_end, play_to_us) - play_from_us) / 1_000_000, start_offset)
-        thumb_url = resolve_marker_thumbnail_url(clip, clip_thumbs_by_id)
+        if is_integer(clip_start) and is_integer(clip_end) and
+             clip_end >= play_from_us and clip_start <= play_to_us do
+          start_offset = max((clip_start - play_from_us) / 1_000_000, 0.0)
+          end_offset = max((min(clip_end, play_to_us) - play_from_us) / 1_000_000, start_offset)
+          thumb_url = resolve_marker_thumbnail_url(clip, clip_thumbs_by_id)
 
-        entry = %{
-          category: to_string(clip.category),
-          label: clip.label || to_string(clip.category),
-          start_offset_seconds: Float.round(start_offset, 3),
-          end_offset_seconds: Float.round(end_offset, 3),
-          confidence: Map.get(clip, :confidence)
-        }
+          entry = %{
+            category: to_string(clip.category),
+            label: clip.label || to_string(clip.category),
+            start_offset_seconds: Float.round(start_offset, 3),
+            end_offset_seconds: Float.round(end_offset, 3),
+            confidence: Map.get(clip, :confidence)
+          }
 
-        entry =
-          if is_binary(thumb_url) and thumb_url != "" do
-            Map.put(entry, :thumbnail_url, thumb_url)
-          else
-            entry
-          end
+          entry =
+            if is_binary(thumb_url) and thumb_url != "" do
+              Map.put(entry, :thumbnail_url, thumb_url)
+            else
+              entry
+            end
 
-        [entry | acc]
-      else
-        acc
-      end
-    end)
-    |> Enum.reverse()
+          [entry | acc]
+        else
+          acc
+        end
+      end)
+      |> Enum.reverse()
+
+    vantage_events =
+      vantage_observations
+      |> List.wrap()
+      |> Enum.reduce([], fn obs, acc ->
+        ts = Map.get(obs, :timeline_ts_us)
+
+        if is_integer(ts) and ts >= play_from_us and ts <= play_to_us do
+          offset = max((ts - play_from_us) / 1_000_000, 0.0)
+
+          entry = %{
+            source: "vantage",
+            category: to_string(Map.get(obs, :category) || "observation"),
+            label: Map.get(obs, :label) || to_string(Map.get(obs, :category) || "Observation"),
+            color: Map.get(obs, :color_hex),
+            start_offset_seconds: Float.round(offset, 3),
+            end_offset_seconds: Float.round(offset, 3),
+            confidence: Map.get(obs, :confidence)
+          }
+
+          entry =
+            case VantageDisplay.sanitize_url(Map.get(obs, :crop_url)) do
+              url when is_binary(url) ->
+                entry |> Map.put(:crop_url, url) |> Map.put(:thumbnail_url, url)
+
+              _ ->
+                entry
+            end
+
+          [entry | acc]
+        else
+          acc
+        end
+      end)
+      |> Enum.reverse()
+
+    stage1_events ++ vantage_events
   end
 
-  defp build_window_scrubber_events(_, _, _, _), do: []
+  defp build_window_scrubber_events(_, _, _, _, _), do: []
+
+  defp build_vantage_markers(observations, from_us, to_us, now_us)
+       when is_list(observations) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+    span_us = to_us - from_us
+
+    observations
+    |> Enum.filter(fn obs ->
+      ts = Map.get(obs, :timeline_ts_us)
+      is_integer(ts) and ts >= from_us and ts <= to_us
+    end)
+    |> Enum.take(24)
+    |> Enum.with_index()
+    |> Enum.map(fn {obs, idx} ->
+      ts = obs.timeline_ts_us
+      top_pct = Float.round(min(max((to_us - ts) / span_us * 100.0, 0.5), 99.5), 2)
+
+      conf_suffix =
+        if is_number(Map.get(obs, :confidence)),
+          do: " (#{format_confidence_pct(obs.confidence)})",
+          else: ""
+
+      age_label = format_relative_age(ts, now_us)
+
+      %{
+        idx: idx,
+        id: obs.id,
+        category: obs.category,
+        color_hex: obs.color_hex || "#f59e0b",
+        ts_us: ts,
+        top_pct: top_pct,
+        title: "#{obs.label}#{conf_suffix} — #{age_label}"
+      }
+    end)
+  end
+
+  defp build_vantage_markers(_observations, _from_us, _to_us, _now_us), do: []
 
   defp build_window_scrubber_thumbnails(blocks, markers, page_clips, active_source_id, play_from_us, play_to_us)
        when is_integer(play_from_us) and is_integer(play_to_us) and play_to_us > play_from_us do
@@ -3848,6 +4021,49 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
       true ->
         "No matching cameras."
+    end
+  end
+
+  defp encode_overlay_detections(detections) do
+    detections
+    |> sanitize_overlay_detections()
+    |> Jason.encode!()
+  end
+
+  defp sanitize_overlay_detections(detections) when is_list(detections) do
+    Enum.map(detections, &sanitize_overlay_detection_item/1)
+  end
+
+  defp sanitize_overlay_detections(_), do: []
+
+  defp sanitize_overlay_detection_item(%{} = det) do
+    det
+    |> sanitize_url_field(:thumbnail_url)
+    |> sanitize_url_field("thumbnail_url")
+    |> sanitize_url_field(:thumbnailUrl)
+    |> sanitize_url_field("thumbnailUrl")
+    |> sanitize_url_field(:crop_url)
+    |> sanitize_url_field("crop_url")
+    |> sanitize_url_field(:cropUrl)
+    |> sanitize_url_field("cropUrl")
+    |> sanitize_nested_detections_list(:detections)
+    |> sanitize_nested_detections_list("detections")
+  end
+
+  defp sanitize_overlay_detection_item(other), do: other
+
+  defp sanitize_url_field(map, key) do
+    if Map.has_key?(map, key) do
+      Map.put(map, key, VantageDisplay.sanitize_url(Map.get(map, key)))
+    else
+      map
+    end
+  end
+
+  defp sanitize_nested_detections_list(map, key) do
+    case Map.fetch(map, key) do
+      {:ok, nested} when is_list(nested) -> Map.put(map, key, sanitize_overlay_detections(nested))
+      _ -> map
     end
   end
 end

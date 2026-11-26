@@ -232,12 +232,51 @@ defmodule ServiceRadarWebNGWeb.CatalogLiveTest do
       }
     end
 
-    def check_dependencies(deps, _opts) do
+    def check_dependencies(%{} = pack, opts) do
+      plugin_deps = Map.get(pack, "plugin_dependencies", [])
+      worker_deps = Map.get(pack, "worker_dependencies", [])
+      dash_deps = Map.get(pack, "dashboard_package_dependencies", [])
+      {:ok, base} = check_dependencies(plugin_deps, opts)
+
+      {:ok,
+       Map.merge(base, %{
+         worker_dependencies:
+           Enum.map(worker_deps, fn w ->
+             %{
+               capability: w["capability"],
+               min_protocol_version: w["min_protocol_version"],
+               optional: w["optional"] == true,
+               fallback_runner: w["fallback_runner"],
+               blocking?: w["optional"] != true and is_nil(w["fallback_runner"]),
+               status:
+                 if(w["fallback_runner"],
+                   do: :fallback_ready,
+                   else: :satisfied
+                 ),
+               message: "Worker status evaluated"
+             }
+           end),
+         dashboard_package_dependencies:
+           Enum.map(dash_deps, fn d ->
+             %{
+               dashboard_id: d["dashboard_id"],
+               version_constraint: d["version_constraint"],
+               required: d["optional"] != true,
+               status: :staged_approval_required,
+               review_path: "/settings/dashboards/packages",
+               message: "Dashboard package requires admin approval"
+             }
+           end)
+       })}
+    end
+
+    def check_dependencies(deps, _opts) when is_list(deps) do
       {:ok,
        %{
          ready?: true,
          blocking_count: 0,
          review_path: "/settings/agents/plugins",
+         dashboards_review_path: "/settings/dashboards/packages",
          dependencies:
            Enum.map(deps, fn dep ->
              %{
@@ -249,7 +288,9 @@ defmodule ServiceRadarWebNGWeb.CatalogLiveTest do
                review_path: nil,
                message: "Approved Wasm plugin satisfies constraint"
              }
-           end)
+           end),
+         worker_dependencies: [],
+         dashboard_package_dependencies: []
        }}
     end
 
@@ -295,9 +336,39 @@ defmodule ServiceRadarWebNGWeb.CatalogLiveTest do
        }}
     end
 
-    def install_pack(_slug, params, _opts) do
-      update_state(&Map.put(&1, :last_install_params, params))
-      {:ok, %{status: :applied, pack_version: "0.2.0", config_values: params["config"]}}
+    def install_pack(_slug, params, opts) do
+      update_state(fn st ->
+        st
+        |> Map.put(:last_install_params, params)
+        |> Map.put(:last_install_opts, opts)
+      end)
+
+      activate? = Keyword.get(opts, :activate_dashboard_packages, false) == true
+
+      {:ok,
+       %{
+         status: :applied,
+         pack_version: "0.2.0",
+         config_values: params["config"],
+         applied_dashboard_packages: [
+           %{
+             dashboard_id: "com.serviceradar.vantage-console",
+             version: "1.0.0",
+             route_slug: "vantage-console",
+             status: if(activate?, do: :enabled, else: :staged)
+           }
+         ]
+       }}
+    end
+
+    def uninstall_pack(slug, _opts) do
+      update_state(&Map.put(&1, :last_uninstalled, slug))
+      {:ok, %{slug: slug, mode: :delete}}
+    end
+
+    def detach_pack(slug, _opts) do
+      update_state(&Map.put(&1, :last_detached, slug))
+      {:ok, %{slug: slug, mode: :detach}}
     end
 
     def create_repository(attrs, _opts) do
@@ -354,16 +425,39 @@ defmodule ServiceRadarWebNGWeb.CatalogLiveTest do
     end
   end
 
+  defmodule VantageWorkersStub do
+    @moduledoc false
+    def reset!(summary \\ ServiceRadarWebNG.CameraVantageWorkers.default_summary()) do
+      :persistent_term.put({__MODULE__, :summary}, summary)
+    end
+
+    def summary(_scope) do
+      :persistent_term.get(
+        {__MODULE__, :summary},
+        ServiceRadarWebNG.CameraVantageWorkers.default_summary()
+      )
+    end
+  end
+
   setup do
     previous = Application.get_env(:serviceradar_web_ng, :catalog_backend)
+    previous_vw = Application.get_env(:serviceradar_web_ng, :catalog_vantage_workers_backend)
     Application.put_env(:serviceradar_web_ng, :catalog_backend, CatalogStub)
+    Application.put_env(:serviceradar_web_ng, :catalog_vantage_workers_backend, VantageWorkersStub)
     CatalogStub.reset!()
+    VantageWorkersStub.reset!()
 
     on_exit(fn ->
       if previous do
         Application.put_env(:serviceradar_web_ng, :catalog_backend, previous)
       else
         Application.delete_env(:serviceradar_web_ng, :catalog_backend)
+      end
+
+      if previous_vw do
+        Application.put_env(:serviceradar_web_ng, :catalog_vantage_workers_backend, previous_vw)
+      else
+        Application.delete_env(:serviceradar_web_ng, :catalog_vantage_workers_backend)
       end
     end)
 
@@ -613,6 +707,160 @@ defmodule ServiceRadarWebNGWeb.CatalogLiveTest do
 
       assert modal_html =~ "Save Parameter Override"
       assert modal_html =~ "Detach / Fork (managed: false)"
+    end
+  end
+
+  describe "v2 Vantage pack UI, dashboard activation RBAC toggle, and uninstall modal" do
+    test "renders v2 worker/dashboard deps, unchecked RBAC-gated activation toggle, staged Step 4 link, and uninstall/detach controls" do
+      v2_pack = %{
+        "pack_format_version" => 2,
+        "id" => "io.serviceradar.synthetic-vantage-ui",
+        "slug" => "synthetic-vantage-ui",
+        "name" => "Synthetic Vantage UI",
+        "version" => "1.0.0",
+        "author" => "ServiceRadar",
+        "description" => "Synthetic v2 Vantage pack",
+        "categories" => ["Camera & Vantage"],
+        "source_type" => "builtin",
+        "installed" => true,
+        "installed_version" => "1.0.0",
+        "available_version" => "1.0.0",
+        "update_available" => false,
+        "counts" => %{
+          "checks" => 0,
+          "rules" => 0,
+          "dashboards" => 0,
+          "vantage_pipelines" => 1,
+          "signal_schemas" => 1,
+          "dashboard_packages" => 1
+        },
+        "config" => [],
+        "credential_slots" => [],
+        "plugin_dependencies" => [],
+        "worker_dependencies" => [
+          %{
+            "capability" => "vantage.alpr.v1",
+            "min_protocol_version" => "vantage.worker.v1",
+            "optional" => true,
+            "fallback_runner" => "camera_vlm"
+          }
+        ],
+        "dashboard_package_dependencies" => [
+          %{"dashboard_id" => "com.serviceradar.shared", "version_constraint" => ">= 1.0.0", "optional" => true}
+        ],
+        "vantage_pipelines" => [
+          %{"pipeline_id" => "io.serviceradar.synthetic-vantage-ui.gate", "version" => "1.0.0", "name" => "Gate Pipeline"}
+        ],
+        "signal_schemas" => [
+          %{"schema_id" => "plate_read", "version" => "1.0.0", "display_contract_id" => "plate_read"}
+        ],
+        "dashboard_packages" => [
+          %{
+            "slug" => "vantage-console",
+            "dashboard_id" => "com.serviceradar.vantage-console",
+            "route_slug" => "vantage-console"
+          }
+        ]
+      }
+
+      CatalogStub.update_state(fn st -> Map.update!(st, :packs, &[v2_pack | &1]) end)
+
+      # 1. Operator without dashboards.packages.* sees notice instead of activation checkbox
+      op_socket = mount_connected(full_catalog_scope())
+      assert render_html(op_socket) =~ "Camera &amp; Vantage"
+      assert render_html(op_socket) =~ "1 vantage pipelines"
+      assert render_html(op_socket) =~ "1 dashboard modules"
+
+      {:noreply, op_socket} =
+        CatalogLive.handle_event("open_install_wizard", %{"slug" => "synthetic-vantage-ui"}, op_socket)
+
+      {:noreply, op_socket} = CatalogLive.handle_event("wizard_next_step", %{}, op_socket)
+      op_step2 = render_html(op_socket)
+      assert op_step2 =~ "wizard-worker-deps-section"
+      assert op_step2 =~ "vantage.alpr.v1"
+      assert op_step2 =~ "wizard-dashboard-deps-section"
+      assert op_step2 =~ "/settings/dashboards/packages"
+      refute op_step2 =~ "wizard-activate-dashboards-checkbox"
+
+      {:noreply, op_socket} = CatalogLive.handle_event("wizard_next_step", %{}, op_socket)
+      {:noreply, op_socket} = CatalogLive.handle_event("wizard_apply_install", %{}, op_socket)
+      op_step4 = render_html(op_socket)
+      assert op_step4 =~ "staged"
+      assert op_step4 =~ "/settings/dashboards/packages"
+
+      # 2. Admin WITH dashboards.packages.manage sees unchecked-by-default toggle and can opt in
+      admin_scope =
+        scope_with_permissions([
+          "catalog.view",
+          "catalog.packs.install",
+          "dashboards.packages.manage"
+        ])
+
+      admin_socket = mount_connected(admin_scope)
+
+      {:noreply, admin_socket} =
+        CatalogLive.handle_event("open_install_wizard", %{"slug" => "synthetic-vantage-ui"}, admin_socket)
+
+      assert admin_socket.assigns.wizard.activate_dashboard_packages == false
+      {:noreply, admin_socket} = CatalogLive.handle_event("wizard_next_step", %{}, admin_socket)
+      assert render_html(admin_socket) =~ "wizard-activate-dashboards-checkbox"
+
+      {:noreply, admin_socket} = CatalogLive.handle_event("wizard_toggle_activate_dashboards", %{}, admin_socket)
+      assert admin_socket.assigns.wizard.activate_dashboard_packages == true
+      {:noreply, admin_socket} = CatalogLive.handle_event("wizard_next_step", %{}, admin_socket)
+      {:noreply, admin_socket} = CatalogLive.handle_event("wizard_apply_install", %{}, admin_socket)
+      assert Keyword.get(CatalogStub.state().last_install_opts, :activate_dashboard_packages) == true
+      assert render_html(admin_socket) =~ "enabled"
+
+      # 3. Uninstall & Detach confirmation modal
+      {:noreply, admin_socket} =
+        CatalogLive.handle_event("open_uninstall_confirm", %{"slug" => "synthetic-vantage-ui"}, admin_socket)
+
+      assert render_html(admin_socket) =~ "pack-uninstall-confirm-modal"
+
+      {:noreply, admin_socket} =
+        CatalogLive.handle_event("confirm_uninstall_pack", %{"slug" => "synthetic-vantage-ui"}, admin_socket)
+
+      assert CatalogStub.state().last_uninstalled == "synthetic-vantage-ui"
+    end
+
+    test "renders Vantage ML worker health strip and updates live on heartbeat broadcast" do
+      VantageWorkersStub.reset!(%{
+        workers: [
+          %{
+            worker_id: "vantage-alpr-edge-01",
+            worker_kind: "external_rust",
+            capabilities: ["vantage.alpr.v1"],
+            supported_source_modes: ["recorded_block"],
+            execution_backend: "onnx",
+            architecture: "arm64",
+            model_id: "fast-alpr",
+            model_version: "1.2.0",
+            active_jobs: 1,
+            max_concurrency: 4,
+            saturated?: false,
+            health: "ready",
+            expires_at: ~U[2026-11-25 12:00:30Z],
+            online?: true,
+            stale?: false
+          }
+        ],
+        online_count: 1,
+        stale_count: 0,
+        queue_lag: %{accessible?: true, pending_count: 2, dispatched_count: 1, oldest_pending_age_seconds: 12},
+        routing_mode: :ramp_2,
+        pipelines: []
+      })
+
+      socket = mount_connected(scope_with_permissions(["catalog.view"]))
+      html = render_html(socket)
+
+      assert html =~ "vantage-worker-health-strip"
+      assert html =~ "Ramp 2: vantage.worker.v1 active"
+      assert html =~ "vantage-alpr-edge-01"
+      assert html =~ "vantage.alpr.v1"
+      assert html =~ "1/4"
+      assert html =~ "oldest 12s"
     end
   end
 

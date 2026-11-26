@@ -24,6 +24,8 @@ export const BOOLEAN_FLAGS: Set<string> = new Set([
   "refresh-files",
   "write-manifest",
   "require-signatures",
+  // `vantage` subcommands
+  "with-dashboard",
 ])
 
 // Single-letter aliases. Only `-o` is recognised: download commands take

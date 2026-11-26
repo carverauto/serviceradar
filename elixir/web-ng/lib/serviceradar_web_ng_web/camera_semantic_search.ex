@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Camera.SemanticSearch
+  alias ServiceRadar.Camera.Thumbnail
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
@@ -254,6 +255,14 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
     catalog_entry_id = normalize_optional_id(fetch_val(hit, :catalog_entry_id))
     has_frame_thumbnail = normalize_optional_boolean(fetch_val(hit, :has_frame_thumbnail))
     has_block_thumbnail = normalize_optional_boolean(fetch_val(hit, :has_block_thumbnail))
+    vantage_observation_id = normalize_optional_id(fetch_val(hit, :vantage_observation_id))
+    has_crop = normalize_optional_boolean(fetch_val(hit, :has_crop))
+
+    crop_url =
+      if has_crop == true and is_binary(camera_source_id) and camera_source_id != "" and
+           is_binary(vantage_observation_id) do
+        Thumbnail.vantage_crop_url(camera_source_id, vantage_observation_id)
+      end
 
     timeline_path =
       build_timeline_path(
@@ -265,17 +274,37 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       )
 
     thumbnail_url =
-      build_thumbnail_url(
-        camera_source_id,
-        visual_frame_id,
-        catalog_entry_id,
-        has_frame_thumbnail,
-        has_block_thumbnail
-      )
+      crop_url ||
+        build_thumbnail_url(
+          camera_source_id,
+          visual_frame_id,
+          catalog_entry_id,
+          has_frame_thumbnail,
+          has_block_thumbnail
+        )
+
+    observation_category =
+      case fetch_val(hit, :observation_category) do
+        nil -> nil
+        val -> to_string(val)
+      end
+
+    observation_label =
+      case fetch_val(hit, :observation_label) do
+        nil -> nil
+        val -> to_string(val)
+      end
+
+    attributes =
+      case fetch_val(hit, :attributes) do
+        %{} = map -> map
+        _ -> nil
+      end
 
     %{
       catalog_entry_id: catalog_entry_id,
       visual_frame_id: if(visual_frame_id == "", do: nil, else: visual_frame_id),
+      vantage_observation_id: vantage_observation_id,
       camera_source_id: camera_source_id,
       camera_display_name: camera_display_name,
       device_uid: fetch_val(hit, :device_uid),
@@ -288,6 +317,13 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       score: score,
       region_kind: region_kind,
       object_class: fetch_val(hit, :object_class),
+      observation_category: observation_category,
+      observation_label: observation_label,
+      signal_schema_id: fetch_val(hit, :signal_schema_id),
+      display_contract_id: fetch_val(hit, :display_contract_id),
+      attributes: attributes,
+      has_crop: has_crop,
+      crop_url: crop_url,
       dominant_colors: dominant_colors,
       bbox: bbox,
       frame_detections: frame_detections,

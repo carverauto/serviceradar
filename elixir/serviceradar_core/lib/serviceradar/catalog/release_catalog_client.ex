@@ -238,7 +238,8 @@ defmodule ServiceRadar.Catalog.ReleaseCatalogClient do
   end
 
   defp download_bundle_and_sig(_repo, parsed, index_data, entry, token, opts) do
-    max_bundle = Keyword.get(opts, :max_compressed_bytes, PackArchive.max_compressed_bytes())
+    max_bundle =
+      Keyword.get(opts, :max_compressed_bytes, PackArchive.max_compressed_bytes_with_dashboards())
 
     with {:ok, bundle_bytes} <-
            fetch_entry_artifact(parsed, index_data, entry, :bundle, token, max_bundle, opts),

@@ -12,7 +12,7 @@ import {
   writeCanonicalJsonPretty,
 } from "./canonical.js"
 import {SIGNATURE_ALGORITHM, verifyManifestAndHash, type UploadSignatureDocument} from "./sign.js"
-import {PackValidationError, validatePackFiles} from "./validate.js"
+import {PackValidationError, validatePackFiles, type PackResourceCounts} from "./validate.js"
 
 export const DEFAULT_PACK_INDEX_FILENAME = "serviceradar-pack-index.json"
 
@@ -36,11 +36,7 @@ export interface PackIndexEntry {
   upload_signature_url: string
   signed: boolean
   signing_key_id?: string
-  resource_counts: {
-    checks: number
-    rules: number
-    dashboards: number
-  }
+  resource_counts: PackResourceCounts
   manifest: Record<string, unknown>
 }
 
@@ -76,7 +72,10 @@ export function buildPackCatalogIndex(opts: BuildPackIndexOptions): {
   for (const srpackPath of srpackPaths) {
     const archiveBytes = readFileSync(srpackPath)
     const archiveFiles = readSrpackArchive(archiveBytes)
-    const validation = validatePackFiles(archiveFiles, {verifyHashes: true})
+    const validation = validatePackFiles(archiveFiles, {
+      verifyHashes: true,
+      compressedBytes: archiveBytes.length,
+    })
     if (!validation.ok) {
       throw new PackValidationError(validation.issues)
     }

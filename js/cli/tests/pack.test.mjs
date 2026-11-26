@@ -5,8 +5,9 @@
 // `npm test` and hermetically on Linux RBE under `bazel test //js/cli:pack_test`.
 
 import {execFile} from "node:child_process"
-import {createHash, createPublicKey, verify as cryptoVerify} from "node:crypto"
-import {mkdir, mkdtemp, readFile, symlink, utimes, writeFile} from "node:fs/promises"
+import {createHash, createPublicKey, randomBytes, verify as cryptoVerify} from "node:crypto"
+import {existsSync} from "node:fs"
+import {access, cp, mkdir, mkdtemp, readFile, symlink, utimes, writeFile} from "node:fs/promises"
 import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {promisify} from "node:util"
@@ -315,10 +316,10 @@ test("pack validate accepts a valid pack_format_version 1 directory", async () =
 })
 
 test("pack validate rejects unsupported pack_format_version and SHA-256 digest mismatch", async () => {
-  const badVerDir = await createSamplePackDir({manifestPatch: {pack_format_version: 2}})
+  const badVerDir = await createSamplePackDir({manifestPatch: {pack_format_version: 99}})
   const badVer = await runCli(["pack", "validate", badVerDir])
   assert.notEqual(badVer.code, 0)
-  assert.match(badVer.stderr, /unsupported pack_format_version 2; expected 1/)
+  assert.match(badVer.stderr, /unsupported pack_format_version 99; expected 1 or 2/)
 
   const tamperedDir = await createSamplePackDir()
   await writeFile(join(tamperedDir, "README.md"), "# Modified after manifest hash\n")
@@ -401,6 +402,29 @@ test("pack validate enforces SecretFreeValidator parity against secret keys, tok
   assert.notEqual(r3.code, 0)
   assert.match(r3.stderr, /secret_token_literal/)
   assert.match(r3.stderr, /README\.md/)
+
+  // 4. Multiline/newline literal Authorization header in JSON fails closed (1:1 Elixir parity)
+  const jsonMultilineAuthDir = await createSamplePackDir({
+    checkDoc: {
+      schema_version: 1,
+      slug: "storage-entitlement-utilization",
+      nodes: [
+        {
+          id: "http_1",
+          kind: "http_request",
+          config: {
+            url: "https://api.example.test/health",
+            headers_note: "Authorization: Bearer\nreal_token_123456",
+          },
+        },
+      ],
+      edges: [],
+    },
+  })
+  const r4 = await runCli(["pack", "validate", jsonMultilineAuthDir])
+  assert.notEqual(r4.code, 0)
+  assert.match(r4.stderr, /literal_auth_credential/)
+  assert.match(r4.stderr, /checks\/entitlement-utilization\.json/)
 })
 
 test("pack validate rejects unsafe SVGs, unlisted files, symlinks, cyclic check DAGs, and overlapping dashboard panels", async () => {
@@ -761,4 +785,518 @@ test("pack index builds deterministic serviceradar-pack-index.json for GitHub re
   assert.equal(idxRes2.code, 0, idxRes2.stderr)
   const indexBytes2 = await readFile(indexOut2)
   assert.deepEqual(indexBytes1, indexBytes2)
+})
+
+async function createSampleV2PackDir({withDashboardPackage = true, overrides = {}} = {}) {
+  const packDir = await mkdtemp(join(tmpdir(), "sr-pack-v2-"))
+  await mkdir(join(packDir, "vantage_pipelines"), {recursive: true})
+  await mkdir(join(packDir, "signal_schemas"), {recursive: true})
+  if (withDashboardPackage) {
+    await mkdir(join(packDir, "dashboard_packages/alpr-console"), {recursive: true})
+  }
+
+  const readmeBytes = Buffer.from(
+    "# Vantage ALPR Synthetic Pack\n\nMonitors Gate West 01 (SR-0100, TEST-742).\n",
+    "utf8",
+  )
+
+  const pipelineDoc = overrides.pipelineDoc ?? {
+    pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+    version: "1.0.0",
+    name: "ALPR Vehicle Plate Reader",
+    description: "Synthetic ALPR pipeline for Gate West 01.",
+    enabled: true,
+    source_mode: "recorded_block",
+    trigger_kind: "on_stage1_detection",
+    camera_selector: "tag:gate-west-01",
+    object_classes: ["vehicle"],
+    min_confidence: 0.55,
+    roi_polygons: [
+      [
+        [0.05, 0.2],
+        [0.95, 0.2],
+        [0.95, 0.95],
+        [0.05, 0.95],
+      ],
+    ],
+    input_mode: "detection_crop",
+    crop_policy: {
+      padding_ratio: 0.15,
+      min_bbox_width_px: 96,
+      max_dimension: 640,
+      max_bytes: 98304,
+    },
+    max_jobs_per_minute: 60,
+    max_frames_per_track: 3,
+    runner: "camera_vlm",
+    capability: "vantage.alpr.v1",
+    fallback_runner: "camera_vlm",
+    vlm_config: {
+      prompt: "Read the synthetic plate (SR-0100, TEST-742) and return strict JSON.",
+      model_profile: "vantage-vlm-fast",
+      max_tokens: 256,
+      temperature: 0.0,
+    },
+    signal_schema_id: "alpr_plate_read",
+    signal_schema_version: "1.0.0",
+    display_contract_id: "alpr_plate_read",
+    emit_ocsf_events: true,
+    live_observation_retention_days: 30,
+  }
+
+  const schemaDoc = overrides.schemaDoc ?? {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    id: "alpr_plate_read",
+    version: "1.0.0",
+    type: "object",
+    required: ["plate_text"],
+    additionalProperties: false,
+    properties: {
+      plate_text: {type: "string", pattern: "^[A-Z0-9-]{2,12}$"},
+      region: {type: "string", maxLength: 32},
+      confidence: {type: "number", minimum: 0.0, maximum: 1.0},
+    },
+  }
+
+  const displayDoc = overrides.displayDoc ?? {
+    id: "alpr_plate_read",
+    version: "1.0.0",
+    title: "ALPR Plate Read",
+    badge: {label: "Plate", color: "#0EA5E9", icon: "hero-identification"},
+    scrubber_marker: {category: "license_plate", color: "#0EA5E9", label_field: "plate_text"},
+    overlay: {label_template: "{{plate_text}}", stroke_color: "#0EA5E9", show_confidence: true},
+    crop_preview: {enabled: true, max_bytes: 32768, alt_template: "Crop for {{plate_text}}"},
+  }
+
+  const pipelineBytes = Buffer.from(JSON.stringify(pipelineDoc, null, 2) + "\n", "utf8")
+  const schemaBytes = Buffer.from(JSON.stringify(schemaDoc, null, 2) + "\n", "utf8")
+  const displayBytes = Buffer.from(JSON.stringify(displayDoc, null, 2) + "\n", "utf8")
+
+  await writeFile(join(packDir, "README.md"), readmeBytes)
+  await writeFile(join(packDir, "vantage_pipelines/alpr-vehicle-plate.json"), pipelineBytes)
+  await writeFile(join(packDir, "signal_schemas/alpr_plate_read.schema.json"), schemaBytes)
+  await writeFile(join(packDir, "signal_schemas/alpr_plate_read.display.json"), displayBytes)
+
+  const filesTable = {
+    "README.md": sha256Hex(readmeBytes),
+    "signal_schemas/alpr_plate_read.display.json": sha256Hex(displayBytes),
+    "signal_schemas/alpr_plate_read.schema.json": sha256Hex(schemaBytes),
+    "vantage_pipelines/alpr-vehicle-plate.json": sha256Hex(pipelineBytes),
+  }
+
+  const resources = {
+    checks: [],
+    rules: [],
+    dashboards: [],
+    vantage_pipelines: [
+      {
+        id: "io.serviceradar.vantage-alpr.vehicle-plate",
+        slug: "alpr-vehicle-plate",
+        file: "vantage_pipelines/alpr-vehicle-plate.json",
+      },
+    ],
+    signal_schemas: [
+      {
+        id: "alpr_plate_read",
+        version: "1.0.0",
+        file: "signal_schemas/alpr_plate_read.schema.json",
+        display_file: "signal_schemas/alpr_plate_read.display.json",
+      },
+    ],
+  }
+
+  if (withDashboardPackage) {
+    const rendererBytes =
+      overrides.rendererBytes ??
+      Buffer.from(
+        'export const MODULE_VERSION = "dashboard-browser-module-v1";\nexport function mountDashboard() { return { samplePlates: ["SR-0100", "TEST-742"] }; }\n',
+        "utf8",
+      )
+    const dashManifestDoc = overrides.dashManifestDoc ?? {
+      schema_version: 1,
+      id: "io.serviceradar.alpr-console",
+      name: "ALPR Synthetic Console",
+      version: "1.0.0",
+      description: "Synthetic ALPR dashboard module for Gate West 01.",
+      vendor: "ServiceRadar",
+      renderer: {
+        kind: "browser_module",
+        interface_version: "dashboard-browser-module-v1",
+        artifact: "renderer.js",
+        sha256: sha256Hex(rendererBytes),
+        trust: "trusted",
+      },
+      data_frames: [
+        {
+          id: "recent_plate_reads",
+          query: "in:camera_observations category:license_plate sort:timeline_ts_us:desc limit:100",
+          encoding: "json_rows",
+          required: true,
+        },
+      ],
+      capabilities: ["camera.stream.view", "events.subscribe", "srql.execute"],
+    }
+    const dashManifestBytes = Buffer.from(JSON.stringify(dashManifestDoc, null, 2) + "\n", "utf8")
+    await writeFile(join(packDir, "dashboard_packages/alpr-console/renderer.js"), rendererBytes)
+    await writeFile(join(packDir, "dashboard_packages/alpr-console/manifest.json"), dashManifestBytes)
+    filesTable["dashboard_packages/alpr-console/manifest.json"] = sha256Hex(dashManifestBytes)
+    filesTable["dashboard_packages/alpr-console/renderer.js"] = sha256Hex(rendererBytes)
+    resources.dashboard_packages = [
+      {
+        slug: "alpr-console",
+        dir: "dashboard_packages/alpr-console",
+        manifest_file: "dashboard_packages/alpr-console/manifest.json",
+        renderer_file: "dashboard_packages/alpr-console/renderer.js",
+      },
+    ]
+  }
+
+  const manifest = {
+    pack_format_version: 2,
+    id: "io.serviceradar.vantage-alpr",
+    slug: "vantage-alpr",
+    name: "Vantage ALPR",
+    version: "1.0.0",
+    license: "Apache-2.0",
+    author: "ServiceRadar",
+    categories: ["camera", "vantage-ml"],
+    worker_dependencies: [
+      {
+        capability: "vantage.alpr.v1",
+        min_protocol_version: "vantage.worker.v1",
+        optional: true,
+        fallback_runner: "camera_vlm",
+      },
+    ],
+    dashboard_package_dependencies: [
+      {
+        dashboard_id: "io.serviceradar.alpr-console",
+        version_range: ">=1.0.0",
+      },
+    ],
+    resources,
+    files: filesTable,
+    ...(overrides.manifestPatch || {}),
+  }
+
+  await writeFile(join(packDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n")
+  return packDir
+}
+
+test("pack v2 validate, build, sign, verify, and index round-trip with 6-key resource_counts", async () => {
+  const packDir = await createSampleV2PackDir()
+  const valRes = await runCli(["pack", "validate", packDir, "--json"])
+  assert.equal(valRes.code, 0, valRes.stderr)
+  const summary = JSON.parse(valRes.stdout)
+  assert.equal(summary.valid, true)
+  assert.deepEqual(summary.resource_counts, {
+    checks: 0,
+    rules: 0,
+    dashboards: 0,
+    vantage_pipelines: 1,
+    signal_schemas: 1,
+    dashboard_packages: 1,
+  })
+
+  const distDir = await mkdtemp(join(tmpdir(), "sr-pack-v2-dist-"))
+  const srpackPath = join(distDir, "vantage-alpr-1.0.0.srpack")
+  const buildRes = await runCli(["pack", "build", packDir, "-o", srpackPath, "--json"])
+  assert.equal(buildRes.code, 0, buildRes.stderr)
+  const builtJson = JSON.parse(buildRes.stdout)
+  assert.equal(builtJson.resource_counts.vantage_pipelines, 1)
+  assert.equal(builtJson.resource_counts.signal_schemas, 1)
+  assert.equal(builtJson.resource_counts.dashboard_packages, 1)
+
+  const valArc = await runCli(["pack", "validate", srpackPath, "--json"])
+  assert.equal(valArc.code, 0, valArc.stderr)
+
+  const keyDir = await mkdtemp(join(tmpdir(), "sr-pack-v2-keys-"))
+  const kg = JSON.parse((await runCli(["pack", "keygen", "--out-dir", keyDir, "--key-id", "v2-key-1", "--json"])).stdout)
+  const signRes = await runCli(["pack", "sign", srpackPath, "--key", kg.private_key_file, "--key-id", "v2-key-1", "--json"])
+  assert.equal(signRes.code, 0, signRes.stderr)
+  const verRes = await runCli(["pack", "verify", srpackPath, "--public-key", kg.public_key_file, "--json"])
+  assert.equal(verRes.code, 0, verRes.stderr)
+  assert.equal(JSON.parse(verRes.stdout).verified, true)
+
+  const idxOut = join(distDir, "serviceradar-pack-index.json")
+  const idxRes = await runCli(["pack", "index", distDir, "-o", idxOut, "--base-url", "https://packages.example.test", "--require-signatures", "--public-key", kg.public_key_file, "--json"])
+  assert.equal(idxRes.code, 0, idxRes.stderr)
+  const idx = JSON.parse(await readFile(idxOut, "utf8"))
+  assert.equal(idx.format_version, 1)
+  assert.equal(idx.packs[0].resource_counts.dashboard_packages, 1)
+})
+
+test("pack validate rejects v2 fields in v1 packs and circular signal_schema $ref", async () => {
+  for (const [scope, field] of [
+    ["root", "worker_dependencies"],
+    ["root", "dashboard_package_dependencies"],
+    ["resources", "vantage_pipelines"],
+    ["resources", "signal_schemas"],
+    ["resources", "dashboard_packages"],
+  ]) {
+    const patch =
+      scope === "root"
+        ? {[field]: []}
+        : {
+            resources: {
+              checks: [],
+              rules: [],
+              dashboards: [],
+              [field]: [],
+            },
+          }
+    const v1BadDir = await createSamplePackDir({manifestPatch: patch})
+    const res = await runCli(["pack", "validate", v1BadDir])
+    assert.notEqual(res.code, 0)
+    assert.match(res.stderr, /forbidden in pack_format_version=1/)
+  }
+
+  const cycleSchemaDir = await createSampleV2PackDir({
+    withDashboardPackage: false,
+    overrides: {
+      schemaDoc: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        id: "alpr_plate_read",
+        version: "1.0.0",
+        type: "object",
+        $defs: {
+          nodeA: {$ref: "#/$defs/nodeB"},
+          nodeB: {$ref: "#/$defs/nodeA"},
+        },
+        properties: {
+          plate_text: {$ref: "#/$defs/nodeA"},
+        },
+      },
+    },
+  })
+  const cycleRes = await runCli(["pack", "validate", cycleSchemaDir])
+  assert.notEqual(cycleRes.code, 0)
+  assert.match(cycleRes.stderr, /circular_json_schema_ref/)
+})
+
+test("pack v2 enforces 8 MiB MAX_RENDERER_BYTES, triple SHA-256 parity, and JS-aware SecretFreeValidator", async () => {
+  // 1. Exact 8 MiB renderer passes; 8 MiB + 1 byte fails with MAX_RENDERER_BYTES and emits no .srpack
+  const exactDir = await createSampleV2PackDir({
+    overrides: {rendererBytes: Buffer.alloc(8 * 1024 * 1024, "a")},
+  })
+  const exactVal = await runCli(["pack", "validate", exactDir])
+  assert.equal(exactVal.code, 0, exactVal.stderr)
+
+  const overDir = await createSampleV2PackDir({
+    overrides: {rendererBytes: Buffer.alloc(8 * 1024 * 1024 + 1, "a")},
+  })
+  const overOut = join(overDir, "should-not-exist.srpack")
+  const overBuild = await runCli(["pack", "build", overDir, "-o", overOut])
+  assert.notEqual(overBuild.code, 0)
+  assert.match(overBuild.stderr, /MAX_RENDERER_BYTES/)
+  await assert.rejects(() => access(overOut))
+
+  // 2. Tampering renderer.js even with --refresh-files fails due to dashboard manifest SHA-256 parity
+  const tamperDir = await createSampleV2PackDir()
+  await writeFile(
+    join(tamperDir, "dashboard_packages/alpr-console/renderer.js"),
+    "export function mountDashboard() { return { tampered: true }; }\n",
+  )
+  const tamperOut = join(tamperDir, "tamper.srpack")
+  const tamperBuild = await runCli(["pack", "build", tamperDir, "-o", tamperOut, "--refresh-files"])
+  assert.notEqual(tamperBuild.code, 0)
+  assert.match(tamperBuild.stderr, /!= actual renderer SHA-256/)
+  await assert.rejects(() => access(tamperOut))
+
+  // 3. Benign minified JS identifiers, header-prefix concatenation/interpolation, and comments pass while literal tokens, auth credentials (single/multiline/aws4), and PEM blocks fail
+  const benignDir = await createSampleV2PackDir({
+    overrides: {
+      rendererBytes: Buffer.from(
+        [
+          "// Authorization: Bearer",
+          "const x = 1;",
+          'const quoteRe = /"/g; const ratio = 1 / 2;',
+          "export function render(token,secretKey,password,authHeader,tok,creds){",
+          '  return{token,secretKey,password,authHeader,quoteRe,ratio,raw:"Authorization: Bearer " + token,basic:\'Authorization: Basic \' + creds,tpl:`Authorization: Bearer ${tok}`};',
+          "}",
+        ].join("\n") + "\n",
+        "utf8",
+      ),
+    },
+  })
+  const benignRes = await runCli(["pack", "validate", benignDir])
+  assert.equal(benignRes.code, 0, benignRes.stderr)
+
+  for (const [leakedLiteral, expectedCode] of [
+    ["ghp_" + "SyntheticToken0123456789", /secret_token_literal/],
+    ["ghr_" + "SyntheticRefresh0123456789", /secret_token_literal/],
+    ["github_pat_" + "11SYNTHETIC_0123456789abcdef", /secret_token_literal/],
+    ["-----BEGIN RSA PRIVATE KEY-----\nMIIE_SYNTHETIC_KEY_DATA", /pem_private_key/],
+    ["Authorization: Bearer real_token_123456", /literal_auth_credential/],
+    ["Authorization: Bearer synthetic-bearer-token-value-12345", /literal_auth_credential/],
+    ["Authorization: Bearer\nreal_token_123456", /literal_auth_credential/],
+    ["Authorization: AWS4-HMAC-SHA256 Credential=my_secret_cred_value", /literal_auth_credential/],
+  ]) {
+    const leakDir = await createSampleV2PackDir({
+      overrides: {
+        rendererBytes: Buffer.from(`export const leaked = ${JSON.stringify(leakedLiteral)};\n`, "utf8"),
+      },
+    })
+    const leakRes = await runCli(["pack", "validate", leakDir])
+    assert.notEqual(leakRes.code, 0, `expected secret leak rejection for ${leakedLiteral.slice(0, 12)}`)
+    assert.match(leakRes.stderr, expectedCode)
+  }
+
+  for (const [label, jsSnippet] of [
+    ["template literal newline", "export const h = `Authorization: Bearer\nreal_token_123456`;\n"],
+    ["template literal space+newline", "export const h = `Authorization: Bearer \nreal_token_123456`;\n"],
+    ["template literal crlf", "export const h = `Authorization: Bearer\r\nreal_token_123456`;\n"],
+    ["escaped newline after regex quote", 'if (globalThis.x) /"/.test("a");\nexport const h = "Authorization: Bearer\\nreal_token_123456";\n'],
+  ]) {
+    const jsLeakDir = await createSampleV2PackDir({
+      overrides: {
+        rendererBytes: Buffer.from(jsSnippet, "utf8"),
+      },
+    })
+    const jsLeakRes = await runCli(["pack", "validate", jsLeakDir])
+    assert.notEqual(jsLeakRes.code, 0, `expected JS secret leak rejection for ${label}`)
+    assert.match(jsLeakRes.stderr, /literal_auth_credential/)
+  }
+})
+
+test("pack v2 rejects UUID in string-form dashboard_package_dependencies and accepts vantage_pipelines pipeline_id", async () => {
+  const validStringDepDir = await createSampleV2PackDir({
+    withDashboardPackage: false,
+    overrides: {
+      manifestPatch: {
+        dashboard_package_dependencies: ["io.serviceradar.alpr-console@1.0.0"],
+      },
+    },
+  })
+  const validStringRes = await runCli(["pack", "validate", validStringDepDir])
+  assert.equal(validStringRes.code, 0, validStringRes.stderr)
+
+  const uuidStringDepDir = await createSampleV2PackDir({
+    withDashboardPackage: false,
+    overrides: {
+      manifestPatch: {
+        dashboard_package_dependencies: ["11111111-2222-4333-8444-555555555555@1.0.0"],
+      },
+    },
+  })
+  const uuidStringRes = await runCli(["pack", "validate", uuidStringDepDir])
+  assert.notEqual(uuidStringRes.code, 0)
+  assert.match(uuidStringRes.stderr, /forbidden_instance_uuid/)
+
+  const baseManifestDir = await createSampleV2PackDir({withDashboardPackage: false})
+  const baseManifest = JSON.parse(await readFile(join(baseManifestDir, "manifest.json"), "utf8"))
+  baseManifest.resources.vantage_pipelines = [
+    {
+      pipeline_id: "io.serviceradar.vantage-alpr.vehicle-plate",
+      file: "vantage_pipelines/alpr-vehicle-plate.json",
+    },
+  ]
+  await writeFile(join(baseManifestDir, "manifest.json"), JSON.stringify(baseManifest, null, 2) + "\n")
+  const pipelineIdRes = await runCli(["pack", "validate", baseManifestDir])
+  assert.equal(pipelineIdRes.code, 0, pipelineIdRes.stderr)
+
+  baseManifest.resources.vantage_pipelines = [
+    {
+      pipeline_id: "io.serviceradar.vantage-alpr.other-pipeline",
+      file: "vantage_pipelines/alpr-vehicle-plate.json",
+    },
+  ]
+  await writeFile(join(baseManifestDir, "manifest.json"), JSON.stringify(baseManifest, null, 2) + "\n")
+  const pipelineMismatchRes = await runCli(["pack", "validate", baseManifestDir])
+  assert.notEqual(pipelineMismatchRes.code, 0)
+  assert.match(pipelineMismatchRes.stderr, /pipeline_id_mismatch/)
+})
+
+test("pack v2 archive cap is 25 MiB without dashboard_packages and 32 MiB with dashboard_packages", async () => {
+  // 26 MiB of incompressible random bytes inside assets/blob.bin
+  const blob = randomBytes(26 * 1024 * 1024)
+
+  const noDashDir = await createSampleV2PackDir({withDashboardPackage: false})
+  await mkdir(join(noDashDir, "assets"), {recursive: true})
+  await writeFile(join(noDashDir, "assets/blob.bin"), blob)
+  const noDashOut = join(noDashDir, "no-dash.srpack")
+  const noDashBuild = await runCli(["pack", "build", noDashDir, "-o", noDashOut, "--refresh-files"])
+  assert.notEqual(noDashBuild.code, 0)
+  assert.match(noDashBuild.stderr, /exceeds 26214400 bytes/)
+  await assert.rejects(() => access(noDashOut))
+
+  const withDashDir = await createSampleV2PackDir({withDashboardPackage: true})
+  await mkdir(join(withDashDir, "assets"), {recursive: true})
+  await writeFile(join(withDashDir, "assets/blob.bin"), blob)
+  const withDashOut = join(withDashDir, "with-dash.srpack")
+  const withDashBuild = await runCli(["pack", "build", withDashDir, "-o", withDashOut, "--refresh-files"])
+  assert.equal(withDashBuild.code, 0, withDashBuild.stderr)
+  const withDashVal = await runCli(["pack", "validate", withDashOut])
+  assert.equal(withDashVal.code, 0, withDashVal.stderr)
+})
+
+function resolveVantageAlprPackDir() {
+  const rel = "elixir/serviceradar_core/priv/solution_packs/vantage-alpr"
+  const candidates = [
+    join(cliRoot, "../../", rel),
+    process.env.TEST_SRCDIR && join(process.env.TEST_SRCDIR, process.env.TEST_WORKSPACE || "_main", rel),
+    process.env.RUNFILES_DIR &&
+      join(process.env.RUNFILES_DIR, process.env.TEST_WORKSPACE || "_main", rel),
+  ].filter(Boolean)
+
+  const found = candidates.find((candidate) => existsSync(join(candidate, "manifest.json")))
+  assert.ok(found, `unable to locate shipped vantage-alpr pack in: ${candidates.join(", ")}`)
+  return found
+}
+
+test("shipped io.serviceradar.vantage-alpr pack passes pack validate, deterministic pack build, 3-way SHA-256 parity, and tamper rejection", async () => {
+  const packDir = resolveVantageAlprPackDir()
+
+  const valRes = await runCli(["pack", "validate", "--dir", packDir, "--json"])
+  assert.equal(valRes.code, 0, valRes.stderr)
+  const valJson = JSON.parse(valRes.stdout)
+  assert.equal(valJson.valid, true)
+  assert.equal(valJson.id, "io.serviceradar.vantage-alpr")
+  assert.equal(valJson.slug, "vantage-alpr")
+  assert.deepEqual(valJson.resource_counts, {
+    checks: 1,
+    rules: 1,
+    dashboards: 1,
+    vantage_pipelines: 1,
+    signal_schemas: 1,
+    dashboard_packages: 1,
+  })
+  assert.equal(valJson.file_count, 10)
+
+  const manifest = JSON.parse(await readFile(join(packDir, "manifest.json"), "utf8"))
+  const dashManifest = JSON.parse(
+    await readFile(join(packDir, "dashboard_packages/alpr-console/manifest.json"), "utf8"),
+  )
+  const rendererBytes = await readFile(join(packDir, "dashboard_packages/alpr-console/renderer.js"))
+  const actualRendererSha = sha256Hex(rendererBytes)
+  assert.ok(rendererBytes.length > 0 && rendererBytes.length <= 8 * 1024 * 1024)
+  assert.equal(dashManifest.renderer.sha256, actualRendererSha)
+  assert.equal(manifest.files["dashboard_packages/alpr-console/renderer.js"], actualRendererSha)
+
+  const outDir = await mkdtemp(join(tmpdir(), "sr-vantage-alpr-build-"))
+  const srpackA = join(outDir, "alpr-a.srpack")
+  const srpackB = join(outDir, "alpr-b.srpack")
+
+  const buildA = await runCli(["pack", "build", packDir, "-o", srpackA, "--json"])
+  assert.equal(buildA.code, 0, buildA.stderr)
+  const buildB = await runCli(["pack", "build", packDir, "-o", srpackB, "--json"])
+  assert.equal(buildB.code, 0, buildB.stderr)
+  assert.equal(sha256Hex(await readFile(srpackA)), sha256Hex(await readFile(srpackB)))
+
+  const arcVal = await runCli(["pack", "validate", srpackA, "--json"])
+  assert.equal(arcVal.code, 0, arcVal.stderr)
+  const arcValJson = JSON.parse(arcVal.stdout)
+  assert.equal(arcValJson.valid, true)
+  assert.equal(arcValJson.source_kind, "archive")
+
+  // Tamper renderer.js and confirm fail-closed validation/build
+  const tamperedDir = join(outDir, "tampered")
+  await cp(packDir, tamperedDir, {recursive: true})
+  await writeFile(
+    join(tamperedDir, "dashboard_packages/alpr-console/renderer.js"),
+    "export function mountDashboard(){}\n",
+  )
+  const tamperedVal = await runCli(["pack", "validate", "--dir", tamperedDir])
+  assert.notEqual(tamperedVal.code, 0)
+  assert.match(tamperedVal.stderr, /sha256|mismatch/i)
 })

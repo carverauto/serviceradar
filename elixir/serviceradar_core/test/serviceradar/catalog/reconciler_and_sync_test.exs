@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
   use ExUnit.Case, async: true
 
+  alias Ash.Error.Forbidden
   alias Ash.Resource.Info, as: ResourceInfo
   alias AshPostgres.DataLayer.Info, as: PostgresInfo
   alias ServiceRadar.Actors.SystemActor
@@ -469,7 +470,7 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
       pack_v1 = build_test_pack("0.1.0")
       store = start_mem_store()
 
-      assert {:error, %Ash.Error.Forbidden{}} =
+      assert {:error, %Forbidden{}} =
                Reconciler.reconcile(pack_v1, %{}, actor: viewer_actor(), state_store: store)
 
       assert {:error, {:missing_required_credential_slots, ["target_http_api"]}} =
@@ -1196,5 +1197,588 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
                "expected #{inspect(resource)} to define #{inspect(attr)}"
       end
     end
+  end
+
+  describe "v2 DependencyChecker, RBAC dashboard activation gate, and Uninstall/Detach" do
+    test "DependencyChecker preserves list compat and checks worker + dashboard package dependencies" do
+      # Legacy list signature
+      assert {:ok, %{ready?: true, dependencies: []}} = DependencyChecker.check([])
+
+      # Worker with fallback_runner is ready; required worker without fallback blocks
+      manifest = %{
+        "plugin_dependencies" => [],
+        "worker_dependencies" => [
+          %{
+            "capability" => "vantage.alpr.v1",
+            "min_protocol_version" => "vantage.worker.v1",
+            "optional" => true,
+            "fallback_runner" => "camera_vlm"
+          },
+          %{
+            "capability" => "vantage.lpr-pro.v1",
+            "min_protocol_version" => "vantage.worker.v2",
+            "optional" => false
+          }
+        ],
+        "dashboard_package_dependencies" => [
+          %{
+            "dashboard_id" => "com.serviceradar.test-console",
+            "version_constraint" => ">= 1.0.0",
+            "optional" => false
+          }
+        ]
+      }
+
+      assert {:ok, report_blocked} =
+               DependencyChecker.check(manifest,
+                 worker_registrations_loader: fn
+                   "vantage.lpr-pro.v1" ->
+                     [
+                       %{
+                         worker_id: "w1",
+                         protocol_version: "vantage.worker.v1",
+                         health: :ready,
+                         capabilities: ["vantage.lpr-pro.v1"]
+                       }
+                     ]
+
+                   _ ->
+                     []
+                 end,
+                 dashboard_packages_loader: fn _id ->
+                   [
+                     %{
+                       dashboard_id: "com.serviceradar.test-console",
+                       version: "1.1.0",
+                       status: :staged
+                     }
+                   ]
+                 end
+               )
+
+      refute report_blocked.ready?
+      assert report_blocked.blocking_count == 2
+      [alpr_dep, lpr_dep] = report_blocked.worker_dependencies
+      assert alpr_dep.status == :fallback_ready
+      assert lpr_dep.status == :missing
+      assert hd(report_blocked.dashboard_package_dependencies).status == :staged_approval_required
+
+      assert {:ok, report_ready} =
+               DependencyChecker.check(manifest,
+                 worker_registrations_loader: fn
+                   "vantage.lpr-pro.v1" ->
+                     [
+                       %{
+                         worker_id: "w2",
+                         protocol_version: "vantage.worker.v2",
+                         health: :ready,
+                         capabilities: ["vantage.lpr-pro.v1"]
+                       }
+                     ]
+
+                   _ ->
+                     []
+                 end,
+                 dashboard_packages_loader: fn _id ->
+                   [
+                     %{
+                       dashboard_id: "com.serviceradar.test-console",
+                       version: "1.1.0",
+                       status: :enabled
+                     }
+                   ]
+                 end
+               )
+
+      assert report_ready.ready?
+      assert report_ready.blocking_count == 0
+    end
+
+    test "Reconciler enforces worker gate, RBAC + activation approval, version_already_published, and clean uninstall" do
+      store = start_mem_store()
+      blob_store = start_mem_blob_store()
+
+      renderer_js = "export default function mountGateConsole(){ return 'SR-0100'; }"
+      tree = build_v2_sample_pack(renderer_js)
+
+      # 1. Missing required worker blocks active install unless install_paused: true
+      blocked_worker_loader = fn _cap -> [] end
+
+      assert {:error, {:unsatisfied_worker_dependencies, _}} =
+               Reconciler.reconcile(tree, %{},
+                 actor: operator_actor(),
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: blocked_worker_loader
+               )
+
+      # 2. Requesting activate_dashboard_packages without dashboards.packages.* fails closed (Forbidden)
+      online_worker_loader = fn cap ->
+        [
+          %{
+            worker_id: "w-alpr",
+            protocol_version: "vantage.worker.v1",
+            health: :ready,
+            capabilities: [cap]
+          }
+        ]
+      end
+
+      assert {:error, %Forbidden{}} =
+               Reconciler.reconcile(tree, %{},
+                 actor: operator_actor(),
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader,
+                 activate_dashboard_packages: true
+               )
+
+      # 3. Default install (without activate_dashboard_packages) stages DashboardPackage + installs pipeline
+      assert {:ok, staged_res} =
+               Reconciler.reconcile(
+                 tree,
+                 %{"config" => %{"site_name" => "Gate West 01"}},
+                 actor: operator_actor(),
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader
+               )
+
+      assert hd(staged_res.applied_dashboard_packages).status == :staged
+      assert Agent.get(store, &map_size(Map.get(&1, :dashboard_instances, %{}))) == 0
+      assert Agent.get(store, &map_size(Map.get(&1, :vantage_pipelines, %{}))) == 1
+
+      # 4. Authorized actor activating dashboard modules enables package and binds DashboardInstance with settings
+      admin_actor = %{
+        id: "00000000-0000-4000-8000-000000000010",
+        email: "dash-admin@example.com",
+        role: :admin,
+        permissions: MapSet.new(["catalog.packs.install", "dashboards.packages.manage"])
+      }
+
+      assert {:ok, active_res} =
+               Reconciler.reconcile(
+                 tree,
+                 %{"config" => %{"site_name" => "Gate West 01"}},
+                 actor: admin_actor,
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader,
+                 activate_dashboard_packages: true
+               )
+
+      assert hd(active_res.applied_dashboard_packages).status == :enabled
+      assert active_res.has_diverged? == false
+      assert hd(active_res.vantage_pipelines).action == :unchanged
+      assert hd(active_res.vantage_pipelines).diverged? == false
+      inst = Agent.get(store, &get_in(&1, [:dashboard_instances, "vantage-gate-console"]))
+      assert inst.enabled == true
+      assert inst.settings == %{"site_name" => "Gate West 01"}
+
+      # 5. version_already_published rejects differing renderer bytes for same version before blob write
+      tampered_tree =
+        build_v2_sample_pack("export default function tampered(){ return 'TEST-742'; }")
+
+      assert {:error, {:version_already_published, _details}} =
+               Reconciler.reconcile(tampered_tree, %{},
+                 actor: admin_actor,
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader,
+                 activate_dashboard_packages: true
+               )
+
+      # 6. Uninstall removes managed resources and deletes blob while preserving managed: false resources
+      assert {:ok, %{mode: :delete}} =
+               Reconciler.uninstall("synthetic-v2-vantage",
+                 actor: operator_actor(),
+                 state_store: store,
+                 dashboard_blob_store: blob_store
+               )
+
+      # Store pid so tests can inspect remaining blobs
+      assert Agent.get(store, &get_in(&1, [:packs, "io.serviceradar.synthetic-v2-vantage"])) ==
+               nil
+
+      assert Agent.get(store, &map_size(Map.get(&1, :vantage_pipelines, %{}))) == 0
+      assert Agent.get(store, &map_size(Map.get(&1, :dashboard_instances, %{}))) == 0
+      assert Agent.get(store, &map_size(Map.get(&1, :dashboard_packages, %{}))) == 0
+      assert Agent.get(Process.get(:mem_blob_agent), &map_size(&1)) == 0
+    end
+
+    test "upgrades v2 pack with $pack_param schemas, DashboardPackage bump, and :disabled status" do
+      store = start_mem_store()
+      blob_store = start_mem_blob_store()
+
+      online_worker_loader = fn cap ->
+        [
+          %{
+            worker_id: "w-alpr",
+            protocol_version: "vantage.worker.v1",
+            health: :ready,
+            capabilities: [cap]
+          }
+        ]
+      end
+
+      admin_actor = %{
+        id: "00000000-0000-4000-8000-000000000011",
+        email: "dash-admin-upgrade@example.com",
+        role: :admin,
+        permissions: MapSet.new(["catalog.packs.install", "dashboards.packages.manage"])
+      }
+
+      v1_tree =
+        build_v2_sample_pack(
+          "export default function mountV1(){ return 'SR-0100'; }",
+          pack_version: "1.0.0",
+          dashboard_version: "1.0.0",
+          paired_signal_schema?: true
+        )
+
+      assert {:ok, v1_res} =
+               Reconciler.reconcile(
+                 v1_tree,
+                 %{"config" => %{"site_name" => "Gate West 01"}},
+                 actor: admin_actor,
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader,
+                 activate_dashboard_packages: true
+               )
+
+      assert v1_res.has_diverged? == false
+      assert hd(v1_res.vantage_pipelines).action == :create
+
+      vp_v1 =
+        Agent.get(
+          store,
+          &get_in(&1, [:vantage_pipelines, {"io.serviceradar.synthetic-v2-vantage.gate", "1.0.0"}])
+        )
+
+      assert vp_v1["camera_selector"] == %{"site" => "Gate West 01"}
+      assert vp_v1["display_contract"]["title"] == "Gate West 01"
+      assert vp_v1["signal_schema"]["description"] == "Gate West 01"
+
+      # Re-reconcile identical v1 pack with empty params: must stay :unchanged (never :skipped_diverged)
+      assert {:ok, re_res} =
+               Reconciler.reconcile(
+                 v1_tree,
+                 %{},
+                 actor: admin_actor,
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader,
+                 activate_dashboard_packages: true
+               )
+
+      assert re_res.has_diverged? == false
+      assert hd(re_res.vantage_pipelines).diverged? == false
+      assert hd(re_res.vantage_pipelines).action == :unchanged
+
+      # Upgrade 1.0.0 -> 1.1.0: updates VantagePipeline + bumps DashboardPackage 1.0.0 -> 2.0.0 on SAME route_slug
+      v1_1_tree =
+        build_v2_sample_pack(
+          "export default function mountV2(){ return 'TEST-742'; }",
+          pack_version: "1.1.0",
+          dashboard_version: "2.0.0",
+          max_frames_per_track: 5,
+          paired_signal_schema?: true
+        )
+
+      assert {:ok, v1_1_res} =
+               Reconciler.reconcile(
+                 v1_1_tree,
+                 %{},
+                 actor: admin_actor,
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader,
+                 activate_dashboard_packages: true
+               )
+
+      assert v1_1_res.has_diverged? == false
+      assert hd(v1_1_res.vantage_pipelines).diverged? == false
+      assert hd(v1_1_res.vantage_pipelines).action == :update
+
+      vp_v1_1 =
+        Agent.get(
+          store,
+          &get_in(&1, [:vantage_pipelines, {"io.serviceradar.synthetic-v2-vantage.gate", "1.0.0"}])
+        )
+
+      assert vp_v1_1["max_frames_per_track"] == 5
+      assert vp_v1_1["camera_selector"] == %{"site" => "Gate West 01"}
+      assert vp_v1_1["display_contract"]["title"] == "Gate West 01"
+      assert vp_v1_1["signal_schema"]["description"] == "Gate West 01"
+
+      # Upgraded DashboardInstance on same route_slug remains managed & bound to 2.0.0
+      inst_v2 = Agent.get(store, &get_in(&1, [:dashboard_instances, "vantage-gate-console"]))
+      assert inst_v2.managed == true
+      assert inst_v2.pack_version == "1.1.0"
+      assert inst_v2.dashboard_package.version == "2.0.0"
+
+      # Old 1.0.0 DashboardPackage was detached (default orphan action)
+      old_pkg =
+        Agent.get(
+          store,
+          &get_in(&1, [:dashboard_packages, {"com.serviceradar.vantage-gate-console", "1.0.0"}])
+        )
+
+      assert old_pkg.managed == false
+
+      # Upgrade 1.1.0 -> 1.2.0 with explicit :delete orphan decision for 2.0.0: preserves 3.0.0 instance!
+      v1_2_tree =
+        build_v2_sample_pack(
+          "export default function mountV3(){ return 'TEST-742-V3'; }",
+          pack_version: "1.2.0",
+          dashboard_version: "3.0.0",
+          max_frames_per_track: 6,
+          paired_signal_schema?: true
+        )
+
+      assert {:ok, v1_2_res} =
+               Reconciler.reconcile(
+                 v1_2_tree,
+                 %{
+                   "decisions" => %{
+                     "dashboard_package:com.serviceradar.vantage-gate-console:2.0.0" => "delete"
+                   }
+                 },
+                 actor: admin_actor,
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader,
+                 activate_dashboard_packages: true
+               )
+
+      assert v1_2_res.has_diverged? == false
+
+      inst_v3 = Agent.get(store, &get_in(&1, [:dashboard_instances, "vantage-gate-console"]))
+      assert inst_v3.managed == true
+      assert inst_v3.pack_version == "1.2.0"
+      assert inst_v3.dashboard_package.version == "3.0.0"
+
+      assert nil ==
+               Agent.get(
+                 store,
+                 &get_in(
+                   &1,
+                   [:dashboard_packages, {"com.serviceradar.vantage-gate-console", "2.0.0"}]
+                 )
+               )
+
+      # Disabled DashboardPackage stays :disabled when re-reconciling with activate_dashboard_packages: false
+      Agent.update(store, fn st ->
+        update_in(
+          st,
+          [:dashboard_packages, {"com.serviceradar.vantage-gate-console", "3.0.0"}],
+          &Map.put(&1, :status, :disabled)
+        )
+      end)
+
+      assert {:ok, disabled_res} =
+               Reconciler.reconcile(
+                 v1_2_tree,
+                 %{},
+                 actor: operator_actor(),
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader,
+                 activate_dashboard_packages: false
+               )
+
+      assert hd(disabled_res.applied_dashboard_packages).status == :disabled
+
+      assert Agent.get(
+               store,
+               &get_in(
+                 &1,
+                 [:dashboard_packages, {"com.serviceradar.vantage-gate-console", "3.0.0"}]
+               ).status
+             ) == :disabled
+
+      # Actual manual structural edit to persisted VantagePipeline MUST flag diverged? == true
+      Agent.update(store, fn st ->
+        put_in(
+          st,
+          [
+            :vantage_pipelines,
+            {"io.serviceradar.synthetic-v2-vantage.gate", "1.0.0"},
+            "object_classes"
+          ],
+          ["bus"]
+        )
+      end)
+
+      assert {:ok, div_res} =
+               Reconciler.reconcile(
+                 v1_2_tree,
+                 %{},
+                 actor: operator_actor(),
+                 state_store: store,
+                 dashboard_blob_store: blob_store,
+                 worker_registrations_loader: online_worker_loader
+               )
+
+      assert div_res.has_diverged? == true
+      assert hd(div_res.vantage_pipelines).diverged? == true
+      assert hd(div_res.vantage_pipelines).action == :skipped_diverged
+    end
+  end
+
+  defp start_mem_blob_store do
+    {:ok, pid} = Agent.start_link(fn -> %{} end)
+
+    then(
+      %{
+        put: fn key, bytes ->
+          Agent.update(pid, &Map.put(&1, key, bytes))
+          :ok
+        end,
+        delete: fn key ->
+          Agent.update(pid, &Map.delete(&1, key))
+          :ok
+        end
+      },
+      fn callbacks ->
+        Process.put(:mem_blob_agent, pid)
+        callbacks
+      end
+    )
+  end
+
+  defp build_v2_sample_pack(renderer_js, opts \\ []) do
+    pack_version = Keyword.get(opts, :pack_version, "1.0.0")
+    dash_version = Keyword.get(opts, :dashboard_version, "1.0.0")
+    max_frames = Keyword.get(opts, :max_frames_per_track)
+    paired_schema? = Keyword.get(opts, :paired_signal_schema?, false)
+
+    dash_manifest = %{
+      "schema_version" => 1,
+      "id" => "com.serviceradar.vantage-gate-console",
+      "name" => "Vantage Gate Console",
+      "version" => dash_version,
+      "renderer" => %{
+        "kind" => "browser_module",
+        "interface_version" => "dashboard-browser-module-v1",
+        "artifact" => "renderer.js",
+        "sha256" => PackManifest.sha256_hex(renderer_js),
+        "trust" => "trusted"
+      },
+      "data_frames" => [
+        %{"id" => "obs", "query" => "in:camera_observations", "encoding" => "json_rows"}
+      ],
+      "capabilities" => ["srql.execute"],
+      "settings_schema" => %{}
+    }
+
+    pipeline_doc =
+      then(
+        %{
+          "pipeline_id" => "io.serviceradar.synthetic-v2-vantage.gate",
+          "version" => "1.0.0",
+          "name" => "Gate Plate Pipeline",
+          "camera_selector" => %{"site" => %{"$pack_param" => "site_name"}},
+          "signal_schema_id" => "gate_plate",
+          "signal_schema_version" => "1.0.0",
+          "display_contract_id" => "gate_plate"
+        },
+        fn doc ->
+          if is_integer(max_frames),
+            do: Map.put(doc, "max_frames_per_track", max_frames),
+            else: doc
+        end
+      )
+
+    {schema_entries, schema_files} =
+      if paired_schema? do
+        schema_part = %{
+          "schema_id" => "gate_plate",
+          "version" => "1.0.0",
+          "type" => "object",
+          "description" => %{"$pack_param" => "site_name"},
+          "properties" => %{"plate" => %{"type" => "string"}}
+        }
+
+        display_part = %{
+          "display_contract_id" => "gate_plate",
+          "title" => %{"$pack_param" => "site_name"}
+        }
+
+        entries = [
+          %{
+            "schema_id" => "gate_plate",
+            "version" => "1.0.0",
+            "schema_file" => "signal_schemas/gate_plate.schema.json",
+            "display_file" => "signal_schemas/gate_plate.display.json"
+          }
+        ]
+
+        files_map = %{
+          "signal_schemas/gate_plate.schema.json" => Jason.encode!(schema_part),
+          "signal_schemas/gate_plate.display.json" => Jason.encode!(display_part)
+        }
+
+        {entries, files_map}
+      else
+        schema_doc = %{
+          "schema_id" => "gate_plate",
+          "version" => "1.0.0",
+          "schema" => %{"type" => "object", "properties" => %{"plate" => %{"type" => "string"}}},
+          "display_contract" => %{"title" => "Gate Reads"}
+        }
+
+        entries = [
+          %{
+            "schema_id" => "gate_plate",
+            "version" => "1.0.0",
+            "file" => "signal_schemas/gate_plate.json"
+          }
+        ]
+
+        {entries, %{"signal_schemas/gate_plate.json" => Jason.encode!(schema_doc)}}
+      end
+
+    manifest = %{
+      "pack_format_version" => 2,
+      "id" => "io.serviceradar.synthetic-v2-vantage",
+      "slug" => "synthetic-v2-vantage",
+      "name" => "Synthetic V2 Vantage",
+      "version" => pack_version,
+      "config" => [%{"key" => "site_name", "type" => "string", "default" => "Bay 04 Approach"}],
+      "worker_dependencies" => [%{"capability" => "vantage.alpr.v1", "optional" => false}],
+      "resources" => %{
+        "checks" => [],
+        "rules" => [],
+        "dashboards" => [],
+        "vantage_pipelines" => [
+          %{
+            "file" => "vantage_pipelines/gate.json",
+            "pipeline_id" => "io.serviceradar.synthetic-v2-vantage.gate"
+          }
+        ],
+        "signal_schemas" => schema_entries,
+        "dashboard_packages" => [
+          %{"slug" => "vantage-gate-console", "route_slug" => "vantage-gate-console"}
+        ]
+      },
+      "files" => %{}
+    }
+
+    base_files =
+      Map.merge(
+        %{
+          "README.md" => "# Synthetic V2\n",
+          "vantage_pipelines/gate.json" => Jason.encode!(pipeline_doc),
+          "dashboard_packages/vantage-gate-console/manifest.json" => Jason.encode!(dash_manifest),
+          "dashboard_packages/vantage-gate-console/renderer.js" => renderer_js
+        },
+        schema_files
+      )
+
+    {:ok, _, files} = PackManifest.refresh_manifest_digests(manifest, base_files)
+
+    files
   end
 end

@@ -20,6 +20,7 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
   @enable_check {ActorHasPermission, permission: "dashboards.packages.enable"}
   @disable_check {ActorHasPermission, permission: "dashboards.packages.disable"}
   @publish_check {ActorHasPermission, permission: "dashboards.packages.publish"}
+  @manage_check {ActorHasPermission, permission: "dashboards.packages.manage"}
   @rbac_manage_check {ActorHasPermission, permission: "settings.rbac.manage"}
   @upsert_fields [
     :dashboard_package_id,
@@ -28,6 +29,10 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
     :enabled,
     :settings,
     :metadata,
+    :pack_id,
+    :pack_version,
+    :managed,
+    :template_fingerprint,
     :updated_at
   ]
 
@@ -41,7 +46,11 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
     :visibility,
     :owner_id,
     :settings,
-    :metadata
+    :metadata,
+    :pack_id,
+    :pack_version,
+    :managed,
+    :template_fingerprint
   ]
 
   postgres do
@@ -195,27 +204,32 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
     policy action_type(:create) do
       authorize_if @publish_check
       authorize_if @enable_check
+      authorize_if @manage_check
     end
 
     policy action([:enable, :set_default]) do
       authorize_if @enable_check
+      authorize_if @manage_check
       authorize_if ActorCanEditDashboardInstance
     end
 
     policy action(:disable) do
       authorize_if @disable_check
+      authorize_if @manage_check
       authorize_if ActorCanEditDashboardInstance
     end
 
     policy action(:update) do
       authorize_if @share_check
       authorize_if @enable_check
+      authorize_if @manage_check
       authorize_if ActorCanEditDashboardInstance
     end
 
     policy action_type(:destroy) do
       authorize_if @enable_check
       authorize_if @share_check
+      authorize_if @manage_check
       authorize_if ActorCanEditDashboardInstance
     end
   end
@@ -274,6 +288,27 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
       allow_nil? false
       public? true
       default %{}
+    end
+
+    attribute :pack_id, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :pack_version, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :managed, :boolean do
+      allow_nil? false
+      default false
+      public? true
+    end
+
+    attribute :template_fingerprint, :string do
+      allow_nil? true
+      public? true
     end
 
     create_timestamp :inserted_at

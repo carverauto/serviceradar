@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "io.serviceradar.alpr-console",
+  "name": "ALPR Synthetic Console",
+  "version": "1.0.0",
+  "description": "Live synthetic ALPR plate read console for Gate West 01 (SR-0100, TEST-742) with CameraGrid streams and OCSF 1008 event subscriptions.",
+  "vendor": "ServiceRadar",
+  "renderer": {
+    "kind": "browser_module",
+    "interface_version": "dashboard-browser-module-v1",
+    "artifact": "renderer.js",
+    "entrypoint": "mountDashboard",
+    "exports": [
+      "mountDashboard",
+      "default"
+    ],
+    "trust": "trusted",
+    "sha256": "da1609f7402f109c40a5f24e0778e7383db4e5e80ca5069e9f55032f67b430ba"
+  },
+  "data_frames": [
+    {
+      "id": "recent_plate_reads",
+      "query": "in:camera_observations category:license_plate sort:timeline_ts_us:desc limit:100",
+      "encoding": "json_rows",
+      "required": true,
+      "limit": 100,
+      "refresh_interval_ms": 5000
+    }
+  ],
+  "capabilities": [
+    "camera.stream.view",
+    "events.subscribe",
+    "srql.execute"
+  ],
+  "settings_schema": {
+    "type": "object",
+    "title": "ALPR Console Settings",
+    "properties": {
+      "camera_source_id": {
+        "type": "string",
+        "title": "Camera Source ID",
+        "description": "Optional camera source UUID to scope Gate West 01 or Bay 04 Approach observations."
+      },
+      "min_confidence": {
+        "type": "number",
+        "title": "Minimum Confidence",
+        "default": 0.55,
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "additionalProperties": false
+  }
+}

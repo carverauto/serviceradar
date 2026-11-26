@@ -23,6 +23,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/app_domain/admin_api/local_test.exs",
     "test/app_domain/authorization/permissions_test.exs",
     "test/app_domain/bootstrap/admin_user_test.exs",
+    "test/app_domain/camera_observations_srql_db_test.exs",
     "test/app_domain/dashboards/authored_test.exs",
     "test/app_domain/dashboards/dashboard_export_round_trip_db_test.exs",
     "test/app_domain/dashboards/first_party_packages_test.exs",

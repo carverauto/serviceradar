@@ -1,0 +1,45 @@
+{
+  "pipeline_id": "__PIPELINE_ID__",
+  "version": "1.0.0",
+  "name": "__PACK_NAME__ Pipeline",
+  "description": "Synthetic Ramp 2 Rust external_worker Vantage pipeline for Gate West 01 (SR-0100, TEST-742).",
+  "enabled": true,
+  "source_mode": "recorded_block",
+  "trigger_kind": "on_stage1_detection",
+  "camera_selector": "tag:gate-west-01",
+  "object_classes": [
+    "vehicle"
+  ],
+  "min_confidence": 0.55,
+  "roi_polygons": [
+    [
+      [0.05, 0.2],
+      [0.95, 0.2],
+      [0.95, 0.95],
+      [0.05, 0.95]
+    ]
+  ],
+  "input_mode": "detection_crop",
+  "crop_policy": {
+    "padding_ratio": 0.15,
+    "min_bbox_width_px": 96,
+    "max_dimension": 640,
+    "max_bytes": 98304
+  },
+  "max_jobs_per_minute": 60,
+  "max_frames_per_track": 3,
+  "runner": "external_worker",
+  "capability": "__CAPABILITY__",
+  "fallback_runner": "camera_vlm",
+  "vlm_config": {
+    "prompt": "Read the synthetic vehicle identifier (e.g. SR-0100 or TEST-742) and return strict JSON matching the signal schema.",
+    "model_profile": "vantage-vlm-fast",
+    "max_tokens": 256,
+    "temperature": 0.0
+  },
+  "signal_schema_id": "__SCHEMA_ID__",
+  "signal_schema_version": "1.0.0",
+  "display_contract_id": "__SCHEMA_ID__",
+  "emit_ocsf_events": true,
+  "live_observation_retention_days": 30
+}

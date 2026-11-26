@@ -10,6 +10,53 @@ use core::str::FromStr;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use zeroize::Zeroizing;
+
+pub const DEFAULT_VANTAGE_VLM_URL: &str = "http://serviceradar-camera-vlm:8080/v1/chat/completions";
+pub const DEFAULT_VANTAGE_VLM_MODEL: &str = "qwen3.5-4b";
+pub const DEFAULT_VANTAGE_CONSUMER_NAME: &str = "camera_vantage_vlm_worker_v1";
+pub const DEFAULT_VANTAGE_WORKER_ID: &str = "serviceradar-media-worker";
+
+/// Zeroizing API key wrapper whose `Debug` output is always redacted.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RedactedVlmApiKey(Zeroizing<String>);
+
+impl RedactedVlmApiKey {
+    pub fn new(raw: impl Into<String>) -> Self {
+        Self(Zeroizing::new(raw.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    pub fn to_zeroizing(&self) -> Zeroizing<String> {
+        self.0.clone()
+    }
+}
+
+impl fmt::Debug for RedactedVlmApiKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+
+/// Normalizes an OpenAI-compatible VLM URL to its `/v1/chat/completions` endpoint.
+pub fn normalize_vlm_url(raw: &str) -> Result<String, CapabilityError> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() || (!trimmed.starts_with("http://") && !trimmed.starts_with("https://")) {
+        return Err(CapabilityError::invalid_configuration(format!(
+            "invalid vantage_vlm_url '{raw}': expected http:// or https:// URL"
+        )));
+    }
+    if trimmed.ends_with("/chat/completions") {
+        Ok(trimmed.to_string())
+    } else if trimmed.ends_with("/v1") {
+        Ok(format!("{trimmed}/chat/completions"))
+    } else {
+        Ok(format!("{trimmed}/v1/chat/completions"))
+    }
+}
 
 /// Execution provider configuration (`design.md` Section 1.3).
 ///
@@ -301,6 +348,14 @@ pub struct WorkerConfig {
     results_stream_name: String,
     consumer_name: String,
     otel_endpoint: String,
+    vantage_vlm_enabled: bool,
+    vantage_vlm_url: Option<String>,
+    vantage_vlm_model: String,
+    vantage_vlm_api_key: Option<RedactedVlmApiKey>,
+    vantage_vlm_timeout_ms: u64,
+    vantage_vlm_concurrency: usize,
+    vantage_consumer_name: String,
+    worker_id: String,
 }
 
 impl Default for WorkerConfig {
@@ -342,6 +397,14 @@ impl Default for WorkerConfig {
             results_stream_name: "CAMERA_MEDIA_RESULTS".to_string(),
             consumer_name: "camera_visual_index_worker_v1".to_string(),
             otel_endpoint: "http://serviceradar-otel:4317".to_string(),
+            vantage_vlm_enabled: false,
+            vantage_vlm_url: None,
+            vantage_vlm_model: DEFAULT_VANTAGE_VLM_MODEL.to_string(),
+            vantage_vlm_api_key: None,
+            vantage_vlm_timeout_ms: 30_000,
+            vantage_vlm_concurrency: 2,
+            vantage_consumer_name: DEFAULT_VANTAGE_CONSUMER_NAME.to_string(),
+            worker_id: DEFAULT_VANTAGE_WORKER_ID.to_string(),
         }
     }
 }
@@ -445,6 +508,43 @@ impl WorkerConfig {
 
     pub fn with_otel_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.otel_endpoint = endpoint.into();
+        self
+    }
+
+    pub fn with_vantage_vlm(
+        mut self,
+        enabled: bool,
+        url: Option<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        self.vantage_vlm_enabled = enabled;
+        self.vantage_vlm_url = url;
+        self.vantage_vlm_model = model.into();
+        self
+    }
+
+    pub fn with_vantage_vlm_api_key(mut self, key: Option<String>) -> Self {
+        self.vantage_vlm_api_key = key.map(RedactedVlmApiKey::new);
+        self
+    }
+
+    pub fn with_vantage_vlm_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.vantage_vlm_timeout_ms = timeout_ms.clamp(1_000, 120_000);
+        self
+    }
+
+    pub fn with_vantage_vlm_concurrency(mut self, concurrency: usize) -> Self {
+        self.vantage_vlm_concurrency = concurrency.clamp(1, 16);
+        self
+    }
+
+    pub fn with_vantage_consumer_name(mut self, name: impl Into<String>) -> Self {
+        self.vantage_consumer_name = name.into();
+        self
+    }
+
+    pub fn with_worker_id(mut self, id: impl Into<String>) -> Self {
+        self.worker_id = id.into();
         self
     }
 
@@ -590,6 +690,46 @@ impl WorkerConfig {
 
     pub fn otel_endpoint(&self) -> &str {
         &self.otel_endpoint
+    }
+
+    pub fn vantage_vlm_enabled(&self) -> bool {
+        self.vantage_vlm_enabled
+    }
+
+    pub fn vantage_vlm_url(&self) -> Option<&str> {
+        self.vantage_vlm_url.as_deref()
+    }
+
+    pub fn resolved_vantage_vlm_url(&self) -> Result<String, CapabilityError> {
+        let raw = self
+            .vantage_vlm_url
+            .as_deref()
+            .unwrap_or(DEFAULT_VANTAGE_VLM_URL);
+        normalize_vlm_url(raw)
+    }
+
+    pub fn vantage_vlm_model(&self) -> &str {
+        &self.vantage_vlm_model
+    }
+
+    pub fn vantage_vlm_api_key(&self) -> Option<&RedactedVlmApiKey> {
+        self.vantage_vlm_api_key.as_ref()
+    }
+
+    pub fn vantage_vlm_timeout_ms(&self) -> u64 {
+        self.vantage_vlm_timeout_ms
+    }
+
+    pub fn vantage_vlm_concurrency(&self) -> usize {
+        self.vantage_vlm_concurrency
+    }
+
+    pub fn vantage_consumer_name(&self) -> &str {
+        &self.vantage_consumer_name
+    }
+
+    pub fn worker_id(&self) -> &str {
+        &self.worker_id
     }
 }
 
@@ -818,6 +958,51 @@ pub struct CliArgs {
         default_value = "http://serviceradar-otel:4317"
     )]
     otel_endpoint: String,
+
+    #[arg(
+        long,
+        env = "SERVICERADAR_CAMERA_VLM_ENABLED",
+        default_value_t = false,
+        action = clap::ArgAction::Set
+    )]
+    vantage_vlm_enabled: bool,
+
+    #[arg(long, env = "SERVICERADAR_CAMERA_VLM_URL")]
+    vantage_vlm_url: Option<String>,
+
+    #[arg(
+        long,
+        env = "SERVICERADAR_CAMERA_VLM_MODEL",
+        default_value = DEFAULT_VANTAGE_VLM_MODEL
+    )]
+    vantage_vlm_model: String,
+
+    #[arg(long, env = "SERVICERADAR_CAMERA_VLM_API_KEY", hide_env_values = true)]
+    vantage_vlm_api_key: Option<String>,
+
+    #[arg(
+        long,
+        env = "SERVICERADAR_CAMERA_VLM_TIMEOUT_MS",
+        default_value_t = 30_000
+    )]
+    vantage_vlm_timeout_ms: u64,
+
+    #[arg(
+        long,
+        env = "SERVICERADAR_MEDIA_WORKER_VANTAGE_VLM_CONCURRENCY",
+        default_value_t = 2
+    )]
+    vantage_vlm_concurrency: usize,
+
+    #[arg(
+        long,
+        env = "SERVICERADAR_MEDIA_WORKER_VANTAGE_CONSUMER_NAME",
+        default_value = DEFAULT_VANTAGE_CONSUMER_NAME
+    )]
+    vantage_consumer_name: String,
+
+    #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_ID")]
+    worker_id: Option<String>,
 }
 
 impl CliArgs {
@@ -886,6 +1071,28 @@ impl CliArgs {
             _ => None,
         };
 
+        let vantage_vlm_url = match non_empty_opt(self.vantage_vlm_url) {
+            Some(raw) => Some(normalize_vlm_url(&raw)?),
+            None if self.vantage_vlm_enabled => Some(normalize_vlm_url(DEFAULT_VANTAGE_VLM_URL)?),
+            None => None,
+        };
+        if !(1..=16).contains(&self.vantage_vlm_concurrency) {
+            return Err(CapabilityError::invalid_configuration(format!(
+                "vantage_vlm_concurrency {} must be in 1..=16",
+                self.vantage_vlm_concurrency
+            )));
+        }
+        let vantage_vlm_timeout_ms = self.vantage_vlm_timeout_ms.clamp(1_000, 120_000);
+        let vantage_vlm_model = non_empty_opt(Some(self.vantage_vlm_model))
+            .unwrap_or_else(|| DEFAULT_VANTAGE_VLM_MODEL.to_string());
+        let vantage_consumer_name = non_empty_opt(Some(self.vantage_consumer_name))
+            .unwrap_or_else(|| DEFAULT_VANTAGE_CONSUMER_NAME.to_string());
+        let worker_id = non_empty_opt(self.worker_id)
+            .or_else(|| non_empty_opt(std::env::var("HOSTNAME").ok()))
+            .unwrap_or_else(|| DEFAULT_VANTAGE_WORKER_ID.to_string());
+        let vantage_vlm_api_key =
+            non_empty_opt(self.vantage_vlm_api_key).map(RedactedVlmApiKey::new);
+
         Ok(WorkerConfig {
             listen_addr,
             backend_kind: self.backend,
@@ -923,6 +1130,14 @@ impl CliArgs {
             results_stream_name: "CAMERA_MEDIA_RESULTS".to_string(),
             consumer_name: "camera_visual_index_worker_v1".to_string(),
             otel_endpoint: self.otel_endpoint,
+            vantage_vlm_enabled: self.vantage_vlm_enabled,
+            vantage_vlm_url,
+            vantage_vlm_model,
+            vantage_vlm_api_key,
+            vantage_vlm_timeout_ms,
+            vantage_vlm_concurrency: self.vantage_vlm_concurrency,
+            vantage_consumer_name,
+            worker_id,
         })
     }
 }
@@ -995,5 +1210,47 @@ mod nats_inbox_prefix_tests {
                 "prefix {prefix:?} was accepted"
             );
         }
+    }
+
+    #[test]
+    fn normalizes_vantage_vlm_urls_and_redacts_api_key_in_debug() {
+        assert_eq!(
+            normalize_vlm_url("http://camera-vlm.example.invalid:8080").unwrap(),
+            "http://camera-vlm.example.invalid:8080/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_vlm_url("https://camera-vlm.example.invalid/v1/").unwrap(),
+            "https://camera-vlm.example.invalid/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_vlm_url("http://camera-vlm.example.invalid/v1/chat/completions").unwrap(),
+            "http://camera-vlm.example.invalid/v1/chat/completions"
+        );
+        assert!(normalize_vlm_url("ftp://bad.example.invalid").is_err());
+
+        let secret = "test-vlm-key-000000";
+        let cfg = parse(&[
+            "--vantage-vlm-enabled",
+            "true",
+            "--vantage-vlm-url",
+            "http://camera-vlm.example.invalid:8080/v1",
+            "--vantage-vlm-api-key",
+            secret,
+            "--vantage-vlm-concurrency",
+            "3",
+        ])
+        .expect("parse vantage VLM CLI args");
+
+        assert!(cfg.vantage_vlm_enabled());
+        assert_eq!(
+            cfg.vantage_vlm_url(),
+            Some("http://camera-vlm.example.invalid:8080/v1/chat/completions")
+        );
+        assert_eq!(cfg.vantage_vlm_concurrency(), 3);
+        let debug_str = format!("{cfg:?}");
+        assert!(
+            !debug_str.contains(secret),
+            "WorkerConfig Debug leaked VLM API key: {debug_str}"
+        );
     }
 }

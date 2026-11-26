@@ -1,15 +1,16 @@
 use super::{
     PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
     addon_statuses, advisory_coordinates, agents, alerts, bmp_events, build_query_plan,
-    camera_sources, capacity_forecasts, composite_results, dashboard_service_views, dashboards,
-    declarative_check_results, device_availability_history, device_graph, device_sweep_overlap,
-    devices, downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
-    endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql, identity,
-    interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces, otel_metric_points,
-    otel_metrics, otel_services, public_endpoints, rum_beacons, security_events, services,
-    source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
-    sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
-    translate_request, virtualization, vulnerability_advisories, websites, wifi_map,
+    camera_observations, camera_sources, capacity_forecasts, composite_results,
+    dashboard_service_views, dashboards, declarative_check_results, device_availability_history,
+    device_graph, device_sweep_overlap, devices, downsample, endpoint_inventory_scans,
+    endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
+    field_survey, gateways, graph_dql, identity, interfaces, is_exhaustive_profile_query, logs,
+    mtr_hops, mtr_traces, otel_metric_points, otel_metrics, otel_services, public_endpoints,
+    rum_beacons, security_events, services, source_fact_disagreements, sweep_coverage,
+    sweep_executions, sweep_groups, sweep_profiles, sweep_results, threat_intel_matches,
+    timeseries_metrics, trace_summaries, traces, translate_request, virtualization,
+    vulnerability_advisories, websites, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -40,9 +41,10 @@ impl QueryEngine {
         let ast = parser::parse(&request.query)?;
         let plan = build_query_plan(&self.config, &request, ast)?;
 
-        if super::fleet::is_entity(&plan.entity) {
+        if super::fleet::is_entity(&plan.entity) || camera_observations::is_entity(&plan.entity) {
             return Err(ServiceError::InvalidRequest(
-                "fleet queries require the scoped web-ng Ash executor".into(),
+                "fleet and camera_observations queries require the scoped web-ng Ash executor"
+                    .into(),
             ));
         }
 
@@ -106,6 +108,9 @@ impl QueryEngine {
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::PublicEndpoints => public_endpoints::execute(&mut conn, &plan).await?,
                 Entity::CameraSources => camera_sources::execute(&mut conn, &plan).await?,
+                Entity::CameraObservations => {
+                    unreachable!("camera_observations execution requires Ash")
+                }
                 Entity::Websites => websites::execute(&mut conn, &plan).await?,
                 Entity::SecurityEvents => security_events::execute(&mut conn, &plan).await?,
                 Entity::MergeAudit => identity::merge_audit::execute(&mut conn, &plan).await?,

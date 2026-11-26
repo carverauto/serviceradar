@@ -1,0 +1,138 @@
+{
+  "author": "ServiceRadar",
+  "categories": [
+    "Camera & Vantage ML",
+    "Security"
+  ],
+  "config": [
+    {
+      "default": 0.55,
+      "description": "Minimum stage-1 vehicle detection confidence required to trigger ALPR plate extraction.",
+      "key": "min_confidence",
+      "max": 1,
+      "min": 0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": 60,
+      "description": "Maximum ALPR jobs admitted per minute per camera.",
+      "key": "max_jobs_per_minute",
+      "max": 1000,
+      "min": 1,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": 30,
+      "description": "Retention days for live-tap ALPR observations not attached to a recording block.",
+      "key": "live_observation_retention_days",
+      "max": 3650,
+      "min": 1,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": 5,
+      "description": "Warning threshold for failed ALPR Vantage jobs over 15 minutes.",
+      "key": "observation_backlog_warn_count",
+      "max": 100000,
+      "min": 1,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": 25,
+      "description": "Critical threshold for failed ALPR Vantage jobs over 15 minutes.",
+      "key": "observation_backlog_crit_count",
+      "max": 100000,
+      "min": 1,
+      "required": false,
+      "type": "integer"
+    }
+  ],
+  "credential_slots": [],
+  "dashboard_package_dependencies": [],
+  "description": "Synthetic Apache-2.0 Vantage ALPR reference pack (Gate West 01, SR-0100, TEST-742) supporting Ramp 1 camera_vlm fallback, Ramp 2 vantage.alpr.v1 workers, paused watchlist alerting, and the bundled alpr-console dashboard.",
+  "files": {
+    "assets/architecture.svg": "6fb28027a45a1e4a07998f0b78ba7d8857e7928d5b310615d86f6ca206324f60",
+    "checks/alpr-worker-health.json": "ff9496c454aa0b58d47232628e535b740db027df4a91c1947aaa545ead80b495",
+    "dashboard_packages/alpr-console/manifest.json": "6326210c645f420347f40a97baab8f6e272ea89ef23a9f842e53767ed9ee4ae8",
+    "dashboard_packages/alpr-console/renderer.js": "da1609f7402f109c40a5f24e0778e7383db4e5e80ca5069e9f55032f67b430ba",
+    "dashboards/alpr-overview.json": "a37856485eeef0f8951515d4356d10714d80d337ce9f0ae4900e8169b0ba332c",
+    "README.md": "72f814453040f6ccb85171f63bd148021981fd4fc558e54d84bfd46619cb3520",
+    "rules/alpr-watchlist-alert.json": "bc7abc3c1a367debbf1b543c2a69e72cf1dbcdae7a955f51a9f2f783aecbe268",
+    "signal_schemas/alpr_plate_read.display.json": "a0b6414b85350b2927f4b6903e9eec40ced188a18565368a811146e6dc3d48d9",
+    "signal_schemas/alpr_plate_read.schema.json": "70bea6e214007d9f70e28d1ec51291f4a663816e7d5f4c80af1cf2ba40ae472b",
+    "vantage_pipelines/alpr-vehicle-plate.json": "7462cf395b1a157c487c59ebc994e99daca28d7a1740cb1e6c6d7226758f09b7"
+  },
+  "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxyZWN0IHg9IjExIiB5PSIxNyIgd2lkdGg9IjI2IiBoZWlnaHQ9IjE0IiByeD0iMyIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMzhiZGY4IiBzdHJva2Utd2lkdGg9IjIuNSIvPjxwYXRoIGQ9Ik0xNiAyNGgxNiIgc3Ryb2tlPSIjZjU5ZTBiIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+",
+  "id": "io.serviceradar.vantage-alpr",
+  "license": "Apache-2.0",
+  "min_serviceradar_version": "1.0.70",
+  "name": "Vantage ALPR",
+  "pack_format_version": 2,
+  "plugin_dependencies": [],
+  "resources": {
+    "checks": [
+      {
+        "file": "checks/alpr-worker-health.json",
+        "slug": "alpr-worker-health"
+      }
+    ],
+    "dashboard_packages": [
+      {
+        "dir": "dashboard_packages/alpr-console",
+        "manifest_file": "dashboard_packages/alpr-console/manifest.json",
+        "renderer_file": "dashboard_packages/alpr-console/renderer.js",
+        "route_slug": "alpr-console",
+        "slug": "alpr-console"
+      }
+    ],
+    "dashboards": [
+      {
+        "file": "dashboards/alpr-overview.json",
+        "slug": "alpr-overview"
+      }
+    ],
+    "rules": [
+      {
+        "file": "rules/alpr-watchlist-alert.json",
+        "install_state": "paused",
+        "kind": "stateful_alert_rule",
+        "name": "ALPR Synthetic Watchlist Alert"
+      }
+    ],
+    "signal_schemas": [
+      {
+        "display_contract_id": "alpr_plate_read",
+        "display_file": "signal_schemas/alpr_plate_read.display.json",
+        "file": "signal_schemas/alpr_plate_read.schema.json",
+        "id": "alpr_plate_read",
+        "schema_file": "signal_schemas/alpr_plate_read.schema.json",
+        "schema_id": "alpr_plate_read",
+        "version": "1.0.0"
+      }
+    ],
+    "vantage_pipelines": [
+      {
+        "file": "vantage_pipelines/alpr-vehicle-plate.json",
+        "id": "io.serviceradar.vantage-alpr.vehicle-plate",
+        "install_state": "enabled",
+        "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+        "slug": "alpr-vehicle-plate",
+        "version": "1.0.0"
+      }
+    ]
+  },
+  "slug": "vantage-alpr",
+  "version": "1.0.0",
+  "worker_dependencies": [
+    {
+      "capability": "vantage.alpr.v1",
+      "fallback_runner": "camera_vlm",
+      "min_protocol_version": "vantage.worker.v1",
+      "optional": true
+    }
+  ]
+}

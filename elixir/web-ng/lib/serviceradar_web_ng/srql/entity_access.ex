@@ -20,6 +20,12 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
     dashboards dashboard authored_dashboards authored_dashboard
   ))
 
+  @camera_observation_aliases MapSet.new(~w(
+    camera_observations camera_observation vantage_observations vantage_observation
+  ))
+
+  @camera_observation_permissions ["devices.view", "devices.cameras.recordings.view"]
+
   # Parser aliases from rust/srql/src/parser/entity.rs plus catalog ids.
   @permission_entities %{
     "plugins.view" => ~w(plugin_fleet plugin_fleets),
@@ -217,6 +223,15 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
           true -> {:error, :forbidden}
         end
 
+      {:all_of, permissions} ->
+        held = permission_set(scope)
+
+        cond do
+          Enum.all?(permissions, &CoreRBAC.Catalog.holds?(held, &1)) -> {:ok, nil}
+          optional_nil_scope? -> {:ok, nil}
+          true -> {:error, :forbidden}
+        end
+
       {:any_of, signal_permissions} ->
         case held_signals(signal_permissions, permission_set(scope)) do
           [] when optional_nil_scope? -> {:ok, nil}
@@ -242,9 +257,13 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
 
   defp permission_set(_), do: MapSet.new()
 
-  @typedoc "An entity's gate: one permission, an any-of signal set, or none."
+  @typedoc "An entity's gate: one permission, an all-of set, an any-of signal set, or none."
   @type entity_permission ::
-          {:ok, String.t()} | {:any_of, [{String.t(), String.t()}]} | :passthrough | :unknown
+          {:ok, String.t()}
+          | {:all_of, [String.t()]}
+          | {:any_of, [{String.t(), String.t()}]}
+          | :passthrough
+          | :unknown
 
   @spec permission_for_query(String.t()) :: entity_permission()
   def permission_for_query(query) when is_binary(query) do
@@ -258,6 +277,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
     cond do
       MapSet.member?(@dashboards, entity) ->
         :passthrough
+
+      MapSet.member?(@camera_observation_aliases, entity) ->
+        {:all_of, @camera_observation_permissions}
 
       signal_permissions = Map.get(@signal_scoped_entities, entity) ->
         {:any_of, signal_permissions}

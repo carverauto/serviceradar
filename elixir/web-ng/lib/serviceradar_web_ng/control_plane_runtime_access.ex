@@ -11,7 +11,8 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
     valid_token?(runtime_token(), runtime_token()) or
       match?({:ok, _, _}, media_installation()) or
       match?({:ok, _, _}, entitlement_installation()) or
-      match?({:ok, _, _}, media_worker_installation())
+      match?({:ok, _, _}, media_worker_installation()) or
+      match?({:ok, _, _}, vantage_worker_installation())
   end
 
   @doc "Whether the dedicated `:media_worker` purpose is validly configured."
@@ -19,12 +20,18 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
     match?({:ok, _, _}, media_worker_installation())
   end
 
+  @doc "Whether the dedicated `:vantage_worker` purpose is validly configured."
+  def vantage_worker_enabled? do
+    match?({:ok, _, _}, vantage_worker_installation())
+  end
+
   @doc "Authenticates one purpose and returns only its installed identity."
   def authenticate(:account, token, nil) do
     with true <- valid_token?(runtime_token(), token),
          false <- valid_token?(media_token(), token),
          false <- valid_token?(entitlement_token(), token),
-         false <- valid_token?(media_worker_token(), token) do
+         false <- valid_token?(media_worker_token(), token),
+         false <- valid_token?(vantage_worker_token(), token) do
       {:ok, nil}
     else
       _invalid_authentication -> :error
@@ -64,6 +71,17 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
     end
   end
 
+  def authenticate(:vantage_worker, token, {reference, generation_header}) do
+    with {:ok, expected_token, %{deployment_ref: ^reference, generation: generation} = installation} <-
+           vantage_worker_installation(),
+         true <- generation_header == Integer.to_string(generation),
+         true <- valid_token?(expected_token, token) do
+      {:ok, installation}
+    else
+      _invalid_authentication -> :error
+    end
+  end
+
   defp media_installation do
     config = purpose_config(:media)
     token = Keyword.get(config, :token)
@@ -73,6 +91,7 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
          false <- valid_token?(runtime_token(), token),
          false <- valid_token?(entitlement_token(), token),
          false <- valid_token?(media_worker_token(), token),
+         false <- valid_token?(vantage_worker_token(), token),
          true <- is_binary(reference) and byte_size(reference) == 36,
          {:ok, ^reference} <- Ecto.UUID.cast(reference),
          {:ok, generation} <- generation(Keyword.get(config, :generation)) do
@@ -91,6 +110,7 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
          false <- valid_token?(runtime_token(), token),
          false <- valid_token?(media_token(), token),
          false <- valid_token?(media_worker_token(), token),
+         false <- valid_token?(vantage_worker_token(), token),
          true <- is_binary(reference) and byte_size(reference) == 36,
          {:ok, ^reference} <- Ecto.UUID.cast(reference),
          {:ok, generation} <- generation(Keyword.get(config, :generation)) do
@@ -109,10 +129,30 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
          false <- valid_token?(runtime_token(), token),
          false <- valid_token?(media_token(), token),
          false <- valid_token?(entitlement_token(), token),
+         false <- valid_token?(vantage_worker_token(), token),
          true <- is_binary(reference) and byte_size(reference) == 36,
          {:ok, ^reference} <- Ecto.UUID.cast(reference),
          {:ok, generation} <- generation(Keyword.get(config, :generation)) do
       {:ok, token, %{purpose: :media_worker, deployment_ref: reference, generation: generation}}
+    else
+      _invalid_installation -> :error
+    end
+  end
+
+  defp vantage_worker_installation do
+    config = purpose_config(:vantage_worker)
+    token = Keyword.get(config, :token)
+    reference = Keyword.get(config, :deployment_ref)
+
+    with true <- valid_token?(token, token),
+         false <- valid_token?(runtime_token(), token),
+         false <- valid_token?(media_token(), token),
+         false <- valid_token?(entitlement_token(), token),
+         false <- valid_token?(media_worker_token(), token),
+         true <- is_binary(reference) and byte_size(reference) == 36,
+         {:ok, ^reference} <- Ecto.UUID.cast(reference),
+         {:ok, generation} <- generation(Keyword.get(config, :generation)) do
+      {:ok, token, %{purpose: :vantage_worker, deployment_ref: reference, generation: generation}}
     else
       _invalid_installation -> :error
     end
@@ -138,6 +178,12 @@ defmodule ServiceRadarWebNG.ControlPlaneRuntimeAccess do
 
   defp media_worker_token do
     :media_worker
+    |> purpose_config()
+    |> Keyword.get(:token)
+  end
+
+  defp vantage_worker_token do
+    :vantage_worker
     |> purpose_config()
     |> Keyword.get(:token)
   end

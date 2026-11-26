@@ -62,6 +62,22 @@ defmodule ServiceRadar.EventWriter.ReleaseRuntimeConfigTest do
     end
   end
 
+  test "release config consumes camera vantage observations only when SERVICERADAR_VANTAGE_PIPELINES_ENABLED=true" do
+    names = fn env ->
+      env |> event_writer_config() |> provisioned_entries() |> Enum.map(& &1[:name])
+    end
+
+    assert "CAMERA_VANTAGE_OBSERVATIONS" in names.(%{
+             "SERVICERADAR_VANTAGE_PIPELINES_ENABLED" => "true"
+           })
+
+    refute "CAMERA_VANTAGE_OBSERVATIONS" in names.(%{
+             "SERVICERADAR_VANTAGE_PIPELINES_ENABLED" => "false"
+           })
+
+    refute "CAMERA_VANTAGE_OBSERVATIONS" in names.(%{})
+  end
+
   defp provisioned_entries(event_writer) do
     Enum.flat_map([:streams, :flow_streams], fn key ->
       entries = event_writer[key]

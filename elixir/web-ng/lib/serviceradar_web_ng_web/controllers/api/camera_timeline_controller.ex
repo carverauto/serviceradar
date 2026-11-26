@@ -173,6 +173,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
 
   defp parse_thumbnail_kind("frame"), do: {:ok, :frame}
   defp parse_thumbnail_kind("block"), do: {:ok, :block}
+  defp parse_thumbnail_kind("vantage"), do: {:ok, :vantage}
   defp parse_thumbnail_kind(_), do: {:error, :invalid_id}
 
   defp parse_thumbnail_id(raw_id) when is_binary(raw_id) do

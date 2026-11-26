@@ -93,18 +93,35 @@ defmodule ServiceRadarWebNGWeb.Api.SolutionPackController do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @install_permission),
          {:ok, slug} <- fetch_required_param(conn, params, "slug"),
-         {:ok, dry_run} <- optional_boolean(params["dry_run"], false, "dry_run") do
-      reconcile_params = Map.take(params, ["config", "credential_bindings", "decisions", "source"])
+         {:ok, dry_run} <- optional_boolean(params["dry_run"], false, "dry_run"),
+         {:ok, install_paused} <-
+           optional_boolean(params["install_paused"], false, "install_paused"),
+         {:ok, activate_dashboards} <-
+           optional_boolean(
+             params["activate_dashboard_packages"],
+             false,
+             "activate_dashboard_packages"
+           ) do
+      reconcile_params =
+        params
+        |> Map.take(["config", "credential_bindings", "decisions", "source"])
+        |> maybe_put_bool_param("activate_dashboard_packages", activate_dashboards)
+
+      install_opts =
+        conn
+        |> base_opts()
+        |> Keyword.put(:install_paused, install_paused)
+        |> Keyword.put(:activate_dashboard_packages, activate_dashboards)
 
       result =
         if dry_run do
-          catalog_backend().preview_install(slug, reconcile_params, base_opts(conn))
+          catalog_backend().preview_install(slug, reconcile_params, install_opts)
         else
-          catalog_backend().install_pack(slug, reconcile_params, base_opts(conn))
+          catalog_backend().install_pack(slug, reconcile_params, install_opts)
         end
 
       case result do
-        {:ok, data} -> json(conn, %{data: data})
+        {:ok, data} -> json(conn, %{data: json_safe(data)})
         {:error, error} -> handle_domain_error(conn, error)
       end
     else
@@ -117,18 +134,57 @@ defmodule ServiceRadarWebNGWeb.Api.SolutionPackController do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @install_permission),
          {:ok, dry_run} <- optional_boolean(params["dry_run"], false, "dry_run"),
+         {:ok, install_paused} <-
+           optional_boolean(params["install_paused"], false, "install_paused"),
+         {:ok, activate_dashboards} <-
+           optional_boolean(
+             params["activate_dashboard_packages"],
+             false,
+             "activate_dashboard_packages"
+           ),
          {:ok, pack_input} <- extract_import_payload(params) do
-      reconcile_params = Map.take(params, ["config", "credential_bindings", "decisions", "source"])
+      reconcile_params =
+        params
+        |> Map.take(["config", "credential_bindings", "decisions", "source"])
+        |> maybe_put_bool_param("activate_dashboard_packages", activate_dashboards)
+
+      install_opts =
+        conn
+        |> base_opts()
+        |> Keyword.put(:install_paused, install_paused)
+        |> Keyword.put(:activate_dashboard_packages, activate_dashboards)
 
       result =
         if dry_run do
-          catalog_backend().preview_install(pack_input, reconcile_params, base_opts(conn))
+          catalog_backend().preview_install(pack_input, reconcile_params, install_opts)
         else
-          catalog_backend().install_pack(pack_input, reconcile_params, base_opts(conn))
+          catalog_backend().install_pack(pack_input, reconcile_params, install_opts)
         end
 
       case result do
-        {:ok, data} -> json(conn, %{data: data})
+        {:ok, data} -> json(conn, %{data: json_safe(data)})
+        {:error, error} -> handle_domain_error(conn, error)
+      end
+    else
+      {:error, :invalid_request, message} -> bad_request(conn, message)
+      {:error, _reason} = error -> handle_auth_error(conn, error)
+    end
+  end
+
+  def uninstall(conn, params) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @install_permission),
+         {:ok, slug} <- fetch_required_param(conn, params, "slug"),
+         {:ok, detach?} <- optional_boolean(params["detach"], false, "detach") do
+      result =
+        if detach? do
+          catalog_backend().detach_pack(slug, base_opts(conn))
+        else
+          catalog_backend().uninstall_pack(slug, base_opts(conn))
+        end
+
+      case result do
+        {:ok, data} -> json(conn, %{data: json_safe(data)})
         {:error, error} -> handle_domain_error(conn, error)
       end
     else
@@ -410,6 +466,9 @@ defmodule ServiceRadarWebNGWeb.Api.SolutionPackController do
   defp maybe_put_opt(opts, _key, ""), do: opts
   defp maybe_put_opt(opts, key, val), do: Keyword.put(opts, key, val)
 
+  defp maybe_put_bool_param(params, key, true), do: Map.put(params, key, true)
+  defp maybe_put_bool_param(params, _key, _false), do: params
+
   defp safe_filename(name) do
     name
     |> to_string()
@@ -458,6 +517,18 @@ defmodule ServiceRadarWebNGWeb.Api.SolutionPackController do
     |> json(%{error: "upstream branch conflict", details: details})
   end
 
+  defp handle_domain_error(conn, {:version_already_published, details}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "dashboard package version already published", details: details})
+  end
+
+  defp handle_domain_error(conn, {:slug_in_use, details}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "dashboard route slug is already in use", details: details})
+  end
+
   defp handle_domain_error(conn, reason) do
     conn
     |> put_status(:unprocessable_entity)
@@ -467,4 +538,24 @@ defmodule ServiceRadarWebNGWeb.Api.SolutionPackController do
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(%{message: msg}) when is_binary(msg), do: msg
   defp format_error(reason), do: inspect(reason)
+
+  defp json_safe(%DateTime{} = dt), do: dt
+  defp json_safe(%NaiveDateTime{} = dt), do: dt
+  defp json_safe(%Date{} = d), do: d
+  defp json_safe(%Ash.NotLoaded{}), do: nil
+  defp json_safe(%Ash.CiString{string: s}), do: s
+
+  defp json_safe(%{__struct__: _} = struct) do
+    struct
+    |> Map.from_struct()
+    |> Map.drop([:__meta__, :__lateral_join_source__, :calculations, :aggregates])
+    |> json_safe()
+  end
+
+  defp json_safe(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {k, json_safe(v)} end)
+  end
+
+  defp json_safe(list) when is_list(list), do: Enum.map(list, &json_safe/1)
+  defp json_safe(other), do: other
 end

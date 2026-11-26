@@ -21,7 +21,12 @@ defmodule ServiceRadar.Dashboards.PackageImport do
           source_metadata: map(),
           imported_at: DateTime.t(),
           verification_status: String.t(),
-          verification_error: String.t()
+          verification_error: String.t(),
+          pack_id: String.t(),
+          pack_version: String.t(),
+          managed: boolean(),
+          template_fingerprint: String.t(),
+          status: atom() | String.t()
         ]
 
   @spec attrs_from_json(binary(), import_opts()) :: {:ok, map()} | {:error, [String.t()]}
@@ -36,31 +41,37 @@ defmodule ServiceRadar.Dashboards.PackageImport do
     renderer_sha = manifest.renderer["sha256"]
     content_hash = option(opts, :content_hash) || renderer_sha
 
-    attrs = %{
-      dashboard_id: manifest.id,
-      name: manifest.name,
-      version: manifest.version,
-      description: manifest.description,
-      vendor: manifest.vendor,
-      manifest: manifest_to_map(manifest),
-      renderer: manifest.renderer,
-      data_frames: manifest.data_frames,
-      capabilities: manifest.capabilities,
-      settings_schema: manifest.settings_schema,
-      wasm_object_key: option(opts, :wasm_object_key),
-      content_hash: content_hash,
-      signature: option(opts, :signature) || %{},
-      source_type: normalize_source_type(option(opts, :source_type)),
-      source_repo_url: option(opts, :source_repo_url),
-      source_ref: option(opts, :source_ref),
-      source_manifest_path: option(opts, :source_manifest_path),
-      source_commit: option(opts, :source_commit),
-      source_bundle_digest: option(opts, :source_bundle_digest),
-      source_metadata: option(opts, :source_metadata) || manifest.source || %{},
-      imported_at: option(opts, :imported_at) || DateTime.utc_now(),
-      verification_status: option(opts, :verification_status) || "pending",
-      verification_error: option(opts, :verification_error)
-    }
+    attrs =
+      %{
+        dashboard_id: manifest.id,
+        name: manifest.name,
+        version: manifest.version,
+        description: manifest.description,
+        vendor: manifest.vendor,
+        manifest: manifest_to_map(manifest),
+        renderer: manifest.renderer,
+        data_frames: manifest.data_frames,
+        capabilities: manifest.capabilities,
+        settings_schema: manifest.settings_schema,
+        wasm_object_key: option(opts, :wasm_object_key),
+        content_hash: content_hash,
+        signature: option(opts, :signature) || %{},
+        source_type: normalize_source_type(option(opts, :source_type)),
+        source_repo_url: option(opts, :source_repo_url),
+        source_ref: option(opts, :source_ref),
+        source_manifest_path: option(opts, :source_manifest_path),
+        source_commit: option(opts, :source_commit),
+        source_bundle_digest: option(opts, :source_bundle_digest),
+        source_metadata: option(opts, :source_metadata) || manifest.source || %{},
+        imported_at: option(opts, :imported_at) || DateTime.utc_now(),
+        verification_status: option(opts, :verification_status) || "pending",
+        verification_error: option(opts, :verification_error)
+      }
+      |> maybe_put_opt(:pack_id, option(opts, :pack_id))
+      |> maybe_put_opt(:pack_version, option(opts, :pack_version))
+      |> maybe_put_boolean(:managed, option(opts, :managed))
+      |> maybe_put_opt(:template_fingerprint, option(opts, :template_fingerprint))
+      |> maybe_put_opt(:status, normalize_status(option(opts, :status)))
 
     {:ok, attrs}
   end
@@ -105,7 +116,30 @@ defmodule ServiceRadar.Dashboards.PackageImport do
   defp normalize_source_type(value) when value in ["upload", "git", "first_party"],
     do: String.to_existing_atom(value)
 
+  defp normalize_source_type(value) when value in [:builtin, "builtin"], do: :first_party
+
+  defp normalize_source_type(value)
+       when value in [:gitops_tree, "gitops_tree", :gitops, "gitops"], do: :git
+
+  defp normalize_source_type(value) when value in [:release_catalog, "release_catalog"],
+    do: :upload
+
   defp normalize_source_type(_value), do: :upload
+
+  defp normalize_status(nil), do: nil
+  defp normalize_status(value) when value in [:staged, :enabled, :disabled, :revoked], do: value
+
+  defp normalize_status(value) when value in ["staged", "enabled", "disabled", "revoked"],
+    do: String.to_existing_atom(value)
+
+  defp normalize_status(_value), do: nil
+
+  defp maybe_put_opt(attrs, _key, nil), do: attrs
+  defp maybe_put_opt(attrs, key, val), do: Map.put(attrs, key, val)
+
+  defp maybe_put_boolean(attrs, _key, nil), do: attrs
+  defp maybe_put_boolean(attrs, key, val) when is_boolean(val), do: Map.put(attrs, key, val)
+  defp maybe_put_boolean(attrs, _key, _val), do: attrs
 
   defp option(opts, key), do: Keyword.get(opts, key)
 end

@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
 
   attr :wizard, :map, required: true
   attr :credential_options, :map, required: true
+  attr :can_activate_dashboards, :boolean, default: false
 
   def install_wizard_modal(assigns) do
     pack = assigns.wizard.pack
@@ -96,6 +97,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
                 wizard={@wizard}
                 pack={@pack}
                 credential_options={@credential_options}
+                can_activate_dashboards={@can_activate_dashboards}
               />
             <% 3 -> %>
               <.step_three_preview_and_diff wizard={@wizard} pack={@pack} />
@@ -299,7 +301,24 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
 
   defp step_two_credentials_and_plugins(assigns) do
     slots = Map.get(assigns.pack, "credential_slots", [])
-    dep_report = assigns.wizard.dependency_report || %{ready?: true, dependencies: []}
+
+    dep_report =
+      assigns.wizard.dependency_report ||
+        %{
+          ready?: true,
+          dependencies: [],
+          worker_dependencies: [],
+          dashboard_package_dependencies: []
+        }
+
+    worker_deps = Map.get(dep_report, :worker_dependencies, [])
+    dashboard_deps = Map.get(dep_report, :dashboard_package_dependencies, [])
+
+    has_bundled_dashboards? =
+      (get_in(assigns.pack, ["counts", "dashboard_packages"]) || 0) > 0 or
+        List.wrap(assigns.pack["dashboard_packages"]) != []
+
+    has_blocking_worker? = Enum.any?(worker_deps, &(Map.get(&1, :blocking?, false) == true))
     secrets = Map.get(assigns.credential_options, :secrets, [])
     rules = Map.get(assigns.credential_options, :rules, [])
 
@@ -307,6 +326,10 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
       assigns
       |> assign(:slots, slots)
       |> assign(:dep_report, dep_report)
+      |> assign(:worker_deps, worker_deps)
+      |> assign(:dashboard_deps, dashboard_deps)
+      |> assign(:has_bundled_dashboards?, has_bundled_dashboards?)
+      |> assign(:has_blocking_worker?, has_blocking_worker?)
       |> assign(:secrets, secrets)
       |> assign(:rules, rules)
 
@@ -446,6 +469,162 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
           </div>
         </div>
       </section>
+
+      <section :if={@worker_deps != []} id="wizard-worker-deps-section" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-sr-ink">Vantage Worker Dependencies</h3>
+          <.ui_badge
+            variant={if(@has_blocking_worker?, do: "error", else: "success")}
+            size="xs"
+          >
+            {if(@has_blocking_worker?, do: "Worker Required", else: "Ready")}
+          </.ui_badge>
+        </div>
+
+        <div class="space-y-2">
+          <div
+            :for={dep <- @worker_deps}
+            data-role="worker-dependency-item"
+            class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sr-line bg-sr-surface p-3 text-xs"
+          >
+            <div>
+              <div class="font-mono font-semibold text-sr-ink">
+                {dep.capability}
+                <span :if={dep[:min_protocol_version]}> ({dep.min_protocol_version})</span>
+                <span :if={dep[:fallback_runner]} class="ml-1 font-normal text-sr-muted">
+                  · fallback: {dep.fallback_runner}
+                </span>
+              </div>
+              <div class="text-sr-muted">{dep.message}</div>
+            </div>
+            <.ui_badge
+              variant={
+                case dep.status do
+                  :satisfied -> "success"
+                  :fallback_ready -> "info"
+                  _ -> if(dep[:optional], do: "warning", else: "error")
+                end
+              }
+              size="xs"
+            >
+              {dep.status}
+            </.ui_badge>
+          </div>
+        </div>
+
+        <label
+          :if={@has_blocking_worker?}
+          class="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-sr-ink cursor-pointer"
+        >
+          <input
+            id="wizard-install-paused-checkbox"
+            type="checkbox"
+            checked={@wizard.install_paused == true}
+            phx-click="wizard_toggle_install_paused"
+            class="checkbox checkbox-xs"
+          />
+          <span>
+            Install pipelines in <strong>paused</strong>
+            state until a compatible Vantage worker connects
+          </span>
+        </label>
+      </section>
+
+      <section :if={@dashboard_deps != []} id="wizard-dashboard-deps-section" class="space-y-3">
+        <h3 class="text-sm font-semibold text-sr-ink">External Dashboard Package Dependencies</h3>
+        <div class="space-y-2">
+          <div
+            :for={dep <- @dashboard_deps}
+            data-role="dashboard-dependency-item"
+            class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sr-line bg-sr-surface p-3 text-xs"
+          >
+            <div>
+              <div class="font-mono font-semibold text-sr-ink">
+                {dep.dashboard_id} ({dep.version_constraint})
+              </div>
+              <div class="text-sr-muted">{dep.message}</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <.ui_badge
+                variant={
+                  case dep.status do
+                    :satisfied -> "success"
+                    :staged_approval_required -> "warning"
+                    _ -> "error"
+                  end
+                }
+                size="xs"
+              >
+                {dep.status}
+              </.ui_badge>
+              <.link
+                :if={dep[:review_path]}
+                navigate={dep.review_path}
+                class="font-medium text-sr-brand hover:underline"
+              >
+                Review Dashboard Packages
+              </.link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        :if={@has_bundled_dashboards?}
+        id="wizard-bundled-dashboards-activation"
+        class="rounded-lg border border-sr-line bg-sr-subtle/50 p-4 space-y-2.5"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-sr-ink">
+            Bundled Dashboard SDK Browser Modules
+          </h3>
+          <.ui_badge
+            variant={
+              if(@wizard.activate_dashboard_packages == true and @can_activate_dashboards,
+                do: "success",
+                else: "warning"
+              )
+            }
+            size="xs"
+          >
+            {if(@wizard.activate_dashboard_packages == true and @can_activate_dashboards,
+              do: "Activate & Bind Routes",
+              else: "Stage Only (Approval Required)"
+            )}
+          </.ui_badge>
+        </div>
+
+        <%= if @can_activate_dashboards do %>
+          <label class="flex items-start gap-2.5 text-xs text-sr-ink cursor-pointer">
+            <input
+              id="wizard-activate-dashboards-checkbox"
+              type="checkbox"
+              checked={@wizard.activate_dashboard_packages == true}
+              phx-click="wizard_toggle_activate_dashboards"
+              class="checkbox checkbox-xs mt-0.5"
+            />
+            <span>
+              Enable bundled JavaScript dashboard module(s) and bind dashboard route(s) immediately.
+              Leave unchecked to stage in <code class="font-mono">:staged</code>
+              status for later review.
+            </span>
+          </label>
+        <% else %>
+          <p class="text-xs text-sr-muted">
+            You do not hold <code class="font-mono">dashboards.packages.manage</code>
+            (or <code class="font-mono">dashboards.packages.publish</code>
+            + <code class="font-mono">dashboards.packages.enable</code>). Bundled dashboard modules
+            will be imported in <code class="font-mono">:staged</code>
+            status for a dashboard
+            administrator to approve at <.link
+              navigate={~p"/settings/dashboards/packages"}
+              class="text-sr-brand hover:underline"
+            >
+              Settings → Dashboard Packages
+            </.link>.
+          </p>
+        <% end %>
+      </section>
     </div>
     """
   end
@@ -578,7 +757,18 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
 
   defp step_four_applied(assigns) do
     result = assigns.wizard.apply_result || %{}
-    assigns = assign(assigns, :result, result)
+
+    dashboard_results =
+      Map.get(result, :applied_dashboard_packages) ||
+        Map.get(result, "applied_dashboard_packages") ||
+        Map.get(result, :dashboard_packages) ||
+        Map.get(result, "dashboard_packages") ||
+        []
+
+    assigns =
+      assigns
+      |> assign(:result, result)
+      |> assign(:dashboard_results, dashboard_results)
 
     ~H"""
     <div id="wizard-step-4" class="space-y-4">
@@ -592,8 +782,49 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
             Solution Pack {@pack["name"]} v{@pack["version"]} Applied
           </h3>
           <p class="mt-1 text-xs text-sr-muted">
-            All checks, rules, and dashboards were reconciled atomically in CNPG.
+            All checks, rules, dashboards, and Vantage ML pipelines were reconciled atomically in CNPG.
           </p>
+        </div>
+      </div>
+
+      <div
+        :if={@dashboard_results != []}
+        id="wizard-step-4-dashboard-packages"
+        class="rounded-lg border border-sr-line bg-sr-surface p-4 space-y-2.5"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
+            Bundled Dashboard Packages
+          </h4>
+          <.link
+            id="wizard-step-4-review-dashboards-link"
+            navigate={~p"/settings/dashboards/packages"}
+            class="text-xs font-medium text-sr-brand hover:underline"
+          >
+            Review Dashboard Packages
+          </.link>
+        </div>
+        <div
+          :for={pkg <- @dashboard_results}
+          class="flex flex-wrap items-center justify-between gap-2 rounded border border-sr-line bg-sr-subtle/40 px-3 py-2 text-xs"
+        >
+          <span class="font-mono font-medium text-sr-ink">
+            {pkg[:dashboard_id] || pkg["dashboard_id"]} · v{pkg[:version] || pkg["version"]}
+            <span :if={pkg[:route_slug] || pkg["route_slug"]} class="text-sr-muted">
+              (/dashboards/{pkg[:route_slug] || pkg["route_slug"]})
+            </span>
+          </span>
+          <.ui_badge
+            variant={
+              if((pkg[:status] || pkg["status"] || pkg[:action]) in [:enabled, "enabled"],
+                do: "success",
+                else: "warning"
+              )
+            }
+            size="xs"
+          >
+            {pkg[:status] || pkg["status"] || pkg[:target_status] || :staged}
+          </.ui_badge>
         </div>
       </div>
 
@@ -616,6 +847,13 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
         >
           <.icon name="hero-squares-2x2" class="size-4" /> Open Dashboards
         </.link>
+        <.link
+          :if={@dashboard_results != []}
+          navigate={~p"/settings/dashboards/packages"}
+          class="inline-flex items-center gap-1.5 rounded-sr-control border border-sr-line bg-sr-control px-3 py-1.5 text-xs font-medium text-sr-ink hover:bg-sr-subtle"
+        >
+          <.icon name="hero-shield-check" class="size-4" /> Dashboard Packages
+        </.link>
       </div>
     </div>
     """
@@ -637,7 +875,71 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
       |> Map.get(:dashboards, Map.get(plan, "dashboards", []))
       |> Enum.map(&format_plan_row("dashboard", &1))
 
-    checks ++ rules ++ dashboards
+    vantage_pipelines =
+      plan
+      |> Map.get(:vantage_pipelines, Map.get(plan, "vantage_pipelines", []))
+      |> Enum.map(&format_vantage_pipeline_row/1)
+
+    signal_schemas =
+      plan
+      |> Map.get(:signal_schemas, Map.get(plan, "signal_schemas", []))
+      |> Enum.map(&format_signal_schema_row/1)
+
+    dashboard_packages =
+      plan
+      |> Map.get(:dashboard_packages, Map.get(plan, "dashboard_packages", []))
+      |> Enum.map(&format_dashboard_package_row/1)
+
+    checks ++ rules ++ dashboards ++ vantage_pipelines ++ signal_schemas ++ dashboard_packages
+  end
+
+  defp format_vantage_pipeline_row(item) do
+    base = format_plan_row("vantage_pipeline", item)
+    pid = Map.get(item, :pipeline_id) || Map.get(item, "pipeline_id") || base.name
+    ver = Map.get(item, :version) || Map.get(item, "version")
+    %{base | name: if(ver, do: "#{pid}@#{ver}", else: to_string(pid))}
+  end
+
+  defp format_signal_schema_row(item) do
+    schema_id = Map.get(item, :schema_id) || Map.get(item, "schema_id") || "signal_schema"
+    ver = Map.get(item, :version) || Map.get(item, "version") || "1.0.0"
+
+    %{
+      key: "signal_schema:#{schema_id}:#{ver}",
+      dom_id: String.replace("signal_schema-#{schema_id}-#{ver}", ~r/[^a-zA-Z0-9_-]/, "-"),
+      kind: "signal_schema",
+      name: "#{schema_id}@#{ver}",
+      action: "register",
+      diverged?: false,
+      note: "Display contract: #{Map.get(item, :display_contract_id) || schema_id}",
+      current_json: "{}",
+      upstream_json: safe_pretty_json(Map.get(item, :signal_schema) || %{})
+    }
+  end
+
+  defp format_dashboard_package_row(item) do
+    dash_id = Map.get(item, :dashboard_id) || Map.get(item, "dashboard_id") || "dashboard_package"
+    ver = Map.get(item, :version) || Map.get(item, "version") || "1.0.0"
+    route_slug = Map.get(item, :route_slug) || Map.get(item, "route_slug") || ""
+    target_status = Map.get(item, :target_status) || Map.get(item, "target_status") || :staged
+    bind? = Map.get(item, :bind_instance?, false) == true
+
+    note =
+      if bind?,
+        do: "Will enable module and bind /dashboards/#{route_slug}",
+        else: "Will stage module (#{target_status}) for admin review at /settings/dashboards/packages"
+
+    %{
+      key: Map.get(item, :key) || "dashboard_package:#{dash_id}:#{ver}",
+      dom_id: String.replace("dashboard_package-#{dash_id}-#{ver}", ~r/[^a-zA-Z0-9_-]/, "-"),
+      kind: "dashboard_package",
+      name: "#{dash_id}@#{ver}",
+      action: to_string(target_status),
+      diverged?: false,
+      note: note,
+      current_json: "{}",
+      upstream_json: "{}"
+    }
   end
 
   defp format_plan_row(kind, item) do
@@ -695,6 +997,9 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.InstallWizardComponents do
   defp inspect_safe(v), do: to_string(v)
 
   defp action_badge_variant("create"), do: "success"
+  defp action_badge_variant("enabled"), do: "success"
+  defp action_badge_variant("register"), do: "info"
+  defp action_badge_variant("staged"), do: "warning"
   defp action_badge_variant("upgrade"), do: "info"
   defp action_badge_variant("keep_customized"), do: "warning"
   defp action_badge_variant("reset_to_upstream"), do: "warning"

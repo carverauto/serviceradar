@@ -1,0 +1,41 @@
+{
+  "cameras": {
+    "bay_04_approach": {
+      "camera_name": "Bay 04 Approach",
+      "camera_source_id": "22222222-2222-4222-8222-222222222204",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333304",
+      "capability": "vantage.bay_guidance.v1",
+      "live_subject": "media.live.vantage.vantage_bay_guidance_v1.v1"
+    },
+    "gate_west_01": {
+      "camera_name": "Gate West 01",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+      "capability": "vantage.alpr.v1",
+      "live_subject": "media.live.vantage.vantage_alpr_v1.v1"
+    }
+  },
+  "mailbox_cap": 8,
+  "max_tracks_per_camera": 128,
+  "max_nats_payload_bytes": 983040,
+  "default_camera_cap": 4,
+  "burst_scenarios": {
+    "steady_state": {
+      "camera": "Bay 04 Approach",
+      "incoming_sequences": [1, 2, 3, 4, 5, 6, 7, 8],
+      "expected_retained_sequences": [1, 2, 3, 4, 5, 6, 7, 8],
+      "expected_dropped_total": 0
+    },
+    "overflow_20_frames": {
+      "camera": "Bay 04 Approach",
+      "incoming_sequences": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+      "expected_retained_sequences": [13, 14, 15, 16, 17, 18, 19, 20],
+      "expected_dropped_total": 12
+    }
+  },
+  "carriers": {
+    "annex_b_idr_b64": "AAAAAWWIhA==",
+    "rgb8_4x2_b64": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcY",
+    "read_token": "token-00000004"
+  }
+}

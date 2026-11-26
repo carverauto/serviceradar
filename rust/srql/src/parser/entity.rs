@@ -150,6 +150,10 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "k8s_endpoints"
         | "vip_inventory" => Ok(Entity::PublicEndpoints),
         "camera_sources" | "camera_source" | "cameras" | "camera" => Ok(Entity::CameraSources),
+        "camera_observations"
+        | "camera_observation"
+        | "vantage_observations"
+        | "vantage_observation" => Ok(Entity::CameraObservations),
         "websites" | "website" | "web_properties" | "web_property" => Ok(Entity::Websites),
         "rum" | "rum_beacons" | "rum_beacon" => Ok(Entity::RumBeacons),
         "endpoint_inventory_scans"

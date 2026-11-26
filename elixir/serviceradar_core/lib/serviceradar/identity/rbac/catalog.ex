@@ -1402,6 +1402,16 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "dashboards.packages.manage",
+          section: "dashboards",
+          resource: "dashboards.packages",
+          action: "manage",
+          label: "Manage dashboard packages",
+          description:
+            "Publish, enable, disable, and approve bundled dashboard packages installed via Solution Packs.",
+          default_roles: @admin_roles
+        },
+        %{
           key: "dashboards.packages.share",
           section: "dashboards",
           resource: "dashboards.packages",

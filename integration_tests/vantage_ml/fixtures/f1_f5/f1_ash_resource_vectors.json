@@ -1,0 +1,176 @@
+{
+  "feature": "F1",
+  "pipeline": {
+    "valid": {
+      "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+      "version": "1.0.0",
+      "name": "Synthetic ALPR Vehicle Plate",
+      "enabled": true,
+      "source_mode": "recorded_block",
+      "trigger_kind": "on_stage1_detection",
+      "camera_selector": {
+        "mode": "camera_source_ids",
+        "camera_source_ids": ["22222222-2222-4222-8222-222222222201"]
+      },
+      "object_classes": ["vehicle"],
+      "min_confidence": 0.55,
+      "roi_polygons": [
+        {"points": [[0.1, 0.2], [0.9, 0.2], [0.9, 0.9], [0.1, 0.9]]}
+      ],
+      "input_mode": "detection_crop",
+      "crop_policy": {
+        "padding_ratio": 0.15,
+        "min_bbox_width_px": 96,
+        "max_dimension": 640,
+        "max_bytes": 98304
+      },
+      "max_jobs_per_minute": 60,
+      "max_frames_per_track": 3,
+      "runner": "camera_vlm",
+      "capability": "vantage.alpr.v1",
+      "fallback_runner": "camera_vlm",
+      "signal_schema_id": "alpr_plate_read",
+      "signal_schema_version": "1.0.0",
+      "display_contract_id": "alpr_plate_read",
+      "emit_ocsf_events": true,
+      "live_observation_retention_days": 30,
+      "pack_id": "io.serviceradar.vantage-alpr",
+      "pack_version": "1.0.0",
+      "managed": true,
+      "template_fingerprint": "1212121212121212121212121212121212121212121212121212121212121212"
+    },
+    "invalid_cases": [
+      {
+        "name": "empty_pipeline_id",
+        "field": "pipeline_id",
+        "pipeline_id": "",
+        "version": "1.0.0"
+      },
+      {
+        "name": "single_segment_pipeline_id",
+        "field": "pipeline_id",
+        "pipeline_id": "vantage",
+        "version": "1.0.0"
+      },
+      {
+        "name": "invalid_semver_version",
+        "field": "version",
+        "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+        "version": "not-a-semver"
+      }
+    ]
+  },
+  "job": {
+    "idempotency_key_fields": [
+      "pipeline_id",
+      "pipeline_version",
+      "catalog_entry_id",
+      "target_key"
+    ],
+    "valid_states": ["pending", "dispatched", "completed", "cancelled", "failed_terminal"],
+    "valid_job_kinds": ["live", "backfill"],
+    "sample_job": {
+      "vantage_pipeline_id": "99999999-9999-4999-8999-999999999901",
+      "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+      "pipeline_version": "1.0.0",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+      "target_key": "track:1",
+      "job_kind": "live",
+      "state": "pending",
+      "target_runner": "camera_vlm",
+      "subject": "media.jobs.vantage.vlm.v1",
+      "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "observation": {
+    "recorded_valid": {
+      "observation_key": "obs-0001-0100",
+      "pack_id": "io.serviceradar.vantage-alpr",
+      "pipeline_id": "io.serviceradar.vantage-alpr.vehicle-plate",
+      "pipeline_version": "1.0.0",
+      "worker_kind": "camera_vlm",
+      "worker_id": "media-worker-gate-west-01",
+      "model_id": "vantage-vlm-synthetic",
+      "model_version": "1.0.0",
+      "job_id": "11111111-1111-4111-8111-111111111101",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+      "camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333301",
+      "source_mode": "recorded_block",
+      "fragment_sequence": 1,
+      "frame_sequence": 1,
+      "media_pts_ns": 1000000000,
+      "timeline_ts_us": 1700000000000000,
+      "time_basis": "received",
+      "track_id": "1",
+      "category": "license_plate",
+      "label": "SR-0100",
+      "confidence": 0.94,
+      "ash_bbox": {"x1": 0.32, "y1": 0.58, "x2": 0.48, "y2": 0.66},
+      "wire_bbox": [0.32, 0.58, 0.48, 0.66],
+      "attributes": {"plate_text": "SR-0100", "region": "US-CO"},
+      "signal_schema_id": "alpr_plate_read",
+      "signal_schema_version": "1.0.0",
+      "display_contract_id": "alpr_plate_read",
+      "search_text": "SR-0100 Gate West 01 US-CO"
+    },
+    "live_valid": {
+      "observation_key": "obs-0004-0012",
+      "pack_id": "io.serviceradar.vantage-bay-guidance",
+      "pipeline_id": "io.serviceradar.vantage-bay-guidance.dock",
+      "pipeline_version": "1.0.0",
+      "worker_kind": "external_rust",
+      "worker_id": "rust-guidance-bay-04",
+      "model_id": "bay-guidance-onnx",
+      "model_version": "1.0.0",
+      "job_id": null,
+      "catalog_entry_id": null,
+      "camera_source_id": "22222222-2222-4222-8222-222222222204",
+      "stream_profile_id": "33333333-3333-4333-8333-333333333304",
+      "source_mode": "live_keyframe_tap",
+      "fragment_sequence": null,
+      "frame_sequence": 12,
+      "media_pts_ns": 500000000,
+      "timeline_ts_us": 1700000005000000,
+      "time_basis": "camera_reported",
+      "track_id": "bay-04-track-1",
+      "category": "vehicle",
+      "label": "Bay 04 Approach",
+      "confidence": 0.93,
+      "ash_bbox": {"x1": 0.25, "y1": 0.30, "x2": 0.75, "y2": 0.85},
+      "wire_bbox": [0.25, 0.30, 0.75, 0.85],
+      "attributes": {
+        "bay_id": "bay-04",
+        "guidance_state": "approach",
+        "distance_m": 2.4,
+        "lateral_offset_m": -0.15
+      },
+      "signal_schema_id": "bay_guidance",
+      "signal_schema_version": "1.0.0",
+      "display_contract_id": "bay_guidance",
+      "search_text": "Bay 04 Approach bay-04 approach"
+    },
+    "invalid_bboxes": [
+      [-0.01, 0.1, 0.5, 0.5],
+      [0.1, 0.1, 1.01, 0.5],
+      [0.6, 0.2, 0.4, 0.8],
+      [0.2, 0.7, 0.8, 0.7]
+    ],
+    "invalid_confidences": [-0.01, 1.01],
+    "invalid_time_bases": ["wall_clock", ""],
+    "invalid_source_modes": ["stream_copy", ""]
+  },
+  "rbac_and_provenance": {
+    "required_observation_read_permissions": [
+      "devices.cameras.recordings.view"
+    ],
+    "insufficient_observation_read_permissions": [
+      "devices.view",
+      "catalog.view"
+    ],
+    "dashboard_package_manage_permission": "dashboards.packages.manage",
+    "provenance_columns": ["pack_id", "pack_version", "managed", "template_fingerprint"]
+  }
+}

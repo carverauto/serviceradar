@@ -1,20 +1,29 @@
 defmodule ServiceRadar.Catalog.PackManifest do
   @moduledoc """
-  `pack_format_version: 1` validator, parameter resolver, and resource schema
-  verifier for Solution Packs (`2.1`, Decision 1).
+  `pack_format_version: 1` and `2` validator, parameter resolver, and resource
+  schema verifier for Solution Packs.
   """
 
+  alias ServiceRadar.Camera.Validations.VantageSignalSchema
   alias ServiceRadar.Catalog.SecretFreeValidator
   alias ServiceRadar.Catalog.SvgSanitizer
   alias ServiceRadar.Dashboards.DashboardPanel
+  alias ServiceRadar.Dashboards.Manifest, as: DashboardPackageManifest
   alias ServiceRadar.DeclarativeChecks.CanonicalJSON
   alias ServiceRadar.DeclarativeChecks.SchemaValidator
   alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
 
   @supported_format_version 1
+  @supported_format_versions [1, 2]
+  @max_renderer_bytes 8 * 1024 * 1024
+  @max_uncompressed_bytes 64 * 1024 * 1024
+  @max_uncompressed_bytes_with_dashboards 96 * 1024 * 1024
+
   @pack_id_regex ~r/\A[a-z][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+\z/
   @slug_regex ~r/\A[a-z0-9][a-z0-9-]{0,126}\z/
   @dashboard_slug_regex ~r/\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*\z/
+  @dashboard_package_id_regex ~r/\A[a-z0-9][a-z0-9._-]{1,127}\z/
+  @vantage_pipeline_id_regex ~r/\A[a-z][a-z0-9-]*(\.[a-z0-9][a-z0-9._-]*)+\z/
   @hex64_regex ~r/\A[0-9a-f]{64}\z/
   @key_regex ~r/\A[a-zA-Z][a-zA-Z0-9_.-]{0,126}\z/
 
@@ -24,6 +33,12 @@ defmodule ServiceRadar.Catalog.PackManifest do
   @allowed_stateful_signals ~w(log event metric alert health)
   @allowed_event_source_types ~w(log metric)
   @allowed_zen_formats ~w(json protobuf otel_metrics)
+  @allowed_vantage_source_modes ~w(recorded_block live_keyframe_tap)
+  @allowed_vantage_trigger_kinds ~w(on_sealed_block on_stage1_detection live_keyframe_tap)
+  @allowed_vantage_input_modes ~w(full_frame detection_crop multi_frame_track)
+  @allowed_vantage_runners ~w(camera_vlm external_worker)
+  @v2_top_level_keys ~w(worker_dependencies dashboard_package_dependencies)
+  @v2_resource_keys ~w(vantage_pipelines signal_schemas dashboard_packages)
   @grid_columns 12
 
   @type diagnostic :: %{
@@ -33,9 +48,17 @@ defmodule ServiceRadar.Catalog.PackManifest do
           message: String.t()
         }
 
-  @doc "Supported `pack_format_version` integer."
+  @doc "Default legacy `pack_format_version` integer."
   @spec supported_format_version() :: pos_integer()
   def supported_format_version, do: @supported_format_version
+
+  @doc "All supported `pack_format_version` integers."
+  @spec supported_format_versions() :: [pos_integer()]
+  def supported_format_versions, do: @supported_format_versions
+
+  @doc "Maximum byte size of a single bundled `dashboard_packages/<slug>/renderer.js` artifact."
+  @spec max_renderer_bytes() :: pos_integer()
+  def max_renderer_bytes, do: @max_renderer_bytes
 
   @doc """
   Computes the lowercase 64-character SHA-256 hex digest of raw bytes.
@@ -46,7 +69,7 @@ defmodule ServiceRadar.Catalog.PackManifest do
   end
 
   @doc """
-  Validates a decoded `manifest.json` map (`pack_format_version: 1`) and returns
+  Validates a decoded `manifest.json` map (`pack_format_version: 1` or `2`) and returns
   `{:ok, normalized_manifest}` or `{:error, [diagnostic()]}`.
   """
   @spec validate_manifest(term()) :: {:ok, map()} | {:error, [diagnostic()]}
@@ -56,6 +79,7 @@ defmodule ServiceRadar.Catalog.PackManifest do
     diags =
       []
       |> check_format_version(doc)
+      |> check_v1_forbidden_v2_fields(doc)
       |> check_pack_id(doc)
       |> check_slug(doc)
       |> check_required_string(doc, "name")
@@ -66,6 +90,8 @@ defmodule ServiceRadar.Catalog.PackManifest do
       |> check_config_descriptors(doc)
       |> check_credential_slots(doc)
       |> check_plugin_dependencies(doc)
+      |> check_worker_dependencies(doc)
+      |> check_dashboard_package_dependencies(doc)
       |> check_resources(doc)
       |> check_files_table(doc)
 
@@ -85,8 +111,8 @@ defmodule ServiceRadar.Catalog.PackManifest do
   @doc """
   Validates an entire Solution Pack directory map (`%{relative_path => binary}`),
   checking path safety, unlisted files, SHA-256 digests against `manifest.files`,
-  `SecretFreeValidator`, SVG/Markdown sanitization, and every check, rule, and
-  dashboard schema.
+  `SecretFreeValidator`, SVG/Markdown sanitization, and every check, rule,
+  dashboard, Vantage pipeline, signal schema, and bundled dashboard package.
   """
   @spec validate_pack_tree(map(), keyword()) :: {:ok, map()} | {:error, [diagnostic()]}
   def validate_pack_tree(raw_files, opts \\ []) when is_map(raw_files) and is_list(opts) do
@@ -95,6 +121,7 @@ defmodule ServiceRadar.Catalog.PackManifest do
          {:ok, manifest_bytes} <- fetch_manifest_bytes(files),
          {:ok, raw_manifest} <- decode_json_file("manifest.json", manifest_bytes),
          {:ok, manifest} <- validate_manifest(raw_manifest),
+         :ok <- check_tree_uncompressed_limit(files, manifest),
          :ok <- verify_file_digests(files, manifest["files"]),
          {:ok, default_params} <- extract_default_params(manifest["config"]),
          {:ok, parsed_resources} <- validate_all_resources(files, manifest, default_params, opts),
@@ -105,7 +132,10 @@ defmodule ServiceRadar.Catalog.PackManifest do
          files: files,
          checks: parsed_resources.checks,
          rules: parsed_resources.rules,
-         dashboards: parsed_resources.dashboards
+         dashboards: parsed_resources.dashboards,
+         vantage_pipelines: parsed_resources.vantage_pipelines,
+         signal_schemas: parsed_resources.signal_schemas,
+         dashboard_packages: parsed_resources.dashboard_packages
        }}
     end
   end
@@ -184,6 +214,53 @@ defmodule ServiceRadar.Catalog.PackManifest do
       {resolved, []} -> {:ok, resolved}
       {_resolved, errs} -> {:error, Enum.reverse(errs)}
     end
+  end
+
+  @doc """
+  Re-resolves a validated `signal_schemas` entry (schema + display contract)
+  using the supplied `params` map so operator `config` overrides apply to
+  `$pack_param` references inside `signal_schemas/*.{schema,display}.json`.
+  """
+  @spec resolve_signal_schema_entry(map(), map()) :: {:ok, map()} | {:error, [diagnostic()]}
+  def resolve_signal_schema_entry(item, params) when is_map(item) and is_map(params) do
+    schema_file =
+      Map.get(item, :schema_file) || item.entry["schema_file"] || item.entry["file"] ||
+        "signal_schema.json"
+
+    display_file = Map.get(item, :display_file) || item.entry["display_file"]
+    raw_schema_doc = Map.get(item, :raw_schema) || item.signal_schema
+    raw_display_doc = Map.get(item, :raw_display) || item.display_contract || %{}
+
+    with {:ok, resolved_schema_doc} <- resolve_pack_params(raw_schema_doc, params, schema_file),
+         {:ok, resolved_display_raw} <-
+           resolve_pack_params(raw_display_doc, params, display_file || schema_file),
+         {:ok, signal_schema} <-
+           extract_and_validate_signal_schema(resolved_schema_doc, schema_file),
+         {:ok, display_contract} <-
+           validate_display_contract_doc(resolved_display_raw, display_file || schema_file) do
+      display_contract_id =
+        item.entry["display_contract_id"] ||
+          display_contract["display_contract_id"] ||
+          display_contract["id"] ||
+          resolved_schema_doc["display_contract_id"] ||
+          item.schema_id
+
+      {:ok,
+       %{
+         item
+         | signal_schema: signal_schema,
+           display_contract: display_contract,
+           display_contract_id: display_contract_id
+       }}
+    end
+  end
+
+  @doc false
+  @spec attach_signal_schema(map(), [map()]) :: map()
+  def attach_signal_schema(doc, signal_schemas) when is_map(doc) and is_list(signal_schemas) do
+    schema_index = Map.new(signal_schemas, &{{&1.schema_id, &1.version}, &1})
+    schema_id_index = Map.new(signal_schemas, &{&1.schema_id, &1})
+    attach_bundled_signal_schema(doc, schema_index, schema_id_index)
   end
 
   @doc """
@@ -448,6 +525,36 @@ defmodule ServiceRadar.Catalog.PackManifest do
     end
   end
 
+  defp check_tree_uncompressed_limit(files, manifest) do
+    has_dashboards? =
+      manifest
+      |> get_in(["resources", "dashboard_packages"])
+      |> List.wrap()
+      |> Enum.empty?()
+      |> Kernel.not()
+
+    limit =
+      if has_dashboards?,
+        do: @max_uncompressed_bytes_with_dashboards,
+        else: @max_uncompressed_bytes
+
+    total_bytes = Enum.reduce(files, 0, fn {_path, bytes}, acc -> acc + byte_size(bytes) end)
+
+    if total_bytes <= limit do
+      :ok
+    else
+      {:error,
+       [
+         diag(
+           "manifest.json",
+           "$",
+           "pack_too_large",
+           "uncompressed pack size #{total_bytes} bytes exceeds limit #{limit} bytes"
+         )
+       ]}
+    end
+  end
+
   defp extract_default_params(descriptors) do
     validate_config_values(descriptors, %{})
   end
@@ -466,8 +573,36 @@ defmodule ServiceRadar.Catalog.PackManifest do
          {:ok, rules} <-
            validate_rule_entries(files, Map.get(resources, "rules", []), default_params),
          {:ok, dashboards} <-
-           validate_dashboard_entries(files, Map.get(resources, "dashboards", []), default_params) do
-      {:ok, %{checks: checks, rules: rules, dashboards: dashboards}}
+           validate_dashboard_entries(files, Map.get(resources, "dashboards", []), default_params),
+         {:ok, signal_schemas} <-
+           validate_signal_schema_entries(
+             files,
+             Map.get(resources, "signal_schemas", []),
+             default_params
+           ),
+         {:ok, vantage_pipelines} <-
+           validate_vantage_pipeline_entries(
+             files,
+             Map.get(resources, "vantage_pipelines", []),
+             manifest,
+             default_params,
+             signal_schemas
+           ),
+         {:ok, dashboard_packages} <-
+           validate_dashboard_package_entries(
+             files,
+             Map.get(resources, "dashboard_packages", []),
+             manifest
+           ) do
+      {:ok,
+       %{
+         checks: checks,
+         rules: rules,
+         dashboards: dashboards,
+         signal_schemas: signal_schemas,
+         vantage_pipelines: vantage_pipelines,
+         dashboard_packages: dashboard_packages
+       }}
     end
   end
 
@@ -569,6 +704,770 @@ defmodule ServiceRadar.Catalog.PackManifest do
     end
   end
 
+  defp validate_signal_schema_entries(files, entries, default_params) do
+    entries
+    |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
+      case validate_one_signal_schema_entry(files, entry, default_params) do
+        {:ok, item} -> {:cont, {:ok, [item | acc]}}
+        {:error, errs} -> {:halt, {:error, errs}}
+      end
+    end)
+    |> case do
+      {:ok, list} -> {:ok, Enum.reverse(list)}
+      err -> err
+    end
+  end
+
+  defp validate_one_signal_schema_entry(files, entry, default_params) do
+    schema_id = entry["schema_id"] || entry["id"]
+    schema_file = entry["schema_file"] || entry["file"]
+    display_file = entry["display_file"]
+
+    with {:ok, raw_schema_bytes} <- fetch_resource_file(files, schema_file),
+         {:ok, raw_schema_doc} <- decode_json_file(schema_file, raw_schema_bytes),
+         {:ok, resolved_schema_doc} <-
+           resolve_pack_params(raw_schema_doc, default_params, schema_file),
+         {:ok, raw_display_doc, resolved_display_doc, display_source} <-
+           load_signal_display_doc(
+             files,
+             display_file,
+             raw_schema_doc,
+             resolved_schema_doc,
+             schema_file,
+             default_params
+           ),
+         {:ok, signal_schema} <-
+           extract_and_validate_signal_schema(resolved_schema_doc, schema_file),
+         {:ok, display_contract} <-
+           validate_display_contract_doc(resolved_display_doc, display_source) do
+      version =
+        entry["version"] ||
+          resolved_schema_doc["version"] ||
+          resolved_schema_doc["signal_schema_version"] ||
+          "1.0.0"
+
+      display_contract_id =
+        entry["display_contract_id"] ||
+          display_contract["display_contract_id"] ||
+          display_contract["id"] ||
+          resolved_schema_doc["display_contract_id"] ||
+          schema_id
+
+      {:ok,
+       %{
+         entry: entry,
+         schema_id: schema_id,
+         version: to_string(version),
+         schema_file: schema_file,
+         display_file: display_file,
+         signal_schema: signal_schema,
+         display_contract_id: display_contract_id,
+         display_contract: display_contract,
+         raw_schema: raw_schema_doc,
+         raw_display: raw_display_doc
+       }}
+    end
+  end
+
+  defp load_signal_display_doc(
+         _files,
+         nil,
+         raw_schema_doc,
+         resolved_schema_doc,
+         schema_file,
+         _default_params
+       ) do
+    raw_display =
+      case Map.get(raw_schema_doc, "display_contract") || Map.get(raw_schema_doc, "display") do
+        nil -> %{}
+        other -> other
+      end
+
+    resolved_display =
+      case Map.get(resolved_schema_doc, "display_contract") ||
+             Map.get(resolved_schema_doc, "display") do
+        nil -> %{}
+        other -> other
+      end
+
+    {:ok, raw_display, resolved_display, schema_file}
+  end
+
+  defp load_signal_display_doc(
+         files,
+         display_file,
+         _raw_schema_doc,
+         _resolved_schema_doc,
+         _schema_file,
+         default_params
+       ) do
+    with {:ok, bytes} <- fetch_resource_file(files, display_file),
+         {:ok, raw_doc} <- decode_json_file(display_file, bytes),
+         {:ok, resolved_doc} <- resolve_pack_params(raw_doc, default_params, display_file) do
+      {:ok, raw_doc, resolved_doc, display_file}
+    end
+  end
+
+  defp extract_and_validate_signal_schema(doc, file) when is_map(doc) do
+    candidate =
+      cond do
+        Map.has_key?(doc, "schema") ->
+          Map.get(doc, "schema")
+
+        Map.has_key?(doc, "signal_schema") ->
+          Map.get(doc, "signal_schema")
+
+        Map.has_key?(doc, "type") or Map.has_key?(doc, "properties") or
+          Map.has_key?(doc, "$schema") or Map.has_key?(doc, "$defs") or
+          Map.has_key?(doc, "definitions") or Map.has_key?(doc, "anyOf") or
+          Map.has_key?(doc, "oneOf") or Map.has_key?(doc, "allOf") ->
+          Map.drop(doc, [
+            "schema_id",
+            "signal_schema_id",
+            "version",
+            "signal_schema_version",
+            "display_contract",
+            "display",
+            "display_contract_id"
+          ])
+
+        true ->
+          :missing
+      end
+
+    cond do
+      candidate == :missing ->
+        {:error,
+         [
+           diag(
+             file,
+             "$.schema",
+             "missing_signal_schema",
+             "signal schema document must provide a JSON Schema object"
+           )
+         ]}
+
+      not is_map(candidate) or candidate == %{} ->
+        {:error,
+         [
+           diag(
+             file,
+             "$.schema",
+             "invalid_signal_schema",
+             "signal schema must be a non-empty JSON Schema object"
+           )
+         ]}
+
+      true ->
+        case VantageSignalSchema.resolve_schema(candidate) do
+          {:ok, _resolved} ->
+            {:ok, candidate}
+
+          {:error, :signal_schema_violation} ->
+            {:error,
+             [
+               diag(
+                 file,
+                 "$.schema",
+                 "invalid_signal_schema",
+                 "signal_schema must be a valid, acyclic JSON Schema"
+               )
+             ]}
+        end
+    end
+  end
+
+  defp validate_display_contract_doc(doc, _file) when doc == %{} or is_nil(doc), do: {:ok, %{}}
+
+  defp validate_display_contract_doc(doc, file) when is_map(doc) do
+    doc = stringify_keys(doc)
+
+    diags =
+      []
+      |> check_optional_non_empty_string(doc, "id", file, "$.display_contract.id")
+      |> check_optional_non_empty_string(
+        doc,
+        "display_contract_id",
+        file,
+        "$.display_contract.display_contract_id"
+      )
+      |> check_optional_string(doc, "title", file, "$.display_contract.title")
+      |> check_optional_string(doc, "label", file, "$.display_contract.label")
+      |> check_optional_string(
+        doc,
+        "summary_template",
+        file,
+        "$.display_contract.summary_template"
+      )
+      |> check_optional_string(doc, "primary_field", file, "$.display_contract.primary_field")
+      |> check_optional_string(doc, "badge_field", file, "$.display_contract.badge_field")
+      |> check_display_fields_list(doc, "fields", file)
+      |> check_display_fields_list(doc, "columns", file)
+      |> check_optional_string_list(
+        doc,
+        "search_fields",
+        file,
+        "$.display_contract.search_fields"
+      )
+      |> check_optional_string_list(
+        doc,
+        "highlight_fields",
+        file,
+        "$.display_contract.highlight_fields"
+      )
+
+    if diags == [] do
+      {:ok, doc}
+    else
+      {:error, Enum.reverse(diags)}
+    end
+  end
+
+  defp validate_display_contract_doc(_other, file) do
+    {:error,
+     [
+       diag(
+         file,
+         "$.display_contract",
+         "invalid_display_contract",
+         "display_contract must be an object"
+       )
+     ]}
+  end
+
+  defp validate_vantage_pipeline_entries(files, entries, manifest, default_params, signal_schemas) do
+    schema_index =
+      Map.new(signal_schemas, fn item ->
+        {{item.schema_id, item.version}, item}
+      end)
+
+    schema_id_index = Map.new(signal_schemas, fn item -> {item.schema_id, item} end)
+
+    entries
+    |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
+      file = entry["file"]
+
+      with {:ok, bytes} <- fetch_resource_file(files, file),
+           {:ok, raw_doc} <- decode_json_file(file, bytes),
+           {:ok, resolved_doc} <- resolve_pack_params(raw_doc, default_params, file),
+           stamped_doc =
+             resolved_doc
+             |> Map.put_new("pack_id", manifest["id"])
+             |> Map.put_new("pack_version", manifest["version"])
+             |> Map.put_new("managed", true),
+           enriched_doc =
+             attach_bundled_signal_schema(stamped_doc, schema_index, schema_id_index),
+           {:ok, normalized} <- validate_vantage_pipeline_doc(enriched_doc, entry, file) do
+        {:cont, {:ok, [%{entry: entry, raw: raw_doc, normalized: normalized} | acc]}}
+      else
+        {:error, errs} -> {:halt, {:error, errs}}
+      end
+    end)
+    |> case do
+      {:ok, list} -> {:ok, Enum.reverse(list)}
+      err -> err
+    end
+  end
+
+  defp attach_bundled_signal_schema(doc, schema_index, schema_id_index) do
+    schema_id = Map.get(doc, "signal_schema_id")
+    schema_version = Map.get(doc, "signal_schema_version")
+
+    bundled =
+      Map.get(schema_index, {schema_id, schema_version}) ||
+        Map.get(schema_id_index, schema_id)
+
+    case bundled do
+      nil ->
+        doc
+
+      item ->
+        doc
+        |> maybe_put_when_empty("signal_schema", item.signal_schema)
+        |> maybe_put_when_empty("display_contract", item.display_contract)
+        |> Map.put_new("display_contract_id", item.display_contract_id)
+    end
+  end
+
+  defp maybe_put_when_empty(map, _key, value) when value == %{} or is_nil(value), do: map
+
+  defp maybe_put_when_empty(map, key, value) do
+    case Map.get(map, key) do
+      nil -> Map.put(map, key, value)
+      empty when empty == %{} -> Map.put(map, key, value)
+      _existing -> map
+    end
+  end
+
+  defp validate_vantage_pipeline_doc(raw, entry, file) when is_map(raw) do
+    doc = stringify_keys(raw)
+    pipeline_id = Map.get(doc, "pipeline_id")
+    expected_pipeline_id = Map.get(entry, "pipeline_id")
+    version = Map.get(doc, "version")
+    expected_version = Map.get(entry, "version")
+    name = Map.get(doc, "name")
+    default_enabled = Map.get(entry, "install_state", "enabled") != "paused"
+    enabled = Map.get(doc, "enabled", default_enabled)
+    source_mode = Map.get(doc, "source_mode", "recorded_block")
+    trigger_kind = Map.get(doc, "trigger_kind", "on_stage1_detection")
+    input_mode = Map.get(doc, "input_mode", "detection_crop")
+    runner = Map.get(doc, "runner", "camera_vlm")
+    fallback_runner = Map.get(doc, "fallback_runner")
+    max_jobs = Map.get(doc, "max_jobs_per_minute", 60)
+    max_frames = Map.get(doc, "max_frames_per_track", 3)
+    retention_days = Map.get(doc, "live_observation_retention_days", 30)
+    min_conf = Map.get(doc, "min_confidence")
+    signal_schema_id = Map.get(doc, "signal_schema_id")
+    signal_schema_version = Map.get(doc, "signal_schema_version")
+    signal_schema = Map.get(doc, "signal_schema", %{})
+    display_contract_id = Map.get(doc, "display_contract_id")
+    display_contract = Map.get(doc, "display_contract", %{})
+
+    diags =
+      []
+      |> check_if(
+        not (is_binary(pipeline_id) and Regex.match?(@vantage_pipeline_id_regex, pipeline_id)),
+        file,
+        "$.pipeline_id",
+        "invalid_pipeline_id",
+        "pipeline_id #{inspect(pipeline_id)} must be a valid reverse-DNS pipeline identifier"
+      )
+      |> check_if(
+        is_binary(expected_pipeline_id) and pipeline_id != expected_pipeline_id,
+        file,
+        "$.pipeline_id",
+        "pipeline_id_mismatch",
+        "pipeline_id #{inspect(pipeline_id)} does not match manifest entry #{inspect(expected_pipeline_id)}"
+      )
+      |> check_if(
+        not (is_binary(version) and String.trim(version) != "" and byte_size(version) <= 64),
+        file,
+        "$.version",
+        "invalid_version",
+        "pipeline version must be a non-empty string (<= 64 bytes)"
+      )
+      |> check_if(
+        is_binary(expected_version) and version != expected_version,
+        file,
+        "$.version",
+        "version_mismatch",
+        "pipeline version #{inspect(version)} does not match manifest entry #{inspect(expected_version)}"
+      )
+      |> check_if(
+        not (is_binary(name) and String.trim(name) != "" and byte_size(name) <= 255),
+        file,
+        "$.name",
+        "missing_name",
+        "pipeline name must be a non-empty string"
+      )
+      |> check_if(
+        not is_boolean(enabled),
+        file,
+        "$.enabled",
+        "invalid_type",
+        "enabled must be a boolean"
+      )
+      |> check_if(
+        source_mode not in @allowed_vantage_source_modes,
+        file,
+        "$.source_mode",
+        "invalid_source_mode",
+        "source_mode must be one of #{Enum.join(@allowed_vantage_source_modes, ", ")}"
+      )
+      |> check_if(
+        trigger_kind not in @allowed_vantage_trigger_kinds,
+        file,
+        "$.trigger_kind",
+        "invalid_trigger_kind",
+        "trigger_kind must be one of #{Enum.join(@allowed_vantage_trigger_kinds, ", ")}"
+      )
+      |> check_if(
+        input_mode not in @allowed_vantage_input_modes,
+        file,
+        "$.input_mode",
+        "invalid_input_mode",
+        "input_mode must be one of #{Enum.join(@allowed_vantage_input_modes, ", ")}"
+      )
+      |> check_if(
+        runner not in @allowed_vantage_runners,
+        file,
+        "$.runner",
+        "invalid_runner",
+        "runner must be one of #{Enum.join(@allowed_vantage_runners, ", ")}"
+      )
+      |> check_if(
+        not is_nil(fallback_runner) and fallback_runner not in @allowed_vantage_runners,
+        file,
+        "$.fallback_runner",
+        "invalid_fallback_runner",
+        "fallback_runner must be one of #{Enum.join(@allowed_vantage_runners, ", ")}"
+      )
+      |> check_if(
+        not (is_integer(max_jobs) and max_jobs >= 1),
+        file,
+        "$.max_jobs_per_minute",
+        "invalid_max_jobs_per_minute",
+        "max_jobs_per_minute must be an integer >= 1"
+      )
+      |> check_if(
+        not (is_integer(max_frames) and max_frames >= 1 and max_frames <= 32),
+        file,
+        "$.max_frames_per_track",
+        "invalid_max_frames_per_track",
+        "max_frames_per_track must be an integer between 1 and 32"
+      )
+      |> check_if(
+        not (is_integer(retention_days) and retention_days >= 1 and retention_days <= 3650),
+        file,
+        "$.live_observation_retention_days",
+        "invalid_retention_days",
+        "live_observation_retention_days must be between 1 and 3650"
+      )
+      |> check_if(
+        not is_nil(min_conf) and not (is_number(min_conf) and min_conf >= 0.0 and min_conf <= 1.0),
+        file,
+        "$.min_confidence",
+        "invalid_min_confidence",
+        "min_confidence must be between 0.0 and 1.0"
+      )
+      |> check_if(
+        not (is_binary(signal_schema_id) and String.trim(signal_schema_id) != ""),
+        file,
+        "$.signal_schema_id",
+        "missing_signal_schema_id",
+        "signal_schema_id must be a non-empty string"
+      )
+      |> check_if(
+        not (is_binary(signal_schema_version) and String.trim(signal_schema_version) != ""),
+        file,
+        "$.signal_schema_version",
+        "missing_signal_schema_version",
+        "signal_schema_version must be a non-empty string"
+      )
+      |> check_if(
+        not (is_binary(display_contract_id) and String.trim(display_contract_id) != ""),
+        file,
+        "$.display_contract_id",
+        "missing_display_contract_id",
+        "display_contract_id must be a non-empty string"
+      )
+      |> check_if(
+        not is_map(signal_schema),
+        file,
+        "$.signal_schema",
+        "invalid_signal_schema",
+        "signal_schema must be a JSON Schema object"
+      )
+      |> check_if(
+        not is_map(display_contract),
+        file,
+        "$.display_contract",
+        "invalid_display_contract",
+        "display_contract must be an object"
+      )
+
+    schema_diags =
+      if is_map(signal_schema) and signal_schema != %{} do
+        case VantageSignalSchema.resolve_schema(signal_schema) do
+          {:ok, _} ->
+            []
+
+          {:error, :signal_schema_violation} ->
+            [
+              diag(
+                file,
+                "$.signal_schema",
+                "invalid_signal_schema",
+                "signal_schema must be a valid, acyclic JSON Schema"
+              )
+            ]
+        end
+      else
+        []
+      end
+
+    display_diags =
+      if is_map(display_contract) and display_contract != %{} do
+        case validate_display_contract_doc(display_contract, file) do
+          {:ok, _} -> []
+          {:error, errs} -> errs
+        end
+      else
+        []
+      end
+
+    all_diags = Enum.reverse(diags, schema_diags ++ display_diags)
+
+    if all_diags == [] do
+      normalized =
+        doc
+        |> Map.put("enabled", enabled)
+        |> Map.put("source_mode", source_mode)
+        |> Map.put("trigger_kind", trigger_kind)
+        |> Map.put("input_mode", input_mode)
+        |> Map.put("runner", runner)
+        |> Map.put("max_jobs_per_minute", max_jobs)
+        |> Map.put("max_frames_per_track", max_frames)
+        |> Map.put("live_observation_retention_days", retention_days)
+        |> Map.put("signal_schema", signal_schema)
+        |> Map.put("display_contract", display_contract)
+
+      {:ok, normalized}
+    else
+      {:error, all_diags}
+    end
+  end
+
+  defp validate_dashboard_package_entries(files, entries, manifest) do
+    entries
+    |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
+      case validate_one_dashboard_package_entry(files, entry, manifest) do
+        {:ok, item} -> {:cont, {:ok, [item | acc]}}
+        {:error, errs} -> {:halt, {:error, errs}}
+      end
+    end)
+    |> case do
+      {:ok, list} -> {:ok, Enum.reverse(list)}
+      err -> err
+    end
+  end
+
+  defp validate_one_dashboard_package_entry(files, entry, manifest) do
+    slug = entry["slug"]
+    base_dir = entry["dir"] || "dashboard_packages/#{slug}"
+    manifest_path = entry["manifest_file"] || "#{base_dir}/manifest.json"
+
+    with {:ok, manifest_bytes} <- fetch_resource_file(files, manifest_path),
+         {:ok, dash_manifest} <- parse_dashboard_package_manifest(manifest_bytes, manifest_path),
+         {:ok, renderer_path} <-
+           resolve_dashboard_renderer_path(entry, base_dir, dash_manifest, manifest_path),
+         {:ok, renderer_bytes} <- fetch_resource_file(files, renderer_path),
+         :ok <- validate_renderer_size(renderer_bytes, renderer_path),
+         :ok <-
+           verify_renderer_sha256_parity(
+             renderer_bytes,
+             renderer_field(dash_manifest.renderer, "sha256", :sha256),
+             manifest["files"],
+             manifest_path,
+             renderer_path
+           ) do
+      {:ok,
+       %{
+         entry: entry,
+         slug: slug,
+         dashboard_id: dash_manifest.id,
+         version: dash_manifest.version,
+         manifest_path: manifest_path,
+         renderer_path: renderer_path,
+         manifest_bytes: manifest_bytes,
+         renderer_bytes: renderer_bytes,
+         dashboard_manifest: dash_manifest,
+         renderer_sha256: sha256_hex(renderer_bytes)
+       }}
+    end
+  end
+
+  defp parse_dashboard_package_manifest(manifest_bytes, manifest_path) do
+    case DashboardPackageManifest.from_json(manifest_bytes) do
+      {:ok, dash_manifest} ->
+        {:ok, dash_manifest}
+
+      {:error, errors} ->
+        {:error,
+         [
+           diag(
+             manifest_path,
+             "$",
+             "invalid_dashboard_package_manifest",
+             Enum.join(errors, "; ")
+           )
+         ]}
+    end
+  end
+
+  defp resolve_dashboard_renderer_path(entry, base_dir, dash_manifest, manifest_path) do
+    renderer_path =
+      case entry["renderer_file"] do
+        path when is_binary(path) and path != "" ->
+          path
+
+        _ ->
+          artifact =
+            dash_manifest.renderer
+            |> renderer_field("artifact", :artifact)
+            |> to_string()
+            |> String.trim_leading("./")
+
+          Path.join(base_dir, artifact)
+      end
+
+    if safe_relative_path?(renderer_path) do
+      {:ok, renderer_path}
+    else
+      {:error,
+       [
+         diag(
+           manifest_path,
+           "$.renderer.artifact",
+           "unsafe_path",
+           "unsafe renderer artifact path #{inspect(renderer_path)}"
+         )
+       ]}
+    end
+  end
+
+  defp renderer_field(renderer, string_key, atom_key) when is_map(renderer) do
+    Map.get(renderer, string_key) || Map.get(renderer, atom_key)
+  end
+
+  defp validate_renderer_size(renderer_bytes, renderer_path) do
+    size = byte_size(renderer_bytes)
+
+    if size <= @max_renderer_bytes do
+      :ok
+    else
+      {:error,
+       [
+         diag(
+           renderer_path,
+           "$",
+           "renderer_too_large",
+           "dashboard renderer #{inspect(renderer_path)} (#{size} bytes) exceeds #{@max_renderer_bytes} byte limit"
+         )
+       ]}
+    end
+  end
+
+  defp verify_renderer_sha256_parity(
+         renderer_bytes,
+         manifest_sha256,
+         pack_files_map,
+         manifest_path,
+         renderer_path
+       ) do
+    actual_sha = sha256_hex(renderer_bytes)
+    declared_dash_sha = String.downcase(to_string(manifest_sha256 || ""))
+
+    declared_pack_sha =
+      pack_files_map |> Map.get(renderer_path, "") |> to_string() |> String.downcase()
+
+    cond do
+      actual_sha != declared_dash_sha ->
+        {:error,
+         [
+           diag(
+             manifest_path,
+             "$.renderer.sha256",
+             "renderer_sha256_mismatch",
+             "dashboard renderer.sha256 #{declared_dash_sha} does not match actual #{renderer_path} SHA-256 #{actual_sha}"
+           )
+         ]}
+
+      actual_sha != declared_pack_sha ->
+        {:error,
+         [
+           diag(
+             renderer_path,
+             "$.files.#{renderer_path}",
+             "renderer_sha256_mismatch",
+             "manifest.files SHA-256 #{declared_pack_sha} does not match actual #{renderer_path} SHA-256 #{actual_sha}"
+           )
+         ]}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp check_optional_non_empty_string(diags, doc, key, file, path) do
+    case Map.get(doc, key) do
+      nil ->
+        diags
+
+      val when is_binary(val) ->
+        if String.trim(val) == "",
+          do: [diag(file, path, "invalid_display_contract", "#{key} cannot be blank") | diags],
+          else: diags
+
+      _other ->
+        [diag(file, path, "invalid_display_contract", "#{key} must be a string") | diags]
+    end
+  end
+
+  defp check_optional_string(diags, doc, key, file, path) do
+    case Map.get(doc, key) do
+      nil ->
+        diags
+
+      val when is_binary(val) ->
+        diags
+
+      _other ->
+        [diag(file, path, "invalid_display_contract", "#{key} must be a string") | diags]
+    end
+  end
+
+  defp check_display_fields_list(diags, doc, key, file) do
+    case Map.get(doc, key) do
+      nil ->
+        diags
+
+      list when is_list(list) ->
+        list
+        |> Enum.with_index()
+        |> Enum.reduce(diags, fn {item, idx}, acc ->
+          field_name =
+            is_map(item) and
+              (Map.get(item, "key") || Map.get(item, "field") || Map.get(item, "name"))
+
+          if is_map(item) and is_binary(field_name) and String.trim(field_name) != "" do
+            acc
+          else
+            [
+              diag(
+                file,
+                "$.display_contract.#{key}[#{idx}]",
+                "invalid_display_contract",
+                "#{key} entries must be objects specifying key, field, or name"
+              )
+              | acc
+            ]
+          end
+        end)
+
+      _other ->
+        [
+          diag(
+            file,
+            "$.display_contract.#{key}",
+            "invalid_display_contract",
+            "#{key} must be an array"
+          )
+          | diags
+        ]
+    end
+  end
+
+  defp check_optional_string_list(diags, doc, key, file, path) do
+    case Map.get(doc, key) do
+      nil ->
+        diags
+
+      list when is_list(list) ->
+        if Enum.all?(list, &(is_binary(&1) and String.trim(&1) != "")) do
+          diags
+        else
+          [
+            diag(file, path, "invalid_display_contract", "#{key} must be non-empty strings")
+            | diags
+          ]
+        end
+
+      _other ->
+        [diag(file, path, "invalid_display_contract", "#{key} must be an array") | diags]
+    end
+  end
+
   defp validate_auxiliary_files(files) do
     errs =
       Enum.flat_map(files, fn {path, bytes} ->
@@ -644,7 +1543,7 @@ defmodule ServiceRadar.Catalog.PackManifest do
 
   defp check_format_version(diags, doc) do
     case Map.get(doc, "pack_format_version") do
-      @supported_format_version ->
+      version when version in @supported_format_versions ->
         diags
 
       other ->
@@ -653,12 +1552,55 @@ defmodule ServiceRadar.Catalog.PackManifest do
             "manifest.json",
             "$.pack_format_version",
             "unsupported_pack_format_version",
-            "unsupported pack_format_version #{inspect(other)}; supported version is #{@supported_format_version}"
+            "unsupported pack_format_version #{inspect(other)}; supported versions are #{Enum.join(@supported_format_versions, ", ")}"
           )
           | diags
         ]
     end
   end
+
+  defp check_v1_forbidden_v2_fields(diags, %{"pack_format_version" => 1} = doc) do
+    diags =
+      Enum.reduce(@v2_top_level_keys, diags, fn key, acc ->
+        if Map.has_key?(doc, key) do
+          [
+            diag(
+              "manifest.json",
+              "$.#{key}",
+              "v2_field_in_v1_pack",
+              "#{key} is only supported in pack_format_version: 2"
+            )
+            | acc
+          ]
+        else
+          acc
+        end
+      end)
+
+    case Map.get(doc, "resources") do
+      res when is_map(res) ->
+        Enum.reduce(@v2_resource_keys, diags, fn key, acc ->
+          if Map.has_key?(res, key) do
+            [
+              diag(
+                "manifest.json",
+                "$.resources.#{key}",
+                "v2_field_in_v1_pack",
+                "resources.#{key} is only supported in pack_format_version: 2"
+              )
+              | acc
+            ]
+          else
+            acc
+          end
+        end)
+
+      _ ->
+        diags
+    end
+  end
+
+  defp check_v1_forbidden_v2_fields(diags, _doc), do: diags
 
   defp check_pack_id(diags, doc) do
     id = Map.get(doc, "id")
@@ -1034,13 +1976,187 @@ defmodule ServiceRadar.Catalog.PackManifest do
     ]
   end
 
+  defp check_worker_dependencies(diags, %{"pack_format_version" => 2} = doc) do
+    case Map.get(doc, "worker_dependencies", []) do
+      list when is_list(list) ->
+        list
+        |> Enum.with_index()
+        |> Enum.reduce(diags, fn {dep, idx}, acc ->
+          validate_one_worker_dep(dep, idx, acc)
+        end)
+
+      _ ->
+        [
+          diag(
+            "manifest.json",
+            "$.worker_dependencies",
+            "invalid_worker_dependencies",
+            "worker_dependencies must be an array"
+          )
+          | diags
+        ]
+    end
+  end
+
+  defp check_worker_dependencies(diags, _doc), do: diags
+
+  defp validate_one_worker_dep(dep, idx, diags) when is_map(dep) do
+    capability = Map.get(dep, "capability")
+    min_proto = Map.get(dep, "min_protocol_version")
+    optional = Map.get(dep, "optional", false)
+    fallback_runner = Map.get(dep, "fallback_runner")
+    path = "$.worker_dependencies[#{idx}]"
+
+    diags
+    |> check_if(
+      not (is_binary(capability) and String.trim(capability) != ""),
+      "manifest.json",
+      "#{path}.capability",
+      "missing_capability",
+      "worker dependency must specify capability"
+    )
+    |> check_if(
+      not is_nil(min_proto) and not (is_binary(min_proto) and String.trim(min_proto) != ""),
+      "manifest.json",
+      "#{path}.min_protocol_version",
+      "invalid_protocol_version",
+      "min_protocol_version must be a non-empty string"
+    )
+    |> check_if(
+      not is_boolean(optional),
+      "manifest.json",
+      "#{path}.optional",
+      "invalid_type",
+      "optional must be a boolean"
+    )
+    |> check_if(
+      not is_nil(fallback_runner) and fallback_runner not in @allowed_vantage_runners,
+      "manifest.json",
+      "#{path}.fallback_runner",
+      "invalid_fallback_runner",
+      "fallback_runner must be one of #{Enum.join(@allowed_vantage_runners, ", ")}"
+    )
+  end
+
+  defp validate_one_worker_dep(_other, idx, diags) do
+    [
+      diag(
+        "manifest.json",
+        "$.worker_dependencies[#{idx}]",
+        "invalid_type",
+        "worker dependency must be an object"
+      )
+      | diags
+    ]
+  end
+
+  defp check_dashboard_package_dependencies(diags, %{"pack_format_version" => 2} = doc) do
+    case Map.get(doc, "dashboard_package_dependencies", []) do
+      list when is_list(list) ->
+        list
+        |> Enum.with_index()
+        |> Enum.reduce(diags, fn {dep, idx}, acc ->
+          validate_one_dashboard_package_dep(dep, idx, acc)
+        end)
+
+      _ ->
+        [
+          diag(
+            "manifest.json",
+            "$.dashboard_package_dependencies",
+            "invalid_dashboard_package_dependencies",
+            "dashboard_package_dependencies must be an array"
+          )
+          | diags
+        ]
+    end
+  end
+
+  defp check_dashboard_package_dependencies(diags, _doc), do: diags
+
+  defp validate_one_dashboard_package_dep(dep, idx, diags) when is_map(dep) do
+    dash_id = Map.get(dep, "dashboard_id") || Map.get(dep, "id")
+    constraint = Map.get(dep, "version_constraint")
+    optional = Map.get(dep, "optional", false)
+    path = "$.dashboard_package_dependencies[#{idx}]"
+
+    diags =
+      diags
+      |> check_if(
+        not (is_binary(dash_id) and Regex.match?(@dashboard_package_id_regex, dash_id)),
+        "manifest.json",
+        "#{path}.dashboard_id",
+        "invalid_dashboard_id",
+        "dashboard package dependency must specify a valid dashboard_id"
+      )
+      |> check_if(
+        not is_boolean(optional),
+        "manifest.json",
+        "#{path}.optional",
+        "invalid_type",
+        "optional must be a boolean"
+      )
+
+    if is_binary(constraint) and String.trim(constraint) != "" do
+      case Version.parse_requirement(constraint) do
+        {:ok, _} ->
+          diags
+
+        :error ->
+          [
+            diag(
+              "manifest.json",
+              "#{path}.version_constraint",
+              "invalid_version_constraint",
+              "invalid SemVer requirement #{inspect(constraint)}"
+            )
+            | diags
+          ]
+      end
+    else
+      [
+        diag(
+          "manifest.json",
+          "#{path}.version_constraint",
+          "missing_version_constraint",
+          "dashboard package dependency must specify version_constraint"
+        )
+        | diags
+      ]
+    end
+  end
+
+  defp validate_one_dashboard_package_dep(_other, idx, diags) do
+    [
+      diag(
+        "manifest.json",
+        "$.dashboard_package_dependencies[#{idx}]",
+        "invalid_type",
+        "dashboard package dependency must be an object"
+      )
+      | diags
+    ]
+  end
+
   defp check_resources(diags, doc) do
+    version = Map.get(doc, "pack_format_version")
+
     case Map.get(doc, "resources") do
       res when is_map(res) ->
-        diags
-        |> check_resource_list(Map.get(res, "checks", []), "checks", ["file", "slug"])
-        |> check_resource_rules_list(Map.get(res, "rules", []))
-        |> check_resource_list(Map.get(res, "dashboards", []), "dashboards", ["file", "slug"])
+        diags =
+          diags
+          |> check_resource_list(Map.get(res, "checks", []), "checks", ["file", "slug"])
+          |> check_resource_rules_list(Map.get(res, "rules", []))
+          |> check_resource_list(Map.get(res, "dashboards", []), "dashboards", ["file", "slug"])
+
+        if version == 2 do
+          diags
+          |> check_resource_vantage_pipelines_list(Map.get(res, "vantage_pipelines", []))
+          |> check_resource_signal_schemas_list(Map.get(res, "signal_schemas", []))
+          |> check_resource_dashboard_packages_list(Map.get(res, "dashboard_packages", []))
+        else
+          diags
+        end
 
       _ ->
         [
@@ -1048,6 +2164,203 @@ defmodule ServiceRadar.Catalog.PackManifest do
           | diags
         ]
     end
+  end
+
+  defp check_resource_vantage_pipelines_list(diags, list) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.reduce(diags, fn {entry, idx}, acc ->
+      path = "$.resources.vantage_pipelines[#{idx}]"
+
+      if is_map(entry) do
+        file_val = Map.get(entry, "file")
+        pipeline_id = Map.get(entry, "pipeline_id")
+        install_state = Map.get(entry, "install_state", "enabled")
+
+        acc
+        |> check_if(
+          not (is_binary(file_val) and safe_relative_path?(file_val)),
+          "manifest.json",
+          "#{path}.file",
+          "invalid_file",
+          "vantage_pipelines entry must specify a safe relative file path"
+        )
+        |> check_if(
+          not (is_binary(pipeline_id) and Regex.match?(@vantage_pipeline_id_regex, pipeline_id)),
+          "manifest.json",
+          "#{path}.pipeline_id",
+          "invalid_pipeline_id",
+          "vantage_pipelines entry must specify a valid pipeline_id"
+        )
+        |> check_if(
+          install_state not in @allowed_install_states,
+          "manifest.json",
+          "#{path}.install_state",
+          "invalid_install_state",
+          ~s(install_state must be "enabled" or "paused")
+        )
+      else
+        [
+          diag(
+            "manifest.json",
+            path,
+            "invalid_type",
+            "vantage_pipelines resource entry must be an object"
+          )
+          | acc
+        ]
+      end
+    end)
+  end
+
+  defp check_resource_vantage_pipelines_list(diags, _other) do
+    [
+      diag(
+        "manifest.json",
+        "$.resources.vantage_pipelines",
+        "invalid_type",
+        "vantage_pipelines must be an array"
+      )
+      | diags
+    ]
+  end
+
+  defp check_resource_signal_schemas_list(diags, list) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.reduce(diags, fn {entry, idx}, acc ->
+      path = "$.resources.signal_schemas[#{idx}]"
+
+      if is_map(entry) do
+        schema_id = Map.get(entry, "schema_id") || Map.get(entry, "id")
+        schema_file = Map.get(entry, "schema_file") || Map.get(entry, "file")
+        display_file = Map.get(entry, "display_file")
+
+        acc
+        |> check_if(
+          not (is_binary(schema_id) and String.trim(schema_id) != ""),
+          "manifest.json",
+          "#{path}.schema_id",
+          "missing_schema_id",
+          "signal_schemas entry must specify schema_id"
+        )
+        |> check_if(
+          not (is_binary(schema_file) and safe_relative_path?(schema_file)),
+          "manifest.json",
+          "#{path}.file",
+          "invalid_file",
+          "signal_schemas entry must specify a safe relative file or schema_file path"
+        )
+        |> check_if(
+          not is_nil(display_file) and
+            not (is_binary(display_file) and safe_relative_path?(display_file)),
+          "manifest.json",
+          "#{path}.display_file",
+          "unsafe_path",
+          "unsafe signal_schemas display_file path #{inspect(display_file)}"
+        )
+      else
+        [
+          diag(
+            "manifest.json",
+            path,
+            "invalid_type",
+            "signal_schemas resource entry must be an object"
+          )
+          | acc
+        ]
+      end
+    end)
+  end
+
+  defp check_resource_signal_schemas_list(diags, _other) do
+    [
+      diag(
+        "manifest.json",
+        "$.resources.signal_schemas",
+        "invalid_type",
+        "signal_schemas must be an array"
+      )
+      | diags
+    ]
+  end
+
+  defp check_resource_dashboard_packages_list(diags, list) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.reduce(diags, fn {entry, idx}, acc ->
+      path = "$.resources.dashboard_packages[#{idx}]"
+
+      if is_map(entry) do
+        slug = Map.get(entry, "slug")
+        dir = Map.get(entry, "dir")
+        manifest_file = Map.get(entry, "manifest_file")
+        renderer_file = Map.get(entry, "renderer_file")
+        route_slug = Map.get(entry, "route_slug")
+
+        acc
+        |> check_if(
+          not (is_binary(slug) and Regex.match?(@slug_regex, slug)),
+          "manifest.json",
+          "#{path}.slug",
+          "invalid_slug",
+          "dashboard_packages entry must specify a valid slug"
+        )
+        |> check_if(
+          not is_nil(dir) and not (is_binary(dir) and safe_relative_path?(dir)),
+          "manifest.json",
+          "#{path}.dir",
+          "unsafe_path",
+          "unsafe dashboard_packages dir #{inspect(dir)}"
+        )
+        |> check_if(
+          not is_nil(manifest_file) and
+            not (is_binary(manifest_file) and safe_relative_path?(manifest_file)),
+          "manifest.json",
+          "#{path}.manifest_file",
+          "unsafe_path",
+          "unsafe dashboard_packages manifest_file #{inspect(manifest_file)}"
+        )
+        |> check_if(
+          not is_nil(renderer_file) and
+            not (is_binary(renderer_file) and safe_relative_path?(renderer_file)),
+          "manifest.json",
+          "#{path}.renderer_file",
+          "unsafe_path",
+          "unsafe dashboard_packages renderer_file #{inspect(renderer_file)}"
+        )
+        |> check_if(
+          not is_nil(route_slug) and
+            not (is_binary(route_slug) and Regex.match?(@dashboard_slug_regex, route_slug)),
+          "manifest.json",
+          "#{path}.route_slug",
+          "invalid_slug",
+          "route_slug #{inspect(route_slug)} must match ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+        )
+      else
+        [
+          diag(
+            "manifest.json",
+            path,
+            "invalid_type",
+            "dashboard_packages resource entry must be an object"
+          )
+          | acc
+        ]
+      end
+    end)
+  end
+
+  defp check_resource_dashboard_packages_list(diags, _other) do
+    [
+      diag(
+        "manifest.json",
+        "$.resources.dashboard_packages",
+        "invalid_type",
+        "dashboard_packages must be an array"
+      )
+      | diags
+    ]
   end
 
   defp check_resource_list(diags, list, section, req_keys) when is_list(list) do
@@ -1200,9 +2513,10 @@ defmodule ServiceRadar.Catalog.PackManifest do
           nil
       end
 
+    format_version = Map.get(doc, "pack_format_version", 1)
     resources = Map.get(doc, "resources", %{})
 
-    normalized_resources = %{
+    base_resources = %{
       "checks" => Map.get(resources, "checks", []),
       "rules" =>
         resources
@@ -1211,19 +2525,43 @@ defmodule ServiceRadar.Catalog.PackManifest do
       "dashboards" => Map.get(resources, "dashboards", [])
     }
 
+    normalized_resources =
+      if format_version == 2 do
+        base_resources
+        |> Map.put(
+          "vantage_pipelines",
+          resources
+          |> Map.get("vantage_pipelines", [])
+          |> Enum.map(&Map.put_new(&1, "install_state", "enabled"))
+        )
+        |> Map.put("signal_schemas", Map.get(resources, "signal_schemas", []))
+        |> Map.put("dashboard_packages", Map.get(resources, "dashboard_packages", []))
+      else
+        base_resources
+      end
+
     normalized_files =
       doc
       |> Map.get("files", %{})
       |> Map.new(fn {k, v} -> {to_string(k), String.downcase(to_string(v))} end)
 
-    doc
-    |> Map.put_new("categories", [])
-    |> Map.put_new("config", [])
-    |> Map.put_new("credential_slots", [])
-    |> Map.put_new("plugin_dependencies", [])
-    |> Map.put("resources", normalized_resources)
-    |> Map.put("files", normalized_files)
-    |> maybe_put_icon(sanitized_icon)
+    base_doc =
+      doc
+      |> Map.put_new("categories", [])
+      |> Map.put_new("config", [])
+      |> Map.put_new("credential_slots", [])
+      |> Map.put_new("plugin_dependencies", [])
+      |> Map.put("resources", normalized_resources)
+      |> Map.put("files", normalized_files)
+      |> maybe_put_icon(sanitized_icon)
+
+    if format_version == 2 do
+      base_doc
+      |> Map.put_new("worker_dependencies", [])
+      |> Map.put_new("dashboard_package_dependencies", [])
+    else
+      base_doc
+    end
   end
 
   defp maybe_put_icon(doc, nil), do: doc

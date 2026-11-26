@@ -340,11 +340,12 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
       actions = visible |> Enum.map(& &1.action) |> Enum.sort()
       keys = visible |> Enum.map(& &1.key) |> Enum.sort()
 
-      assert actions == ["disable", "enable", "publish", "share", "view_all"]
+      assert actions == ["disable", "enable", "manage", "publish", "share", "view_all"]
 
       assert keys == [
                "dashboards.packages.disable",
                "dashboards.packages.enable",
+               "dashboards.packages.manage",
                "dashboards.packages.publish",
                "dashboards.packages.share",
                "dashboards.packages.view_all"

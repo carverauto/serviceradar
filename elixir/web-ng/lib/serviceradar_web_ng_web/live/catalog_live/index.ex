@@ -16,7 +16,9 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
   import ServiceRadarWebNGWeb.CatalogLive.PackDetailComponents
   import ServiceRadarWebNGWeb.CatalogLive.RepositoryModalComponents
 
+  alias ServiceRadar.Camera.VantagePubSub
   alias ServiceRadar.Catalog.PackArchive
+  alias ServiceRadarWebNG.CameraVantageWorkers
   alias ServiceRadarWebNG.Catalog
   alias ServiceRadarWebNG.RBAC
 
@@ -36,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
         |> assign(:page_title, "Solution Packs Catalog")
         |> assign(:current_path, "/catalog")
         |> assign(:can_install, RBAC.can?(scope, @install_permission))
+        |> assign(:can_activate_dashboards, can_activate_dashboards?(scope))
         |> assign(:can_export, RBAC.can?(scope, @export_permission))
         |> assign(:can_manage_repos, RBAC.can?(scope, @manage_repos_permission))
         |> assign(:can_gitops_sync, RBAC.can?(scope, @gitops_sync_permission))
@@ -44,6 +47,8 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
         |> assign(:filtered_packs, [])
         |> assign(:repositories, [])
         |> assign(:credential_options, %{secrets: [], rules: []})
+        |> assign(:vantage_worker_summary, CameraVantageWorkers.default_summary())
+        |> assign(:vantage_worker_subscribed?, false)
         |> assign(:search, "")
         |> assign(:selected_category, "all")
         |> assign(:selected_source, "all")
@@ -51,6 +56,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
         |> assign(:detail_pack, nil)
         |> assign(:detail_tab, "overview")
         |> assign(:detail_check_slug, nil)
+        |> assign(:uninstall_confirm_pack, nil)
         |> assign(:wizard, nil)
         |> assign(:repos_modal_open, false)
         |> assign(:repo_form, default_repo_form())
@@ -68,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
         |> allow_upload(:pack_bundle,
           accept: :any,
           max_entries: 1,
-          max_file_size: PackArchive.max_compressed_bytes()
+          max_file_size: PackArchive.max_compressed_bytes_with_dashboards()
         )
 
       {:ok, socket}
@@ -85,6 +91,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
     if connected?(socket) do
       socket =
         socket
+        |> maybe_subscribe_vantage_workers()
         |> load_catalog_data()
         |> apply_route_params(params)
 
@@ -228,11 +235,19 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
     case socket.assigns.wizard do
       %{step: 1} = wizard ->
         dep_report =
-          case backend().check_dependencies(wizard.pack["plugin_dependencies"] || [],
+          case backend().check_dependencies(wizard.pack,
                  scope: socket.assigns.current_scope
                ) do
-            {:ok, report} -> report
-            _ -> %{ready?: true, dependencies: []}
+            {:ok, report} ->
+              report
+
+            _ ->
+              %{
+                ready?: true,
+                dependencies: [],
+                worker_dependencies: [],
+                dashboard_package_dependencies: []
+              }
           end
 
         {:noreply,
@@ -251,6 +266,40 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
     end
   end
 
+  def handle_event("wizard_toggle_activate_dashboards", _params, socket) do
+    if socket.assigns.can_install and socket.assigns.can_activate_dashboards do
+      case socket.assigns.wizard do
+        nil ->
+          {:noreply, socket}
+
+        wizard ->
+          {:noreply,
+           assign(socket, :wizard, %{
+             wizard
+             | activate_dashboard_packages: not wizard.activate_dashboard_packages,
+               error: nil
+           })}
+      end
+    else
+      {:noreply, unauthorized_flash(socket, "dashboards.packages.manage")}
+    end
+  end
+
+  def handle_event("wizard_toggle_install_paused", _params, socket) do
+    case socket.assigns.wizard do
+      nil ->
+        {:noreply, socket}
+
+      wizard ->
+        {:noreply,
+         assign(socket, :wizard, %{
+           wizard
+           | install_paused: not wizard.install_paused,
+             error: nil
+         })}
+    end
+  end
+
   def handle_event("wizard_apply_install", _params, socket) do
     if socket.assigns.can_install do
       case socket.assigns.wizard do
@@ -261,7 +310,13 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
           pack_input = wizard.uploaded_files || wizard.pack["slug"]
           params = build_reconcile_params(wizard)
 
-          case backend().install_pack(pack_input, params, scope: socket.assigns.current_scope) do
+          install_opts = [
+            scope: socket.assigns.current_scope,
+            activate_dashboard_packages: wizard.activate_dashboard_packages == true,
+            install_paused: wizard.install_paused == true
+          ]
+
+          case backend().install_pack(pack_input, params, install_opts) do
             {:ok, result} ->
               {:noreply,
                socket
@@ -272,6 +327,63 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
             {:error, reason} ->
               {:noreply, assign(socket, :wizard, %{wizard | error: format_error(reason)})}
           end
+      end
+    else
+      {:noreply, unauthorized_flash(socket, @install_permission)}
+    end
+  end
+
+  def handle_event("open_uninstall_confirm", %{"slug" => slug}, socket) do
+    if socket.assigns.can_install do
+      pack = Enum.find(socket.assigns.packs, &(&1["slug"] == slug)) || socket.assigns.detail_pack
+      {:noreply, assign(socket, :uninstall_confirm_pack, pack)}
+    else
+      {:noreply, unauthorized_flash(socket, @install_permission)}
+    end
+  end
+
+  def handle_event("cancel_uninstall", _params, socket) do
+    {:noreply, assign(socket, :uninstall_confirm_pack, nil)}
+  end
+
+  def handle_event("confirm_uninstall_pack", %{"slug" => slug}, socket) do
+    if socket.assigns.can_install do
+      case backend().uninstall_pack(slug, scope: socket.assigns.current_scope) do
+        {:ok, _res} ->
+          {:noreply,
+           socket
+           |> assign(:uninstall_confirm_pack, nil)
+           |> assign(:detail_pack, nil)
+           |> load_catalog_data()
+           |> put_flash(:info, "Solution Pack uninstalled (detached resources preserved)")}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> assign(:uninstall_confirm_pack, nil)
+           |> put_flash(:error, "Uninstall failed: #{format_error(reason)}")}
+      end
+    else
+      {:noreply, unauthorized_flash(socket, @install_permission)}
+    end
+  end
+
+  def handle_event("confirm_detach_pack", %{"slug" => slug}, socket) do
+    if socket.assigns.can_install do
+      case backend().detach_pack(slug, scope: socket.assigns.current_scope) do
+        {:ok, _res} ->
+          {:noreply,
+           socket
+           |> assign(:uninstall_confirm_pack, nil)
+           |> assign(:detail_pack, nil)
+           |> load_catalog_data()
+           |> put_flash(:info, "Solution Pack detached (all resources preserved as managed: false)")}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> assign(:uninstall_confirm_pack, nil)
+           |> put_flash(:error, "Detach failed: #{format_error(reason)}")}
       end
     else
       {:noreply, unauthorized_flash(socket, @install_permission)}
@@ -647,6 +759,18 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
     end
   end
 
+  @impl true
+  def handle_info({:vantage_worker_heartbeat, _payload}, socket) do
+    if connected?(socket) do
+      summary = vantage_workers_backend().summary(socket.assigns.current_scope)
+      {:noreply, assign(socket, :vantage_worker_summary, summary)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(_other, socket), do: {:noreply, socket}
+
   ## Render
 
   @impl true
@@ -718,6 +842,61 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
             </.ui_button>
           </div>
         </header>
+
+        <section
+          id="vantage-worker-health-strip"
+          class="rounded-xl border border-sr-line bg-sr-surface px-4 py-3 space-y-2"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
+                Vantage ML Worker Pool
+              </span>
+              <.ui_badge
+                id="catalog-vantage-routing-badge"
+                size="xs"
+                variant={vantage_routing_badge_variant(@vantage_worker_summary.routing_mode)}
+              >
+                {vantage_routing_label(@vantage_worker_summary.routing_mode)}
+              </.ui_badge>
+              <span class="text-xs text-sr-muted">
+                {@vantage_worker_summary.online_count} online · {@vantage_worker_summary.stale_count} stale
+              </span>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3 text-xs text-sr-muted">
+              <span :if={@vantage_worker_summary.queue_lag.accessible?}>
+                Queue:
+                <strong class="text-sr-ink">{@vantage_worker_summary.queue_lag.pending_count}</strong>
+                pending ·
+                <strong class="text-sr-ink">{@vantage_worker_summary.queue_lag.dispatched_count}</strong>
+                dispatched
+                <span :if={is_integer(@vantage_worker_summary.queue_lag.oldest_pending_age_seconds)}>
+                  · oldest {@vantage_worker_summary.queue_lag.oldest_pending_age_seconds}s
+                </span>
+              </span>
+            </div>
+          </div>
+
+          <div
+            :if={@vantage_worker_summary.workers != []}
+            class="flex flex-wrap gap-2 pt-1"
+          >
+            <div
+              :for={worker <- @vantage_worker_summary.workers}
+              id={"catalog-worker-#{slugify_id(worker.worker_id)}"}
+              class="flex flex-wrap items-center gap-1.5 rounded-lg border border-sr-line bg-sr-subtle px-2.5 py-1 text-xs"
+            >
+              <span class="font-mono font-medium text-sr-ink">{worker.worker_id}</span>
+              <.ui_badge size="xs" variant={if(worker.online?, do: "success", else: "warning")}>
+                {if(worker.stale?, do: "stale", else: worker.health)}
+              </.ui_badge>
+              <span class="font-mono text-[11px] text-sr-muted">
+                {Enum.join(worker.capabilities, ", ")} · {worker.architecture} · {worker.model_id}:{worker.model_version} · {worker.active_jobs}/{worker.max_concurrency}
+              </span>
+            </div>
+          </div>
+        </section>
 
         <section class="rounded-xl border border-sr-line bg-sr-surface p-4 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
@@ -900,6 +1079,12 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
                 {get_in(pack, ["counts", "checks"]) || 0} checks
                 * {get_in(pack, ["counts", "rules"]) || 0} alert rules
                 * {get_in(pack, ["counts", "dashboards"]) || 0} dashboards
+                <span :if={(get_in(pack, ["counts", "vantage_pipelines"]) || 0) > 0}>
+                  * {get_in(pack, ["counts", "vantage_pipelines"])} vantage pipelines
+                </span>
+                <span :if={(get_in(pack, ["counts", "dashboard_packages"]) || 0) > 0}>
+                  * {get_in(pack, ["counts", "dashboard_packages"])} dashboard modules
+                </span>
               </div>
 
               <div class="flex items-center justify-between gap-2">
@@ -914,17 +1099,31 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
                   Preview & Docs
                 </.ui_button>
 
-                <.ui_button
-                  :if={@can_install}
-                  id={"install-pack-#{pack["slug"]}"}
-                  type="button"
-                  size="xs"
-                  variant="primary"
-                  phx-click="open_install_wizard"
-                  phx-value-slug={pack["slug"]}
-                >
-                  {if(pack["installed"], do: "Upgrade / Configure", else: "Install")}
-                </.ui_button>
+                <div class="flex items-center gap-1.5">
+                  <.ui_button
+                    :if={@can_install and pack["installed"]}
+                    id={"uninstall-pack-#{pack["slug"]}"}
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    phx-click="open_uninstall_confirm"
+                    phx-value-slug={pack["slug"]}
+                  >
+                    Uninstall
+                  </.ui_button>
+
+                  <.ui_button
+                    :if={@can_install}
+                    id={"install-pack-#{pack["slug"]}"}
+                    type="button"
+                    size="xs"
+                    variant="primary"
+                    phx-click="open_install_wizard"
+                    phx-value-slug={pack["slug"]}
+                  >
+                    {if(pack["installed"], do: "Upgrade / Configure", else: "Install")}
+                  </.ui_button>
+                </div>
               </div>
             </div>
           </article>
@@ -936,6 +1135,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
         pack={@detail_pack}
         active_tab={@detail_tab}
         selected_check_slug={@detail_check_slug}
+        vantage_worker_summary={@vantage_worker_summary}
         can_install={@can_install}
         can_export={@can_export}
         can_gitops_sync={@can_gitops_sync}
@@ -945,7 +1145,54 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
         :if={@wizard}
         wizard={@wizard}
         credential_options={@credential_options}
+        can_activate_dashboards={@can_activate_dashboards}
       />
+
+      <div
+        :if={@uninstall_confirm_pack}
+        id="pack-uninstall-confirm-modal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Uninstall Solution Pack"
+      >
+        <div class="w-full max-w-md rounded-xl border border-sr-line bg-sr-surface p-6 shadow-2xl space-y-4">
+          <h2 class="text-base font-semibold text-sr-ink">
+            Uninstall {@uninstall_confirm_pack["name"]}
+          </h2>
+          <p class="text-xs text-sr-muted leading-relaxed">
+            Removing this Solution Pack cleans up all <code class="font-mono">managed: true</code>
+            checks, alert rules, dashboards, Vantage pipelines, and unreferenced dashboard bundles while preserving any
+            <code class="font-mono">managed: false</code>
+            operator-detached copies.
+          </p>
+          <div class="flex flex-wrap justify-end gap-2 pt-2">
+            <.ui_button type="button" size="sm" variant="ghost" phx-click="cancel_uninstall">
+              Cancel
+            </.ui_button>
+            <.ui_button
+              id="confirm-detach-pack-btn"
+              type="button"
+              size="sm"
+              variant="outline"
+              phx-click="confirm_detach_pack"
+              phx-value-slug={@uninstall_confirm_pack["slug"]}
+            >
+              Detach Only
+            </.ui_button>
+            <.ui_button
+              id="confirm-uninstall-pack-btn"
+              type="button"
+              size="sm"
+              variant="danger"
+              phx-click="confirm_uninstall_pack"
+              phx-value-slug={@uninstall_confirm_pack["slug"]}
+            >
+              Uninstall Pack
+            </.ui_button>
+          </div>
+        </div>
+      </div>
 
       <.repositories_modal
         open={@repos_modal_open}
@@ -987,6 +1234,29 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
     Application.get_env(:serviceradar_web_ng, :catalog_backend, Catalog)
   end
 
+  defp vantage_workers_backend do
+    Application.get_env(:serviceradar_web_ng, :catalog_vantage_workers_backend, CameraVantageWorkers)
+  end
+
+  defp maybe_subscribe_vantage_workers(%{assigns: %{vantage_worker_subscribed?: true}} = socket), do: socket
+
+  defp maybe_subscribe_vantage_workers(socket) do
+    _ = VantagePubSub.subscribe_worker_health()
+    assign(socket, :vantage_worker_subscribed?, true)
+  end
+
+  defp vantage_routing_badge_variant(:ramp_2), do: "success"
+  defp vantage_routing_badge_variant(:mixed), do: "info"
+  defp vantage_routing_badge_variant(:ramp_1_fallback), do: "warning"
+  defp vantage_routing_badge_variant(:held), do: "error"
+  defp vantage_routing_badge_variant(_), do: "ghost"
+
+  defp vantage_routing_label(:ramp_2), do: "Ramp 2: vantage.worker.v1 active"
+  defp vantage_routing_label(:mixed), do: "Mixed: Ramp 2 + Ramp 1 fallback"
+  defp vantage_routing_label(:ramp_1_fallback), do: "Ramp 1: camera_vlm active"
+  defp vantage_routing_label(:held), do: "Held (awaiting worker)"
+  defp vantage_routing_label(_), do: "Idle (no active workers)"
+
   defp can_view?(scope) do
     RBAC.can?(scope, @view_permission) or
       RBAC.can?(scope, @install_permission) or
@@ -1011,12 +1281,14 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
       end
 
     cred_opts = backend().list_credential_options(scope: scope)
+    vantage_summary = vantage_workers_backend().summary(scope)
 
     socket
     |> assign(:loading?, false)
     |> assign(:packs, packs)
     |> assign(:repositories, repos)
     |> assign(:credential_options, cred_opts)
+    |> assign(:vantage_worker_summary, vantage_summary)
     |> recompute_filtered_packs()
   end
 
@@ -1087,7 +1359,14 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
       step: 1,
       config_values: default_cfg,
       credential_bindings: %{},
-      dependency_report: %{ready?: true, dependencies: []},
+      activate_dashboard_packages: false,
+      install_paused: false,
+      dependency_report: %{
+        ready?: true,
+        dependencies: [],
+        worker_dependencies: [],
+        dashboard_package_dependencies: []
+      },
       preview_plan: nil,
       decisions: %{},
       apply_result: nil,
@@ -1099,7 +1378,13 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
     pack_input = wizard.uploaded_files || wizard.pack["slug"]
     params = build_reconcile_params(wizard)
 
-    case backend().preview_install(pack_input, params, scope: socket.assigns.current_scope) do
+    preview_opts = [
+      scope: socket.assigns.current_scope,
+      activate_dashboard_packages: wizard.activate_dashboard_packages == true,
+      install_paused: wizard.install_paused == true
+    ]
+
+    case backend().preview_install(pack_input, params, preview_opts) do
       {:ok, plan} ->
         assign(socket, :wizard, %{wizard | preview_plan: plan, error: nil})
 
@@ -1125,11 +1410,24 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
         end
       end)
 
-    %{
+    base = %{
       "config" => config,
       "credential_bindings" => bindings,
       "decisions" => wizard.decisions
     }
+
+    base =
+      if wizard.activate_dashboard_packages == true do
+        Map.put(base, "activate_dashboard_packages", true)
+      else
+        base
+      end
+
+    if wizard.install_paused == true do
+      Map.put(base, "install_paused", true)
+    else
+      base
+    end
   end
 
   defp coerce_config_value(nil, _type), do: nil
@@ -1158,10 +1456,11 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
   defp parse_uploaded_bundle(bytes, filename) do
     if String.ends_with?(String.downcase(to_string(filename)), ".json") do
       with {:ok, decoded} <- Jason.decode(bytes),
+           version when version in [1, 2, nil] <- Map.get(decoded, "pack_format_version"),
            files when is_map(files) <- Map.get(decoded, "files") do
         backend().validate_pack(files, [])
       else
-        _ -> {:error, "Uploaded JSON must contain a pack_format_version: 1 files map"}
+        _ -> {:error, "Uploaded JSON must contain a pack_format_version: 1 or 2 files map"}
       end
     else
       backend().validate_pack(bytes, [])
@@ -1173,6 +1472,7 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
     resources = manifest["resources"] || %{}
 
     %{
+      "pack_format_version" => Map.get(manifest, "pack_format_version", 1),
       "id" => manifest["id"],
       "slug" => manifest["slug"],
       "name" => manifest["name"],
@@ -1184,12 +1484,28 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
       "counts" => %{
         "checks" => length(List.wrap(resources["checks"])),
         "rules" => length(List.wrap(resources["rules"])),
-        "dashboards" => length(List.wrap(resources["dashboards"]))
+        "dashboards" => length(List.wrap(resources["dashboards"])),
+        "vantage_pipelines" => length(List.wrap(resources["vantage_pipelines"])),
+        "signal_schemas" => length(List.wrap(resources["signal_schemas"])),
+        "dashboard_packages" => length(List.wrap(resources["dashboard_packages"]))
       },
       "config" => List.wrap(manifest["config"]),
       "credential_slots" => List.wrap(manifest["credential_slots"]),
-      "plugin_dependencies" => List.wrap(manifest["plugin_dependencies"])
+      "plugin_dependencies" => List.wrap(manifest["plugin_dependencies"]),
+      "worker_dependencies" => List.wrap(manifest["worker_dependencies"]),
+      "dashboard_package_dependencies" => List.wrap(manifest["dashboard_package_dependencies"]),
+      "vantage_pipelines" => List.wrap(resources["vantage_pipelines"]),
+      "signal_schemas" => List.wrap(resources["signal_schemas"]),
+      "dashboard_packages" => List.wrap(resources["dashboard_packages"])
     }
+  end
+
+  defp can_activate_dashboards?(scope) do
+    RBAC.can?(scope, "dashboards.packages.manage") or
+      ((RBAC.can?(scope, "dashboards.packages.publish") or
+          RBAC.can?(scope, "cli.dashboard.publish")) and
+         (RBAC.can?(scope, "dashboards.packages.enable") or
+            RBAC.can?(scope, "cli.dashboard.enable")))
   end
 
   defp default_repo_form do

@@ -254,6 +254,79 @@ pub(super) fn camera_sources() -> VizMeta {
     }
 }
 
+pub(super) fn camera_observations() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("observation_key", ColumnType::Text, None),
+            col("pack_id", ColumnType::Text, None),
+            col("pipeline_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("pipeline_version", ColumnType::Text, None),
+            col("worker_kind", ColumnType::Text, None),
+            col("worker_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("model_id", ColumnType::Text, None),
+            col("model_version", ColumnType::Text, None),
+            col("job_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "catalog_entry_id",
+                ColumnType::Text,
+                Some(ColumnSemantic::Id),
+            ),
+            col(
+                "camera_source_id",
+                ColumnType::Text,
+                Some(ColumnSemantic::Id),
+            ),
+            col(
+                "camera_display_name",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col(
+                "stream_profile_id",
+                ColumnType::Text,
+                Some(ColumnSemantic::Id),
+            ),
+            col("source_mode", ColumnType::Text, None),
+            col("fragment_sequence", ColumnType::Int, None),
+            col("frame_sequence", ColumnType::Int, None),
+            col("media_pts_ns", ColumnType::Int, None),
+            col(
+                "timeline_ts_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Time),
+            ),
+            col("time_basis", ColumnType::Text, None),
+            col("track_id", ColumnType::Text, None),
+            col("category", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("label", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("confidence", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("bbox", ColumnType::Jsonb, None),
+            col("attributes", ColumnType::Jsonb, None),
+            col("signal_schema_id", ColumnType::Text, None),
+            col("signal_schema_version", ColumnType::Text, None),
+            col("display_contract_id", ColumnType::Text, None),
+            col("has_crop", ColumnType::Bool, None),
+            col(
+                "inserted_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "updated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn websites() -> VizMeta {
     VizMeta {
         columns: vec![

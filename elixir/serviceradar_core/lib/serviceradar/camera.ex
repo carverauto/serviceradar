@@ -56,6 +56,10 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.VisualFrame
     resource ServiceRadar.Camera.VisualEmbedding
     resource ServiceRadar.Camera.VisualClipCaption
+    resource ServiceRadar.Camera.VantagePipeline
+    resource ServiceRadar.Camera.VantageJob
+    resource ServiceRadar.Camera.VantageObservation
+    resource ServiceRadar.Camera.VantageWorkerRegistration
     resource ServiceRadar.Storage.StorageEntitlement
     resource ServiceRadar.Storage.StorageUsageDailyReport
   end

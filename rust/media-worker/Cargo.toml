@@ -34,6 +34,7 @@ libc = { workspace = true }
 longshore_s3 = { workspace = true }
 parking_lot = { workspace = true }
 prometheus = { workspace = true }
+regex-automata = { workspace = true, features = ["meta", "unicode"] }
 rustls = { workspace = true }
 rusty_h264-decoder = { workspace = true }
 safetensors = { workspace = true }

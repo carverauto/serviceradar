@@ -1,0 +1,42 @@
+{
+  "schema_id": "alpr_plate_read",
+  "schema_version": "1.0.0",
+  "positive": [
+    {
+      "plate_text": "SR-0100",
+      "region": "US-CO",
+      "vehicle_color": "silver",
+      "vehicle_type": "sedan",
+      "confidence": 0.94
+    },
+    {
+      "plate_text": "TEST-742",
+      "region": "US-CA",
+      "confidence": 0.91
+    }
+  ],
+  "negative": [
+    {
+      "name": "lowercase_plate_rejected",
+      "expected_error": "plate_text",
+      "attributes": {
+        "plate_text": "sr-0100",
+        "region": "US-CO"
+      }
+    },
+    {
+      "name": "single_char_plate_rejected",
+      "expected_error": "plate_text",
+      "attributes": {
+        "plate_text": "A"
+      }
+    },
+    {
+      "name": "overlong_plate_rejected",
+      "expected_error": "plate_text",
+      "attributes": {
+        "plate_text": "SR-0100-12345"
+      }
+    }
+  ]
+}

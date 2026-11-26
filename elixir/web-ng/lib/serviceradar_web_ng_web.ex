@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb do
       ServiceRadarWebNG.AlertActions,
       ServiceRadarWebNG.Audit,
       ServiceRadarWebNG.Auth,
+      ServiceRadarWebNG.Catalog,
       ServiceRadarWebNG.Collectors,
       ServiceRadarWebNG.Dashboards,
       ServiceRadarWebNG.Edge,

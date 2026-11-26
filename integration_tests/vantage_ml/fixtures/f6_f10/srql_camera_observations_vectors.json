@@ -1,0 +1,129 @@
+{
+  "description": "SRQL in:camera_observations query, precedence, RBAC, Source scoping, playability, pagination, and injection vectors.",
+  "required_permissions_all_of": ["devices.view", "devices.cameras.recordings.view"],
+  "positive_queries": [
+    {
+      "name": "alpr_plate_query_gate_west_01",
+      "query": "in:camera_observations category:license_plate label:SR-0100 sort:timeline_ts_us:desc limit:100",
+      "expected_effective_entity": "camera_observations",
+      "expected_required_permissions": ["devices.view", "devices.cameras.recordings.view"],
+      "expected_fields": [
+        "id",
+        "observation_key",
+        "camera_source_id",
+        "category",
+        "label",
+        "confidence",
+        "bbox",
+        "timeline_ts_us",
+        "time_basis",
+        "signal_schema_id"
+      ]
+    },
+    {
+      "name": "last_in_precedence_bypass_probe",
+      "query": "in:devices in:camera_observations label:SR-0100 limit:25",
+      "expected_effective_entity": "camera_observations",
+      "expected_required_permissions": ["devices.view", "devices.cameras.recordings.view"],
+      "notes": "Last in: token determines effective entity so in:devices prefix cannot bypass recordings RBAC."
+    },
+    {
+      "name": "quoted_last_in_precedence_probe",
+      "query": "in:devices in:\"camera_observations\" time:last_24h source_mode:recorded_block limit:50",
+      "expected_effective_entity": "camera_observations",
+      "expected_required_permissions": ["devices.view", "devices.cameras.recordings.view"]
+    },
+    {
+      "name": "live_tap_and_attribute_filter",
+      "query": "in:camera_observations signal_schema_id:alpr_plate_read attributes.plate_text:TEST-742 source_mode:live_keyframe_tap limit:20",
+      "expected_effective_entity": "camera_observations",
+      "expected_required_permissions": ["devices.view", "devices.cameras.recordings.view"]
+    }
+  ],
+  "rbac_matrix": [
+    {
+      "name": "both_permissions_and_authorized_source_allowed",
+      "permissions": ["devices.view", "devices.cameras.recordings.view"],
+      "authorized_camera_source_ids": ["22222222-2222-4222-8222-222222222201"],
+      "target_camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "expected_http_status": 200,
+      "expected_visible": true
+    },
+    {
+      "name": "devices_view_only_denied_403",
+      "permissions": ["devices.view"],
+      "authorized_camera_source_ids": ["22222222-2222-4222-8222-222222222201"],
+      "target_camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "expected_http_status": 403,
+      "expected_visible": false
+    },
+    {
+      "name": "recordings_view_without_devices_view_denied_403",
+      "permissions": ["devices.cameras.recordings.view"],
+      "authorized_camera_source_ids": ["22222222-2222-4222-8222-222222222201"],
+      "target_camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "expected_http_status": 403,
+      "expected_visible": false
+    },
+    {
+      "name": "unauthorized_camera_source_excluded",
+      "permissions": ["devices.view", "devices.cameras.recordings.view"],
+      "authorized_camera_source_ids": ["22222222-2222-4222-8222-222222222204"],
+      "target_camera_source_id": "22222222-2222-4222-8222-222222222201",
+      "expected_http_status_unfiltered": 200,
+      "expected_visible": false
+    }
+  ],
+  "playability_cases": [
+    {
+      "name": "recorded_present_playable",
+      "source_mode": "recorded_block",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444401",
+      "local_state": "present",
+      "archive_state": "not_required",
+      "quarantine_reason": null,
+      "expected_queryable": true
+    },
+    {
+      "name": "recorded_quarantined_excluded",
+      "source_mode": "recorded_block",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444402",
+      "local_state": "quarantined",
+      "archive_state": "none",
+      "quarantine_reason": "tampered_manifest",
+      "expected_queryable": false
+    },
+    {
+      "name": "recorded_reclaimed_deleted_excluded",
+      "source_mode": "recorded_block",
+      "catalog_entry_id": "44444444-4444-4444-8444-444444444403",
+      "local_state": "reclaimed",
+      "archive_state": "deleted",
+      "quarantine_reason": null,
+      "expected_queryable": false
+    },
+    {
+      "name": "live_keyframe_tap_null_catalog_entry_queryable",
+      "source_mode": "live_keyframe_tap",
+      "catalog_entry_id": null,
+      "local_state": null,
+      "archive_state": null,
+      "quarantine_reason": null,
+      "expected_queryable": true
+    }
+  ],
+  "injection_payloads": [
+    {
+      "name": "sqli_single_quote_label",
+      "query": "in:camera_observations label:\"' OR 1=1 --\" limit:10"
+    },
+    {
+      "name": "sqli_drop_table_attribute",
+      "query": "in:camera_observations attributes.plate_text:\"'; DROP TABLE platform.camera_vantage_observations; --\" limit:10"
+    },
+    {
+      "name": "sqli_union_select",
+      "query": "in:camera_observations label:\"SR-0100' UNION SELECT * FROM platform.network_credential_secrets --\" limit:10"
+    }
+  ]
+}

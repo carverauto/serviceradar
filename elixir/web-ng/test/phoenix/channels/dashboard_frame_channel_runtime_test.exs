@@ -94,10 +94,65 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelRuntimeTest do
       assert matched["provider"] == [@summary]
     end
 
-    test "unknown filter keys and non-scalar metadata are rejected, not turned into atoms" do
+    test "unknown filter keys and invalid nested shapes are rejected, not turned into atoms" do
       assert {:error, {:invalid_filter, "not_a_field"}} = normalize(%{"not_a_field" => "x"})
-      assert {:error, {:invalid_filter, "metadata"}} = normalize(%{"metadata" => %{"nested" => %{"a" => 1}}})
+      assert {:error, {:invalid_filter, "metadata"}} = normalize(%{"metadata" => %{}})
+      assert {:error, {:invalid_filter, "metadata"}} = normalize(%{"metadata" => %{}, :"metadata.a" => "1"})
+      assert {:error, {:invalid_filter, "metadata"}} = normalize(%{"metadata.a" => "1", "metadata" => %{}})
+      assert {:error, {:invalid_filter, "metadata"}} = normalize(%{"metadata" => %{"list" => [1, 2]}})
+      assert {:error, {:invalid_filter, "metadata"}} = normalize(%{"metadata" => %{"empty" => %{}}})
       assert {:error, {:invalid_filter, "class_uid"}} = normalize(%{"class_uid" => "1008"})
+
+      deep = %{"a" => %{"b" => %{"c" => %{"d" => %{"e" => %{"f" => %{"g" => "x"}}}}}}}
+      assert {:error, {:invalid_filter, "metadata"}} = normalize(%{"metadata" => deep})
+
+      too_many = Map.new(1..9, fn i -> {"k#{i}", "v#{i}"} end)
+      assert {:error, {:invalid_filter, "metadata"}} = normalize(%{"metadata" => too_many})
+    end
+
+    test "matches nested metadata, dotted metadata paths, camera_source_id, and missing/non-scalar fields safely" do
+      cam_id = "00000000-0000-4000-8000-000000000601"
+
+      vantage_summary = %{
+        "id" => "e-vantage-1",
+        "log_provider" => "serviceradar.vantage",
+        "log_name" => "camera.vantage.observation",
+        "class_uid" => 1008,
+        "severity_id" => 1,
+        "metadata" => %{
+          "service_radar" => %{
+            "source_type" => "camera_vantage",
+            "camera_source_id" => cam_id,
+            "signal_schema" => %{
+              "schema_id" => "alpr_plate_read",
+              "schema_version" => "1.0.0"
+            },
+            "nested_empty" => ""
+          }
+        }
+      }
+
+      filters = %{
+        "nested_map" =>
+          filter!(%{
+            "metadata" => %{"service_radar" => %{"signal_schema" => %{"schema_id" => "alpr_plate_read"}}}
+          }),
+        "dotted_in_map" => filter!(%{"metadata" => %{"service_radar.signal_schema.schema_id" => "alpr_plate_read"}}),
+        "top_level_dotted" => filter!(%{"metadata.service_radar.signal_schema.schema_version" => "1.0.0"}),
+        "camera" => filter!(%{"camera_source_id" => cam_id}),
+        "missing_nil_must_not_match_empty" => filter!(%{"metadata" => %{"service_radar" => %{"missing_key" => ""}}}),
+        "non_scalar_nested_must_not_crash" =>
+          filter!(%{"metadata" => %{"service_radar" => %{"signal_schema" => "not_a_map"}}})
+      }
+
+      matched = filters |> Events.match([vantage_summary]) |> Map.new()
+
+      assert matched |> Map.keys() |> Enum.sort() == [
+               "camera",
+               "dotted_in_map",
+               "nested_map",
+               "top_level_dotted"
+             ]
     end
   end
 

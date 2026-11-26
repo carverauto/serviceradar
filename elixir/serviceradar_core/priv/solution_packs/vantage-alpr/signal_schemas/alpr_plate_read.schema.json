@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_id": "alpr_plate_read",
+  "version": "1.0.0",
+  "title": "ALPR Plate Read",
+  "description": "Synthetic Apache-2.0 license plate observation schema for Gate West 01.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "plate_text"
+  ],
+  "properties": {
+    "plate_text": {
+      "type": "string",
+      "pattern": "^[A-Z0-9-]{2,12}$",
+      "description": "Normalized synthetic plate text such as SR-0100 or TEST-742."
+    },
+    "region": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Optional plate jurisdiction code such as US-CO or US-CA."
+    },
+    "vehicle_color": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Optional detected vehicle color."
+    },
+    "vehicle_type": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Optional vehicle class such as sedan or truck."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Optional plate read confidence score."
+    }
+  }
+}

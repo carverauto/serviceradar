@@ -12,6 +12,7 @@ import {dispatchNotifications} from "./notifications/index.js"
 import {dispatchPack} from "./pack/index.js"
 import {dispatchPlugin} from "./plugin/index.js"
 import {describeError, ensureExtraCaCertificates} from "./tls_ca.js"
+import {dispatchVantage} from "./vantage/index.js"
 
 main().catch((error: any) => {
   console.error(describeError(error))
@@ -81,6 +82,12 @@ async function main(): Promise<void> {
     return dispatchPack(packSub, options, printHelp)
   }
 
+  if (first === "vantage") {
+    const [vantageSub = "help", ...vantageRest] = rest
+    const options = parseArgs(vantageRest)
+    return dispatchVantage(vantageSub, options, printHelp)
+  }
+
   if (first === "dashboard") {
     const [dashSub = "help", ...dashRest] = rest
     const options = parseArgs(dashRest)
@@ -108,6 +115,7 @@ Groups:
   auth        Authenticate against a ServiceRadar instance and manage stored credentials.
   dashboard   Author and operate ServiceRadar dashboard packages.
   pack        Validate, build, sign, and index ServiceRadar Solution Packs (.srpack).
+  vantage     Scaffold, validate, and test Vantage ML pipeline packs locally.
   plugin         Author and publish ServiceRadar Wasm plugins.
   notifications  Configure notification routes against a ServiceRadar instance.
   edge        Edge onboarding: packages, sites (NATS leaf), and edge-host install helpers.
@@ -154,6 +162,11 @@ Solution Pack subcommands:
   serviceradar pack keygen [--out-dir <dir> | -o <prefix>] [--key-id <id>] [--force] [--json]
   serviceradar pack sign <file.srpack> --key <privkey> --key-id <id> [-o <file.srpack.sig>] [--signer <name>]
   serviceradar pack index <dir-or-packs...> [-o serviceradar-pack-index.json] [--repo <org/repo> --release-tag <vX.Y.Z> | --base-url <url>]
+
+Vantage subcommands:
+  serviceradar-cli vantage init <name> [--template vlm|rust-worker|python-worker] [--with-dashboard] [--package-id <id>] [--force] [--json]
+  serviceradar-cli vantage validate [dir] [--json]
+  serviceradar-cli vantage dev [dir] --fixture <synthetic-clip> [--pipeline <id>] [--exec <cmd>] [--json]
 
 Edge onboarding subcommands (run \`serviceradar-cli edge help\` for every flag):
   serviceradar-cli agent list            --instance <url> [--json]

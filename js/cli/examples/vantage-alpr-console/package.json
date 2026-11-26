@@ -1,0 +1,8 @@
+{
+  "name": "vantage-alpr-console-src",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "React authoring source for the io.serviceradar.vantage-alpr bundled alpr-console dashboard package."
+}

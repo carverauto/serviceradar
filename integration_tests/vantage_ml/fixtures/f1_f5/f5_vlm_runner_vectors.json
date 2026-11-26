@@ -1,0 +1,77 @@
+{
+  "feature": "F5",
+  "vlm_request_defaults": {
+    "endpoint_path": "/v1/chat/completions",
+    "enable_thinking": false,
+    "chat_template_kwargs": {"enable_thinking": false},
+    "response_format_type": "json_schema",
+    "temperature": 0.0,
+    "max_tokens": 256
+  },
+  "consensus_cases": [
+    {
+      "name": "three_frame_majority_votes_test_742",
+      "track_id": "1",
+      "readings": [
+        {"plate_text": "TEST-742", "confidence": 0.94, "frame_sequence": 0},
+        {"plate_text": "TEST-742", "confidence": 0.91, "frame_sequence": 15},
+        {"plate_text": "TEST-74Z", "confidence": 0.62, "frame_sequence": 30}
+      ],
+      "expected_winner": "TEST-742",
+      "expected_vote_count": 2
+    },
+    {
+      "name": "single_frame_sr_0100",
+      "track_id": "2",
+      "readings": [
+        {"plate_text": "SR-0100", "confidence": 0.95, "frame_sequence": 0}
+      ],
+      "expected_winner": "SR-0100",
+      "expected_vote_count": 1
+    }
+  ],
+  "vlm_response_cases": [
+    {
+      "name": "closed_think_block_and_fenced_json_accepted",
+      "raw_content": "<think>short bounded note</think>\n```json\n{\"plate_text\":\"SR-0100\",\"region\":\"US-CO\",\"confidence\":0.94}\n```",
+      "expect_status": "ok",
+      "expected_plate_text": "SR-0100"
+    },
+    {
+      "name": "unclosed_think_rejected_as_truncated_thinking",
+      "raw_content": "<think>still thinking when max_tokens hit...",
+      "expect_status": "error",
+      "expected_outcome": "truncated_thinking"
+    },
+    {
+      "name": "non_json_prose_rejected",
+      "raw_content": "I see a vehicle near Gate West 01.",
+      "expect_status": "error",
+      "expected_outcome": "parse_error"
+    },
+    {
+      "name": "invalid_plate_regex_rejected",
+      "raw_content": "{\"plate_text\":\"NOT A VALID PLATE!!!\",\"region\":\"US-CO\",\"confidence\":0.8}",
+      "expect_status": "error",
+      "expected_outcome": "schema_rejected"
+    }
+  ],
+  "error_disposition_cases": {
+    "read_grant_410_gone": {
+      "http_status": 410,
+      "error": "recording_gone",
+      "expect_ack": true,
+      "expect_published_results": 0
+    },
+    "sha256_mismatch": {
+      "expect_vlm_calls": 0,
+      "expect_nak": true,
+      "expect_published_results": 0
+    },
+    "vlm_http_500": {
+      "http_status": 500,
+      "expect_nak": true,
+      "expect_published_results": 0
+    }
+  }
+}

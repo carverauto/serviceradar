@@ -517,6 +517,115 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
       :ok = EventsPubSub.broadcast_event_rows([persisted_event!("plugin:showcase-ot")])
       refute_push("events:error", _payload, 300)
     end
+
+    test "enforces devices.view + devices.cameras.recordings.view + Source scoping on camera observation events while allowing non-camera signal_schema events" do
+      alias ServiceRadar.Camera.Source
+      alias ServiceRadarWebNGWeb.DashboardFrameChannel.Events
+
+      system = AshTestHelpers.system_actor()
+      uniq = System.unique_integer([:positive])
+
+      cam_allowed =
+        Source
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            device_uid: "sr:cam-chan-allowed-#{uniq}",
+            vendor: "synthetic",
+            vendor_camera_id: "cam-allowed-#{uniq}",
+            display_name: "Gate West 01"
+          },
+          actor: system
+        )
+        |> Ash.create!()
+
+      cam_denied =
+        Source
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            device_uid: "sr:cam-chan-denied-#{uniq}",
+            vendor: "synthetic",
+            vendor_camera_id: "cam-denied-#{uniq}",
+            display_name: "Gate East 02"
+          },
+          actor: system
+        )
+        |> Ash.create!()
+
+      cam_event_allowed =
+        persisted_event_with!(%{
+          log_provider: "serviceradar.vantage",
+          log_name: "camera.vantage.observation",
+          metadata: %{
+            "service_radar" => %{
+              "source_type" => "camera_vantage",
+              "camera_source_id" => cam_allowed.id,
+              "signal_schema" => %{"schema_id" => "alpr_plate_read", "schema_version" => "1.0.0"}
+            }
+          }
+        })
+
+      cam_event_denied =
+        persisted_event_with!(%{
+          log_provider: "serviceradar.vantage",
+          log_name: "camera.vantage.observation",
+          metadata: %{
+            "service_radar" => %{
+              "source_type" => "camera_vantage",
+              "camera_source_id" => cam_denied.id,
+              "signal_schema" => %{"schema_id" => "alpr_plate_read", "schema_version" => "1.0.0"}
+            }
+          }
+        })
+
+      plugin_signal_event =
+        persisted_event_with!(%{
+          log_provider: "plugin:synthetic-ot",
+          log_name: "plugin.telemetry",
+          metadata: %{
+            "service_radar" => %{
+              "signal_schema" => %{"schema_id" => "ot.valve", "schema_version" => "1.0.0"}
+            }
+          }
+        })
+
+      summaries =
+        Enum.map([cam_event_allowed, cam_event_denied, plugin_signal_event], fn row ->
+          %{
+            "id" => Ecto.UUID.load!(row.id),
+            "log_provider" => row.log_provider,
+            "log_name" => row.log_name,
+            "metadata" => row.metadata
+          }
+        end)
+
+      viewer = AccountsFixtures.user_fixture(%{role: :viewer})
+
+      viewer_scope = %Scope{
+        user: viewer,
+        permissions: MapSet.new(["devices.view"])
+      }
+
+      # Viewer missing devices.cameras.recordings.view gets ONLY non-camera plugin signal_schema event
+      viewer_visible = Events.visible_ids(viewer_scope, summaries)
+      assert MapSet.member?(viewer_visible, Ecto.UUID.load!(plugin_signal_event.id))
+      refute MapSet.member?(viewer_visible, Ecto.UUID.load!(cam_event_allowed.id))
+      refute MapSet.member?(viewer_visible, Ecto.UUID.load!(cam_event_denied.id))
+
+      # Authorized viewer scoped to cam_allowed receives cam_event_allowed + plugin event, never cam_event_denied
+      cam_scope =
+        Map.put(
+          %Scope{user: viewer, permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"])},
+          :authorized_camera_source_ids,
+          [cam_allowed.id]
+        )
+
+      cam_visible = Events.visible_ids(cam_scope, summaries)
+      assert MapSet.member?(cam_visible, Ecto.UUID.load!(cam_event_allowed.id))
+      assert MapSet.member?(cam_visible, Ecto.UUID.load!(plugin_signal_event.id))
+      refute MapSet.member?(cam_visible, Ecto.UUID.load!(cam_event_denied.id))
+    end
   end
 
   describe "frame streaming and cursor paging" do
@@ -1206,18 +1315,27 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
   # Writes the row the way EventWriter does (raw uuid, jsonb maps) so delivery
   # can read it back through the viewer's own policy.
   defp persisted_event!(log_provider) do
-    row = %{
-      id: Ecto.UUID.dump!(Ecto.UUID.generate()),
-      time: DateTime.utc_now(),
-      class_uid: 1008,
-      category_uid: 1,
-      type_uid: 100_801,
-      activity_id: 1,
-      severity_id: 4,
-      log_provider: log_provider,
-      device: %{"uid" => "sr:device:plc-07"},
-      metadata: %{"fault_kind" => "jam"}
-    }
+    persisted_event_with!(%{log_provider: log_provider})
+  end
+
+  defp persisted_event_with!(overrides) do
+    row =
+      Map.merge(
+        %{
+          id: Ecto.UUID.dump!(Ecto.UUID.generate()),
+          time: DateTime.utc_now(),
+          class_uid: 1008,
+          category_uid: 1,
+          type_uid: 100_801,
+          activity_id: 1,
+          severity_id: 4,
+          log_provider: "plugin:showcase-ot",
+          log_name: "demo.faults",
+          device: %{"uid" => "sr:device:plc-07"},
+          metadata: %{"fault_kind" => "jam"}
+        },
+        overrides
+      )
 
     {1, _} = ServiceRadar.Repo.insert_all("ocsf_events", [row], prefix: "platform")
     row

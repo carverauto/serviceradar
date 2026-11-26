@@ -24,6 +24,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.VantageTriggerAdmitter
   alias ServiceRadar.Camera.VisualCaptionClient
   alias ServiceRadar.Camera.VisualCaptionWorker
   alias ServiceRadar.Camera.VisualEmbedding
@@ -156,7 +157,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
 
           with {:ok, _} <- complete_job(job, now),
                {:ok, summary} <- projection_summary(job, frames) do
-            {:ingested_with_caption, summary, pick_smart_anchor_frame_id(stored_frames)}
+            {:ingested_with_caption, summary, pick_smart_anchor_frame_id(stored_frames), entry,
+             frames}
           end
 
         :ack ->
@@ -340,6 +342,14 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     end
   end
 
+  defp unwrap_transaction(
+         {:ok, {:ingested_with_caption, summary, smart_anchor_frame_id, entry, frames}}
+       ) do
+    maybe_enqueue_caption(summary.catalog_entry_id, smart_anchor_frame_id)
+    maybe_admit_vantage_jobs(entry, frames)
+    {:ok, summary}
+  end
+
   defp unwrap_transaction({:ok, {:ingested_with_caption, summary, smart_anchor_frame_id}}) do
     maybe_enqueue_caption(summary.catalog_entry_id, smart_anchor_frame_id)
     {:ok, summary}
@@ -374,6 +384,21 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
             smart_anchor_frame_id
           )
 
+        :ok
+      rescue
+        _ -> :ok
+      catch
+        _, _ -> :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp maybe_admit_vantage_jobs(entry, frames) do
+    if VantageTriggerAdmitter.deployment_enabled?() do
+      try do
+        _ = VantageTriggerAdmitter.admit_for_stage1_detections(entry, frames)
         :ok
       rescue
         _ -> :ok

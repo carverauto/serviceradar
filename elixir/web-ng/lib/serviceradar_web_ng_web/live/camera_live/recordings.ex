@@ -13,6 +13,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadar.Camera.RecordingTimeline
   alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Camera.VantageObservation
+  alias ServiceRadar.Camera.VantagePipeline
+  alias ServiceRadar.Camera.VantagePubSub
   alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Repo
   alias ServiceRadar.TimeZone
@@ -20,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadarWebNG.CameraRecordingSettings
   alias ServiceRadarWebNG.CameraTimelineReader
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Camera.VantageDisplay
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
   alias ServiceRadarWebNGWeb.CameraMultiview
@@ -110,6 +114,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_search_error: nil,
         timeline_embedder_unavailable?: false,
         timeline_overlay_detections: [],
+        timeline_vantage_observations: [],
         timeline_jump_at: "",
         timeline_has_adjacent_window: false,
         timeline_holds: [],
@@ -344,6 +349,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_search_error={@timeline_search_error}
         timeline_embedder_unavailable?={@timeline_embedder_unavailable?}
         timeline_overlay_detections={@timeline_overlay_detections}
+        timeline_vantage_observations={@timeline_vantage_observations}
         timeline_jump_at={@timeline_jump_at}
         timeline_has_adjacent_window={@timeline_has_adjacent_window}
         timeline_holds={@timeline_holds}
@@ -958,6 +964,52 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
+  def handle_event("select_vantage_observation", params, socket) do
+    with {:ok, scope, source} <- authorize_timeline_view(socket),
+         {:ok, seek_us} <- parse_required_int(params["ts_us"]) do
+      obs_id = blank_to_nil(params["id"])
+      cov = socket.assigns.timeline_coverage
+
+      matched_obs =
+        Enum.find(socket.assigns.timeline_vantage_observations || [], fn obs ->
+          (is_binary(obs_id) and to_string(obs[:id]) == obs_id) or obs[:timeline_ts_us] == seek_us
+        end)
+
+      hit =
+        if matched_obs do
+          %{
+            observation_label: matched_obs.label,
+            observation_category: matched_obs.category,
+            score: matched_obs.confidence
+          }
+        end
+
+      modal =
+        build_clip_modal_from_hit(socket, scope, source, cov, %{
+          clip_start_us: max(seek_us - 2_000_000, 0),
+          clip_end_us: seek_us + 4_000_000,
+          seek_us: seek_us,
+          highlight_frame_id: nil,
+          hit: hit
+        })
+
+      {:noreply,
+       assign(socket,
+         current_scope: scope,
+         source: source,
+         clip_modal: modal,
+         error: nil
+       )}
+    else
+      {:error, reason}
+      when reason in [:unauthorized, :permission_revoked, :recording_block_not_found, :invalid_id] ->
+        {:noreply, unavailable(socket, reason)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("close_clip_modal", _params, socket) do
     {:noreply, assign(socket, clip_modal: nil)}
   end
@@ -1328,6 +1380,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
+  def handle_info({:camera_vantage_observations, payload}, socket) when is_map(payload) do
+    source_id = Map.get(payload, :camera_source_id) || Map.get(payload, "camera_source_id")
+
+    if connected?(socket) and source_id == current_source_id(socket) do
+      {:noreply, schedule_debounced_refresh(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:debounced_recording_refresh, token}, socket) do
     if connected?(socket) and is_reference(token) and
          token == socket.assigns.recording_debounce_token do
@@ -1507,6 +1569,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           play_to_us
         )
 
+      vantage_observations =
+        load_vantage_observations_for_window(socket, scope, source.id, cov_from_us, cov_to_us)
+
       overlay_detections =
         resolve_overlay_detections(
           socket,
@@ -1515,7 +1580,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           play_from_us,
           play_to_us,
           socket.assigns.timeline_highlight_frame_id,
-          socket.assigns.timeline_search_results
+          socket.assigns.timeline_search_results,
+          vantage_observations
         )
 
       has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us, socket)
@@ -1556,6 +1622,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_playlist_origin_us: playlist_origin_us,
         timeline_seek_offset_seconds: seek_offset_seconds,
         timeline_overlay_detections: overlay_detections,
+        timeline_vantage_observations: vantage_observations,
         timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
         timeline_playlist_path: playlist_path,
         timeline_has_adjacent_window: has_adjacent?,
@@ -2085,6 +2152,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_playlist_origin_us: nil,
       timeline_seek_offset_seconds: 0.0,
       timeline_overlay_detections: [],
+      timeline_vantage_observations: [],
       timeline_holds: [],
       timeline_event_clips: [],
       timeline_event_markers: [],
@@ -2130,11 +2198,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
       is_binary(prev_id) and prev_id != "" ->
         _ = deps(socket).unsubscribe.(prev_id)
+        _ = deps(socket).unsubscribe_vantage.(prev_id)
         _ = deps(socket).subscribe.(source_id)
+        _ = deps(socket).subscribe_vantage.(source_id)
         assign(socket, recording_subscribed_source_id: source_id)
 
       true ->
         _ = deps(socket).subscribe.(source_id)
+        _ = deps(socket).subscribe_vantage.(source_id)
         assign(socket, recording_subscribed_source_id: source_id)
     end
   end
@@ -2144,6 +2215,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp teardown_live_refresh(socket) do
     if is_binary(socket.assigns.recording_subscribed_source_id) do
       _ = deps(socket).unsubscribe.(socket.assigns.recording_subscribed_source_id)
+      _ = deps(socket).unsubscribe_vantage.(socket.assigns.recording_subscribed_source_id)
     end
 
     cancel_timer_ref(socket.assigns.recording_refresh_timer_ref)
@@ -2286,13 +2358,17 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           scope
         )
 
+      vantage_observations =
+        load_vantage_observations_for_window(socket, scope, source.id, cov_from_us, cov_to_us)
+
       if preserve_playback_window?(socket) do
         assign_live_refresh_preserving_window(socket, scope, source, %{
           profiles: profiles,
           coverage: coverage,
           cov_to_us: cov_to_us,
           all_holds: all_holds,
-          clips_page: clips_page
+          clips_page: clips_page,
+          vantage_observations: vantage_observations
         })
       else
         assign_live_refresh_without_active_playback(socket, scope, source, %{
@@ -2301,7 +2377,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           cov_from_us: cov_from_us,
           cov_to_us: cov_to_us,
           all_holds: all_holds,
-          clips_page: clips_page
+          clips_page: clips_page,
+          vantage_observations: vantage_observations
         })
       end
     else
@@ -2353,7 +2430,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
          coverage: coverage,
          cov_to_us: cov_to_us,
          all_holds: all_holds,
-         clips_page: clips_page
+         clips_page: clips_page,
+         vantage_observations: vantage_observations
        }) do
     play_from_us = socket.assigns.timeline_play_from_us
     play_to_us = socket.assigns.timeline_play_to_us
@@ -2366,7 +2444,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         play_from_us,
         play_to_us,
         socket.assigns.timeline_highlight_frame_id,
-        socket.assigns.timeline_search_results
+        socket.assigns.timeline_search_results,
+        vantage_observations
       )
 
     has_adjacent_window? =
@@ -2381,6 +2460,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       stream_profiles: profiles,
       timeline_coverage: coverage,
       timeline_overlay_detections: overlay_detections,
+      timeline_vantage_observations: vantage_observations,
       timeline_has_adjacent_window: has_adjacent_window?,
       timeline_holds: all_holds,
       timeline_event_clips: clips_page.clips,
@@ -2429,7 +2509,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
          cov_from_us: cov_from_us,
          cov_to_us: cov_to_us,
          all_holds: all_holds,
-         clips_page: clips_page
+         clips_page: clips_page,
+         vantage_observations: vantage_observations
        }) do
     {play_from_us, play_to_us} =
       initial_playback_window(
@@ -2464,7 +2545,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         play_from_us,
         play_to_us,
         socket.assigns.timeline_highlight_frame_id,
-        socket.assigns.timeline_search_results
+        socket.assigns.timeline_search_results,
+        vantage_observations
       )
 
     tz = user_timezone(scope)
@@ -2480,6 +2562,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_playlist_origin_us: playlist_origin_us,
       timeline_seek_offset_seconds: seek_offset_seconds,
       timeline_overlay_detections: overlay_detections,
+      timeline_vantage_observations: vantage_observations,
       timeline_playlist_path: playlist_path,
       timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov_to_us, socket),
       timeline_holds: all_holds,
@@ -2529,11 +2612,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       end,
       list_cameras: &default_list_cameras/2,
       list_window_overlays: &default_list_window_overlays/5,
+      list_vantage_observations: &default_list_vantage_observations/5,
+      list_vantage_pipelines: &default_list_vantage_pipelines/2,
       get_frame_overlay: &default_get_frame_overlay/3,
       open_source_preview: &CameraMultiview.open_source_preview/3,
       save_roi_grid: &default_save_roi_grid/3,
       subscribe: &RecordingPubSub.subscribe/1,
       unsubscribe: &RecordingPubSub.unsubscribe/1,
+      subscribe_vantage: &VantagePubSub.subscribe/1,
+      unsubscribe_vantage: &VantagePubSub.unsubscribe/1,
       now_us: fn -> System.system_time(:microsecond) end
     }
   end
@@ -2741,7 +2828,16 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   defp compute_seek_offset_seconds(_seek_us, _playlist_origin_us, _play_to_us), do: 0.0
 
-  defp resolve_overlay_detections(socket, scope, source_id, play_from_us, play_to_us, highlight_frame_id, search_results) do
+  defp resolve_overlay_detections(
+         socket,
+         scope,
+         source_id,
+         play_from_us,
+         play_to_us,
+         highlight_frame_id,
+         search_results,
+         preloaded_vantage \\ nil
+       ) do
     from_results = detections_from_search_results(search_results, play_from_us, play_to_us)
 
     from_window =
@@ -2760,6 +2856,21 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         []
       end
 
+    vantage_observations =
+      resolve_window_vantage_observations(
+        socket,
+        scope,
+        source_id,
+        play_from_us,
+        play_to_us,
+        preloaded_vantage
+      )
+
+    from_vantage =
+      vantage_observations
+      |> Enum.map(&vantage_observation_to_overlay/1)
+      |> Enum.reject(&is_nil/1)
+
     has_highlighted? =
       is_binary(highlight_frame_id) and
         Enum.any?(
@@ -2776,7 +2887,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
     min_conf = (socket.assigns[:timeline_min_confidence] || @default_min_confidence) / 100.0
 
-    (from_highlight ++ from_results ++ from_window)
+    (from_highlight ++ from_results ++ from_window ++ from_vantage)
     |> deduplicate_overlay_detections()
     |> filter_overlay_detections_by_confidence(min_conf)
   end
@@ -2814,7 +2925,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
             normalize_detection_bbox(det[:bbox] || det["bbox"] || det[:bbox_norm] || det["bbox_norm"] || det)
 
           if is_list(bbox) do
-            %{
+            base = %{
               visual_frame_id: det[:visual_frame_id] || det["visual_frame_id"] || hit[:visual_frame_id],
               timeline_ts_us: det[:timeline_ts_us] || det["timeline_ts_us"] || hit[:best_timeline_ts_us],
               start_us: hit[:clip_start_us],
@@ -2827,6 +2938,20 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
               dominant_colors: List.wrap(det[:dominant_colors] || det["dominant_colors"] || hit[:dominant_colors]),
               time_basis: to_string(det[:time_basis] || det["time_basis"] || hit[:time_basis] || "received")
             }
+
+            if (det[:source] || det["source"]) == "vantage" or
+                 is_binary(det[:vantage_observation_id] || det["vantage_observation_id"] || hit[:vantage_observation_id]) do
+              Map.merge(base, %{
+                source: "vantage",
+                vantage_observation_id:
+                  det[:vantage_observation_id] || det["vantage_observation_id"] || hit[:vantage_observation_id],
+                category: to_string(det[:category] || det["category"] || hit[:observation_category] || base.object_class),
+                label: det[:label] || det["label"] || hit[:observation_label],
+                crop_url: VantageDisplay.sanitize_url(det[:crop_url] || det["crop_url"] || hit[:crop_url])
+              })
+            else
+              base
+            end
           end
         end)
         |> Enum.reject(&is_nil/1)
@@ -2985,9 +3110,216 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   defp deduplicate_overlay_detections(detections) do
     Enum.uniq_by(detections, fn det ->
-      {det[:visual_frame_id], det[:timeline_ts_us], det[:bbox], det[:object_class]}
+      {det[:source] || "stage1", det[:vantage_observation_id], det[:visual_frame_id], det[:timeline_ts_us], det[:bbox],
+       det[:object_class]}
     end)
   end
+
+  defp resolve_window_vantage_observations(_socket, _scope, _source_id, play_from_us, play_to_us, preloaded_vantage)
+       when is_list(preloaded_vantage) and is_integer(play_from_us) and is_integer(play_to_us) do
+    Enum.filter(preloaded_vantage, fn obs ->
+      ts = obs[:timeline_ts_us]
+      is_integer(ts) and ts >= play_from_us and ts <= play_to_us
+    end)
+  end
+
+  defp resolve_window_vantage_observations(_socket, _scope, _source_id, _play_from_us, _play_to_us, preloaded_vantage)
+       when is_list(preloaded_vantage) do
+    preloaded_vantage
+  end
+
+  defp resolve_window_vantage_observations(socket, scope, source_id, play_from_us, play_to_us, _nil) do
+    load_vantage_observations_for_window(socket, scope, source_id, play_from_us, play_to_us)
+  end
+
+  defp load_vantage_observations_for_window(socket, scope, source_id, from_us, to_us)
+       when is_binary(source_id) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+    raw_observations =
+      List.wrap(
+        deps(socket).list_vantage_observations.(
+          source_id,
+          from_us,
+          to_us,
+          socket.assigns.timeline_profile_id,
+          scope
+        )
+      )
+
+    if raw_observations == [] do
+      []
+    else
+      pipeline_keys =
+        raw_observations
+        |> Enum.map(fn obs ->
+          {Map.get(obs, :pipeline_id) || Map.get(obs, "pipeline_id"),
+           Map.get(obs, :pipeline_version) || Map.get(obs, "pipeline_version")}
+        end)
+        |> Enum.reject(fn {pid, _ver} -> is_nil(pid) or pid == "" end)
+        |> Enum.uniq()
+
+      contracts_by_key =
+        if pipeline_keys == [] do
+          %{}
+        else
+          case deps(socket).list_vantage_pipelines.(pipeline_keys, scope) do
+            %{} = map -> map
+            _ -> %{}
+          end
+        end
+
+      Enum.map(raw_observations, fn obs ->
+        key =
+          {Map.get(obs, :pipeline_id) || Map.get(obs, "pipeline_id"),
+           Map.get(obs, :pipeline_version) || Map.get(obs, "pipeline_version")}
+
+        contract = Map.get(contracts_by_key, key, %{})
+        VantageDisplay.format_observation(obs, contract, source_id)
+      end)
+    end
+  end
+
+  defp load_vantage_observations_for_window(_socket, _scope, _source_id, _from_us, _to_us), do: []
+
+  defp vantage_observation_to_overlay(%{bbox: bbox, timeline_ts_us: ts_us} = obs)
+       when is_list(bbox) and is_integer(ts_us) do
+    normalized_bbox = normalize_overlay_bbox(bbox)
+
+    if is_list(normalized_bbox) do
+      %{
+        source: "vantage",
+        vantage_observation_id: obs.id,
+        visual_frame_id: nil,
+        timeline_ts_us: ts_us,
+        start_us: max(ts_us - 1_500_000, 0),
+        end_us: ts_us + 1_500_000,
+        bbox: normalized_bbox,
+        object_class: obs.category,
+        category: obs.category,
+        label: obs.label,
+        color: obs.color_hex,
+        crop_url: VantageDisplay.sanitize_url(obs.crop_url),
+        score: obs.confidence || 0.0,
+        dominant_colors: [],
+        time_basis: obs.time_basis || "received"
+      }
+    end
+  end
+
+  defp vantage_observation_to_overlay(_obs), do: nil
+
+  defp default_list_vantage_observations(source_id, from_us, to_us, profile_id, scope)
+       when is_binary(source_id) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+    if is_nil(Process.whereis(Repo)) do
+      []
+    else
+      with {:ok, cam_uuid} <- Ecto.UUID.cast(String.trim(source_id)),
+           {:ok, prof_uuid} <- cast_optional_profile_uuid(profile_id) do
+        VantageObservation
+        |> Ash.Query.for_read(:read, %{}, scope: scope)
+        |> Ash.Query.filter(
+          camera_source_id == ^cam_uuid and
+            timeline_ts_us >= ^from_us and
+            timeline_ts_us <= ^to_us and
+            ((source_mode == :live_keyframe_tap and is_nil(catalog_entry_id)) or
+               (not is_nil(catalog_entry_id) and
+                  not is_nil(catalog_entry.recording_block_id) and
+                  catalog_entry.local_state != :quarantined and
+                  is_nil(catalog_entry.quarantine_reason) and
+                  (catalog_entry.local_state == :present or catalog_entry.archive_state == :verified)))
+        )
+        |> maybe_filter_overlay_profile(prof_uuid)
+        |> Ash.Query.select([
+          :id,
+          :pipeline_id,
+          :pipeline_version,
+          :worker_kind,
+          :model_id,
+          :model_version,
+          :catalog_entry_id,
+          :camera_source_id,
+          :stream_profile_id,
+          :source_mode,
+          :timeline_ts_us,
+          :time_basis,
+          :track_id,
+          :category,
+          :label,
+          :confidence,
+          :bbox,
+          :attributes,
+          :signal_schema_id,
+          :signal_schema_version,
+          :display_contract_id
+        ])
+        |> Ash.Query.load([:has_crop])
+        |> Ash.Query.sort(timeline_ts_us: :asc, id: :asc)
+        |> Ash.Query.limit(@max_overlay_frames_per_window)
+        |> Ash.read(scope: scope)
+        |> case do
+          {:ok, observations} ->
+            observations
+
+          {:error, reason} ->
+            Logger.warning("Failed to list Vantage observations for source #{source_id}: #{inspect(reason)}")
+            []
+        end
+      else
+        _ -> []
+      end
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "Failed to list Vantage observations for source #{inspect(source_id)}: #{Exception.format(:error, exception, __STACKTRACE__)}"
+      )
+
+      []
+  end
+
+  defp default_list_vantage_observations(_source_id, _from_us, _to_us, _profile_id, _scope), do: []
+
+  defp default_list_vantage_pipelines(pipeline_keys, scope) when is_list(pipeline_keys) do
+    if is_nil(Process.whereis(Repo)) do
+      %{}
+    else
+      pipeline_ids =
+        pipeline_keys
+        |> Enum.map(fn
+          {pid, _ver} -> pid
+          pid when is_binary(pid) -> pid
+          _ -> nil
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      if pipeline_ids == [] do
+        %{}
+      else
+        VantagePipeline
+        |> Ash.Query.for_read(:read, %{}, scope: scope)
+        |> Ash.Query.filter(pipeline_id in ^pipeline_ids)
+        |> Ash.Query.select([:pipeline_id, :version, :display_contract_id, :display_contract])
+        |> Ash.read(scope: scope)
+        |> case do
+          {:ok, pipelines} ->
+            Map.new(pipelines, fn p ->
+              {{p.pipeline_id, p.version}, p.display_contract || %{}}
+            end)
+
+          {:error, reason} ->
+            Logger.warning("Failed to list Vantage pipelines: #{inspect(reason)}")
+            %{}
+        end
+      end
+    end
+  rescue
+    exception ->
+      Logger.warning("Failed to list Vantage pipelines: #{Exception.format(:error, exception, __STACKTRACE__)}")
+
+      %{}
+  end
+
+  defp default_list_vantage_pipelines(_pipeline_keys, _scope), do: %{}
 
   defp normalize_detection_bbox([x1, y1, x2, y2])
        when is_number(x1) and is_number(y1) and is_number(x2) and is_number(y2) do
@@ -3433,6 +3765,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     seek_offset_seconds =
       compute_seek_offset_seconds(seek_us, playlist_origin_us, play_to_us)
 
+    vantage_observations =
+      load_vantage_observations_for_window(socket, scope, source.id, play_from_us, play_to_us)
+
     overlay_detections =
       resolve_overlay_detections(
         socket,
@@ -3441,7 +3776,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         play_from_us,
         play_to_us,
         visual_frame_id,
-        socket.assigns.timeline_search_results
+        socket.assigns.timeline_search_results,
+        vantage_observations
       )
 
     category = normalize_modal_category(Map.get(clip, :category))
@@ -3466,6 +3802,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       seek_offset_seconds: seek_offset_seconds,
       highlight_frame_id: visual_frame_id,
       overlay_detections: overlay_detections,
+      vantage_observations: vantage_observations,
       clip: clip
     }
   end
@@ -3521,6 +3858,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     seek_offset_seconds =
       compute_seek_offset_seconds(seek_us, playlist_origin_us, play_to_us)
 
+    vantage_observations =
+      load_vantage_observations_for_window(socket, scope, source.id, play_from_us, play_to_us)
+
     overlay_detections =
       resolve_overlay_detections(
         socket,
@@ -3529,18 +3869,20 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         play_from_us,
         play_to_us,
         highlight_frame_id,
-        socket.assigns.timeline_search_results
+        socket.assigns.timeline_search_results,
+        vantage_observations
       )
 
-    raw_class = (is_map(hit) && Map.get(hit, :object_class)) || nil
+    raw_class = (is_map(hit) && (Map.get(hit, :observation_category) || Map.get(hit, :object_class))) || nil
     category = normalize_modal_category(raw_class)
+    obs_label = is_map(hit) && Map.get(hit, :observation_label)
 
     %{
       kind: :semantic_hit,
       clip_id: nil,
       camera_name: source.display_name || "Camera",
       category: category,
-      label: modal_category_label(category),
+      label: if(is_binary(obs_label) and obs_label != "", do: obs_label, else: modal_category_label(category)),
       confidence: is_map(hit) && Map.get(hit, :score),
       timestamp_us: seek_us,
       started_at: us_to_datetime_safe(seek_us),
@@ -3554,6 +3896,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       seek_offset_seconds: seek_offset_seconds,
       highlight_frame_id: highlight_frame_id,
       overlay_detections: overlay_detections,
+      vantage_observations: vantage_observations,
       clip: nil
     }
   end

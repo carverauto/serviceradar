@@ -201,6 +201,10 @@ the worker's egress and the NVR's ingress for analysis reads.
 {{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.allowNvrRead" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).allowNvrRead "default" false) -}}
 {{- end -}}
 
+{{- define "serviceradar.vantageWorkerEnabled" -}}
+{{- include "serviceradar.strictBool" (dict "name" "vantageWorker.enabled" "value" (default (dict) .Values.vantageWorker).enabled "default" false) -}}
+{{- end -}}
+
 {{/*
 In-cluster / external camera VLM runtime helpers.
 cameraVlm.enabled gates the in-cluster GPU VLM Deployment, Service, its
@@ -363,6 +367,9 @@ inventory even if the Secret still holds its certificate.
 - {file: "k8s-inventory.pem", cn: "serviceradar-k8s-inventory"}
 {{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
 - {file: "media-worker.pem", cn: "serviceradar-media-worker"}
+{{- end }}
+{{- if eq (include "serviceradar.vantageWorkerEnabled" .) "true" }}
+- {file: "vantage-worker.pem", cn: "serviceradar-vantage-worker"}
 {{- end }}
 {{- end -}}
 

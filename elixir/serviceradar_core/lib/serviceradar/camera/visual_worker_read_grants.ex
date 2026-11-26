@@ -39,6 +39,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.VantageJob
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexJob
 
@@ -129,7 +130,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
 
     with :ok <- authorize_worker_caller(installation, opts),
          {:ok, req} <- validate_request(params),
-         {:ok, job} <- load_and_check_job(req, loaders),
+         {:ok, job} <- load_and_check_job(req, installation, loaders),
          {:ok, entry} <- load_and_check_catalog_entry(req, job, loaders),
          {:ok, descriptor} <- load_frozen_descriptor(entry, loaders),
          {:ok, init_slice} <- extract_init_slice(descriptor, entry),
@@ -237,7 +238,8 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     purpose = fetch_val(installation, :purpose) || fetch_val(installation, :auth_domain)
 
     invalid_domain? =
-      not is_nil(purpose) and purpose not in [:media_worker, "media_worker"]
+      not is_nil(purpose) and
+        purpose not in [:media_worker, "media_worker", :vantage_worker, "vantage_worker"]
 
     cond do
       invalid_domain? ->
@@ -246,7 +248,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
       Keyword.has_key?(opts, :actor) ->
         case Keyword.get(opts, :actor) do
           %{role: :system} -> :ok
-          %{workload_purpose: :media_worker} -> :ok
+          %{workload_purpose: wp} when wp in [:media_worker, :vantage_worker] -> :ok
           _ -> {:error, :unauthorized_worker}
         end
 
@@ -257,17 +259,30 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
 
   defp validate_request(params) when is_map(params) do
     with :ok <- validate_optional_schema_version(params),
-         {:ok, job_id} <- cast_uuid(fetch_val(params, :job_id)),
-         {:ok, entry_id} <- cast_uuid(fetch_val(params, :catalog_entry_id)),
-         {:ok, desc_sha} <- parse_hex64(fetch_val(params, :descriptor_sha256)) do
+         {:ok, job_id} <- cast_uuid_field(fetch_val(params, :job_id), :invalid_job_id),
+         {:ok, entry_id} <-
+           cast_uuid_field(fetch_val(params, :catalog_entry_id), :invalid_catalog_entry_id),
+         {:ok, desc_sha} <- parse_hex64_field(fetch_val(params, :descriptor_sha256)) do
       {:ok,
        %{
          job_id: job_id,
          catalog_entry_id: entry_id,
          descriptor_sha256: desc_sha
        }}
-    else
-      _ -> {:error, :invalid_read_grant_request}
+    end
+  end
+
+  defp cast_uuid_field(value, error_atom) do
+    case cast_uuid(value) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, error_atom}
+    end
+  end
+
+  defp parse_hex64_field(value) do
+    case parse_hex64(value) do
+      {:ok, sha} -> {:ok, sha}
+      :error -> {:error, :invalid_descriptor_sha256}
     end
   end
 
@@ -297,8 +312,8 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp load_and_check_job(req, loaders) do
-    case load_job(req.job_id, loaders) do
+  defp load_and_check_job(req, installation, loaders) do
+    case load_job(req.job_id, installation, loaders) do
       {:ok, nil} ->
         {:error, :job_not_found}
 
@@ -379,7 +394,13 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
           list
 
         _ ->
-          VisualIndexDispatcher.sample_descriptor_fragments(descriptor, 2000, 64)
+          case sampled_fragments_from_targets(fetch_val(job, :sampled_targets)) do
+            list when is_list(list) and list != [] ->
+              list
+
+            _ ->
+              VisualIndexDispatcher.sample_descriptor_fragments(descriptor, 2000, 64)
+          end
       end
 
     requested
@@ -619,42 +640,47 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
        ) do
     storage_id = to_string(fetch_val(entry, :storage_id))
     block_key = fetch_val(entry, :block_key)
-    nvr_member = resolve_nvr_member(entry, storage_id, opts, loaders)
 
-    {:ok,
-     %{
-       schema_version: 1,
-       backing: :local,
-       source: "local",
-       read_pool: "analysis_read",
-       job_id: to_string(fetch_val(job, :id)),
-       catalog_entry_id: to_string(fetch_val(entry, :id)),
-       camera_source_id: to_string(fetch_val(entry, :camera_source_id)),
-       stream_profile_id: to_string(fetch_val(entry, :stream_profile_id)),
-       storage_id: storage_id,
-       block_key: block_key,
-       nvr_member: nvr_member,
-       descriptor_sha256: fetch_val(entry, :descriptor_sha256),
-       init_sha256: init_slice["sha256"],
-       ttl_seconds: ttl_seconds,
-       expires_at: DateTime.to_iso8601(expires_at),
-       init: Map.put(init_slice, "path", "/v1/blocks/#{block_key}/init"),
-       fragments:
-         Enum.map(fragments, fn f ->
-           f
-           |> serialize_fragment()
-           |> Map.put("path", "/v1/blocks/#{block_key}/fragments/#{f.sequence}")
-         end),
-       coalesced_ranges: coalesced,
-       local: %{
-         "nvr_member" => nvr_member,
-         "storage_id" => storage_id,
-         "block_key" => block_key,
-         "pool" => "analysis_read",
-         "purpose" => "analysis_read",
-         "init_path" => "/v1/blocks/#{block_key}/init"
-       }
-     }}
+    case resolve_nvr_member(entry, storage_id, opts, loaders) do
+      nvr_member when is_binary(nvr_member) and nvr_member != "" ->
+        {:ok,
+         %{
+           schema_version: 1,
+           backing: :local,
+           source: "local",
+           read_pool: "analysis_read",
+           job_id: to_string(fetch_val(job, :id)),
+           catalog_entry_id: to_string(fetch_val(entry, :id)),
+           camera_source_id: to_string(fetch_val(entry, :camera_source_id)),
+           stream_profile_id: to_string(fetch_val(entry, :stream_profile_id)),
+           storage_id: storage_id,
+           block_key: block_key,
+           nvr_member: nvr_member,
+           descriptor_sha256: fetch_val(entry, :descriptor_sha256),
+           init_sha256: init_slice["sha256"],
+           ttl_seconds: ttl_seconds,
+           expires_at: DateTime.to_iso8601(expires_at),
+           init: Map.put(init_slice, "path", "/v1/blocks/#{block_key}/init"),
+           fragments:
+             Enum.map(fragments, fn f ->
+               f
+               |> serialize_fragment()
+               |> Map.put("path", "/v1/blocks/#{block_key}/fragments/#{f.sequence}")
+             end),
+           coalesced_ranges: coalesced,
+           local: %{
+             "nvr_member" => nvr_member,
+             "storage_id" => storage_id,
+             "block_key" => block_key,
+             "pool" => "analysis_read",
+             "purpose" => "analysis_read",
+             "init_path" => "/v1/blocks/#{block_key}/init"
+           }
+         }}
+
+      _ ->
+        {:error, :recording_unavailable}
+    end
   end
 
   defp serialize_fragment(f) do
@@ -860,45 +886,131 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp load_job(job_id, loaders) do
+  defp load_job(job_id, installation, loaders) do
+    case caller_purpose(installation) do
+      purpose when purpose in [:vantage_worker, "vantage_worker"] ->
+        load_vantage_only_job(job_id, loaders)
+
+      purpose when purpose in [nil, :media_worker, "media_worker"] ->
+        load_media_or_vantage_job(job_id, loaders)
+
+      _ ->
+        {:error, :unauthorized_worker}
+    end
+  end
+
+  defp caller_purpose(installation) do
+    fetch_val(installation, :purpose) || fetch_val(installation, :auth_domain)
+  end
+
+  defp load_vantage_only_job(job_id, loaders) do
+    vantage_loader = Map.get(loaders, :vantage_job_loader)
+    job_loader = Map.get(loaders, :job_loader)
+
     cond do
-      is_function(Map.get(loaders, :job_loader), 1) ->
-        loaders.job_loader.(job_id)
+      is_function(vantage_loader, 1) ->
+        filter_vantage_loader_result(vantage_loader.(job_id), fn job ->
+          not is_struct(job, VisualIndexJob)
+        end)
+
+      is_function(job_loader, 1) ->
+        filter_vantage_loader_result(job_loader.(job_id), &vantage_job?/1)
 
       map_size(loaders) > 0 ->
         {:ok, nil}
 
       true ->
-        VisualIndexJob.get_by_id(job_id, actor: @system_actor, not_found_error?: false)
+        VantageJob.get_by_id(job_id, actor: @system_actor, not_found_error?: false)
+    end
+  end
+
+  defp filter_vantage_loader_result({:ok, %{} = job}, accept?) do
+    if accept?.(job), do: {:ok, job}, else: {:ok, nil}
+  end
+
+  defp filter_vantage_loader_result(other, _accept?), do: other
+
+  defp load_media_or_vantage_job(job_id, loaders) do
+    vantage_loader = Map.get(loaders, :vantage_job_loader)
+
+    cond do
+      is_function(Map.get(loaders, :job_loader), 1) ->
+        case loaders.job_loader.(job_id) do
+          {:ok, nil} when is_function(vantage_loader, 1) -> vantage_loader.(job_id)
+          other -> other
+        end
+
+      is_function(vantage_loader, 1) ->
+        vantage_loader.(job_id)
+
+      map_size(loaders) > 0 ->
+        {:ok, nil}
+
+      true ->
+        case VisualIndexJob.get_by_id(job_id, actor: @system_actor, not_found_error?: false) do
+          {:ok, %VisualIndexJob{} = job} ->
+            {:ok, job}
+
+          {:ok, nil} ->
+            VantageJob.get_by_id(job_id, actor: @system_actor, not_found_error?: false)
+
+          {:error, _} = err ->
+            err
+        end
     end
   end
 
   defp cancel_matching_job(job, req, loaders) do
-    if map_size(loaders) > 0 do
-      :ok
-    else
-      job_id = fetch_val(job, :id)
+    cond do
+      is_function(Map.get(loaders, :cancel_job_fn), 2) ->
+        loaders.cancel_job_fn.(job, req)
 
-      VisualIndexJob
-      |> Ash.Query.filter(
-        id == ^job_id and
-          catalog_entry_id == ^req.catalog_entry_id and
-          descriptor_sha256 == ^req.descriptor_sha256 and
-          state in [:pending, :dispatched]
-      )
-      |> Ash.bulk_update(
-        :mark_cancelled,
-        %{last_error_class: "source_deleted_or_quarantined"},
-        actor: @system_actor,
-        strategy: [:atomic],
-        return_errors?: true
-      )
-      |> case do
-        %Ash.BulkResult{status: :success} -> :ok
-        %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-      end
+      map_size(loaders) > 0 ->
+        :ok
+
+      true ->
+        job_id = fetch_val(job, :id)
+        resource = if vantage_job?(job), do: VantageJob, else: VisualIndexJob
+
+        resource
+        |> Ash.Query.filter(
+          id == ^job_id and
+            catalog_entry_id == ^req.catalog_entry_id and
+            descriptor_sha256 == ^req.descriptor_sha256 and
+            state in [:pending, :dispatched]
+        )
+        |> Ash.bulk_update(
+          :mark_cancelled,
+          %{last_error_class: "source_deleted_or_quarantined"},
+          actor: @system_actor,
+          strategy: [:atomic],
+          return_errors?: true
+        )
+        |> case do
+          %Ash.BulkResult{status: :success} -> :ok
+          %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+        end
     end
   end
+
+  defp vantage_job?(%VantageJob{}), do: true
+  defp vantage_job?(job) when is_map(job), do: not is_nil(fetch_val(job, :pipeline_id))
+  defp vantage_job?(_), do: false
+
+  defp sampled_fragments_from_targets(targets) when is_list(targets) do
+    targets
+    |> Enum.reduce([], fn target, acc ->
+      case fetch_val(target, :fragment_sequence) do
+        seq when is_integer(seq) and seq >= 0 -> [seq | acc]
+        _ -> acc
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(&%{"sequence" => &1})
+  end
+
+  defp sampled_fragments_from_targets(_), do: []
 
   defp load_frozen_descriptor(entry, loaders) do
     direct =
@@ -1013,13 +1125,18 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
       |> Keyword.get(:member_by_storage_id, %{})
       |> Map.get(storage_id)
 
+    entry_member = fetch_val(entry, :nvr_member)
+
     cond do
-      is_binary(from_map) and from_map != "" ->
-        from_map
+      non_empty_string?(from_map) ->
+        String.trim(from_map)
+
+      non_empty_string?(entry_member) ->
+        String.trim(entry_member)
 
       is_function(Map.get(loaders, :policy_loader), 1) ->
         case loaders.policy_loader.(entry) do
-          {:ok, pol} when is_map(pol) -> fetch_val(pol, :nvr_member)
+          {:ok, pol} when is_map(pol) -> trim_non_empty(fetch_val(pol, :nvr_member))
           _ -> nil
         end
 
@@ -1034,11 +1151,21 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
                actor: @system_actor,
                not_found_error?: false
              ) do
-          {:ok, %CameraRecordingPolicy{nvr_member: member}} -> member
+          {:ok, %CameraRecordingPolicy{nvr_member: member}} -> trim_non_empty(member)
           _ -> nil
         end
     end
   end
+
+  defp non_empty_string?(val) when is_binary(val), do: String.trim(val) != ""
+  defp non_empty_string?(_), do: false
+
+  defp trim_non_empty(val) when is_binary(val) do
+    trimmed = String.trim(val)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp trim_non_empty(_), do: nil
 
   defp normalize_ttl(ttl) when is_integer(ttl) and ttl in 1..@max_ttl_seconds, do: ttl
   defp normalize_ttl(_), do: @default_ttl_seconds
@@ -1070,7 +1197,8 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   defp normalize_job_state(val) when is_atom(val), do: val
 
   defp normalize_job_state(val) when is_binary(val) do
-    Enum.find(VisualIndexJob.states(), &(Atom.to_string(&1) == val))
+    allowed = Enum.uniq(VisualIndexJob.states() ++ VantageJob.states())
+    Enum.find(allowed, &(Atom.to_string(&1) == val))
   end
 
   defp normalize_job_state(_), do: nil

@@ -1,0 +1,55 @@
+{
+  "pack_format_version": 2,
+  "id": "__PACK_ID__",
+  "slug": "__PACK_SLUG__",
+  "name": "__PACK_NAME__",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "author": "ServiceRadar",
+  "description": "Synthetic Apache-2.0 Rust Vantage ML worker pack for Gate West 01 (SR-0100, TEST-742).",
+  "min_serviceradar_version": "1.0.0",
+  "categories": [
+    "camera",
+    "vantage-ml"
+  ],
+  "config": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "default": true,
+      "required": false,
+      "description": "Enable Vantage pipeline"
+    }
+  ],
+  "credential_slots": [],
+  "plugin_dependencies": [],
+  "worker_dependencies": [
+    {
+      "capability": "__CAPABILITY__",
+      "min_protocol_version": "vantage.worker.v1",
+      "optional": true,
+      "fallback_runner": "camera_vlm"
+    }
+  ],
+  "resources": {
+    "checks": [],
+    "rules": [],
+    "dashboards": [],
+    "vantage_pipelines": [
+      {
+        "id": "__PIPELINE_ID__",
+        "slug": "__PIPELINE_SLUG__",
+        "file": "vantage_pipelines/__PIPELINE_SLUG__.json"
+      }
+    ],
+    "signal_schemas": [
+      {
+        "id": "__SCHEMA_ID__",
+        "version": "1.0.0",
+        "file": "signal_schemas/__SCHEMA_ID__.schema.json",
+        "display_file": "signal_schemas/__SCHEMA_ID__.display.json"
+      }
+    ]
+  },
+  "files": {}
+}

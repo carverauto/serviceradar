@@ -11,6 +11,7 @@ React/JS surface customer dashboards depend on).
 serviceradar-cli auth      <login|status|logout>
 serviceradar-cli dashboard <init|build|dev|validate|manifest|publish|import|list|status>
 serviceradar-cli pack      <validate|build|keygen|sign|verify|index>
+serviceradar-cli vantage   <init|validate|dev>
 serviceradar-cli plugin    <init|validate|publish|status|assignments|secrets|rules|controllers|apply>
 serviceradar-cli notifications <ensure-k8s-alerts>
 serviceradar-cli agent     <list>
