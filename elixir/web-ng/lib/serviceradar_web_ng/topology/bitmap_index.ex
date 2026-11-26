@@ -13,6 +13,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   with deferred pages never acknowledges reconciliation or seeds readiness.
   Prefix Tag catalogs prepare one source per turn and resume across turns.
   No database work runs in the owner process.
+
+  A full reconciliation pass rereads and republishes every device, so its
+  cadence is the index's dominant database cost. Passes start
+  `:bitmap_reconcile_interval_ms` (default five minutes) after the previous
+  pass completes, plus up to a fifth of that interval of per-replica jitter so
+  replicas do not scan in step. The cadence bounds only how long a write that
+  produced no hint stays unrepaired; hinted writes, hint overflow, native
+  rescan requests and recovery after errors still start a pass immediately. A
+  pass that deferred pages to native memory admission retries after 30 seconds.
   """
   use GenServer
 
@@ -34,7 +43,9 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
   @turns {:hints, :dirty, :hints, :dirty, :hints, :scan, :hints, :catalog}
   @task_timeout 10_000
   @step_interval 25
-  @scan_interval 30_000
+  @catalog_interval 30_000
+  @deferred_rescan_interval 30_000
+  @default_reconcile_interval 300_000
   @shutdown_cleanup_timeout 4_000
 
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
@@ -68,6 +79,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
        dirty_started_at: nil,
        rescan: true,
        scan_due: nil,
+       reconcile_interval:
+         Application.get_env(:serviceradar_web_ng, :bitmap_reconcile_interval_ms, @default_reconcile_interval),
        catalog_due: nil,
        catalog_sources: [],
        catalog_pending: MapSet.new(),
@@ -268,7 +281,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
             schedule(%{state | catalog_due: now() + 1_000}, @step_interval)
 
           sources == [] ->
-            next = %{state | catalog_sources: [], catalog_turn: 0, catalog_due: now() + @scan_interval}
+            next = %{state | catalog_sources: [], catalog_turn: 0, catalog_due: now() + @catalog_interval}
             schedule(next, @step_interval)
 
           true ->
@@ -283,7 +296,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         end
 
       {:error, _} ->
-        schedule(%{state | catalog_due: now() + @scan_interval}, @step_interval)
+        schedule(%{state | catalog_due: now() + @catalog_interval}, @step_interval)
     end
   end
 
@@ -403,7 +416,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
       | cursor: nil,
         scan_skipped: false,
         capacity_blocked: true,
-        scan_due: now() + @scan_interval,
+        scan_due: now() + @deferred_rescan_interval,
         source_error: true
     }
   end
@@ -421,7 +434,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
       state
       | mode: :ready,
         cursor: nil,
-        scan_due: now() + @scan_interval,
+        scan_due: next_reconcile_due(state),
         seeded_at: state.seeded_at || DateTime.utc_now(),
         last_reconciled_at: state.scan_started_at,
         capacity_blocked: false,
@@ -472,7 +485,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
         else: MapSet.delete(state.catalog_pending, source)
 
     cycle_done = rem(state.catalog_turn, max(length(state.catalog_sources), 1)) == 0
-    due = if cycle_done and MapSet.size(pending) == 0, do: now() + @scan_interval
+    due = if cycle_done and MapSet.size(pending) == 0, do: now() + @catalog_interval
     %{state | catalog_pending: pending, catalog_due: due}
   end
 
@@ -610,6 +623,8 @@ defmodule ServiceRadarWebNG.Topology.BitmapIndex do
 
   defp due?(nil), do: true
   defp due?(at), do: at <= now()
+
+  defp next_reconcile_due(%{reconcile_interval: interval}), do: now() + interval + :rand.uniform(div(interval, 5) + 1) - 1
 
   defp now, do: System.monotonic_time(:millisecond)
 end

@@ -47,6 +47,9 @@ defmodule ServiceRadarWebNG.Topology.Scale.Replica do
 
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
     Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, ["cohort", "scale"])
+    # Replica B has no hints and must repair churn through periodic passes inside
+    # the churn window, so the harness keeps the 30 s cadence it was sized for.
+    Application.put_env(:serviceradar_web_ng, :bitmap_reconcile_interval_ms, 30_000)
     endpoint = Application.fetch_env!(:serviceradar_web_ng, Endpoint)
     Application.put_env(:serviceradar_web_ng, Endpoint, Keyword.merge(endpoint, server: false, check_origin: false))
 

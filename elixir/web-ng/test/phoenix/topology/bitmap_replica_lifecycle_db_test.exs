@@ -53,12 +53,15 @@ defmodule ServiceRadarWebNG.Topology.BitmapReplicaLifecycleDBTest do
 
     previous =
       Map.new(
-        [:god_view_enabled, :bitmap_tag_keys],
+        [:god_view_enabled, :bitmap_tag_keys, :bitmap_reconcile_interval_ms],
         &{&1, Application.fetch_env(:serviceradar_web_ng, &1)}
       )
 
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
     Application.put_env(:serviceradar_web_ng, :bitmap_tag_keys, [])
+    # Isolated replicas converge only through the periodic pass, so the test keeps
+    # the short cadence its convergence waits were written against.
+    Application.put_env(:serviceradar_web_ng, :bitmap_reconcile_interval_ms, 30_000)
 
     on_exit(fn ->
       try do
