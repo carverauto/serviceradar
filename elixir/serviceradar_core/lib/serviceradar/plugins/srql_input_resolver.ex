@@ -70,26 +70,21 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   an explicit limit of #{@page_limit} rows: SRQL applies a default limit of 100
   when a request omits one, so reading a single page would silently drop the
   rest of the selection. A page that fails to read is an error, never a short
-  result, and so is a full page without a cursor: SRQL stops issuing cursors
-  past its cursor window, so the selection may continue beyond it.
+  result, and so is a full page without a cursor. On an offset walk that means
+  the selection continues past the cursor window. On a keyset walk the executor
+  reports a missing key instead of ending the walk.
 
-  Each page is a separate offset query, so rows must come back in a unique
-  order or rows with equal sort values can move between pages and be skipped.
-  SRQL already ends interface orders (history and `latest:true`) on a unique
-  key; agents default to `last_seen_time` alone, so `sort:uid:asc` is appended
-  to an agents query as its final sort key (repeated `sort:` tokens extend the
-  order, after any operator-supplied sort).
-
-  Devices are paged by `uid` too, for cost rather than uniqueness. Their default
-  order (availability rank, then the first address parsed as `inet`, then uid)
-  cannot be served by an index, so every offset page sorts every matching device
-  row in full, and a fleet-wide walk repeats that sort once per page.
-
-  A device or agent query with no operator-supplied sort is ordered by `uid`
-  alone, which SRQL pages with keyset cursors: each page is an index range scan
-  after the previous page's last uid, and the cursor window does not apply. An
-  operator-supplied sort stays first, so that query keeps offset cursors and
-  the full-page-without-cursor check above still fails it past the window.
+  Rows on an offset page must come back in a unique order, or rows with equal
+  sort values can move between pages and be skipped. SRQL already ends
+  interface orders (history and `latest:true`) on a unique key. Device and
+  agent queries append `sort:uid:asc` after any operator-supplied sort. With
+  no operator sort, that is the only order, and SRQL pages it by key: each
+  page is an index range scan after the previous page's last uid, and the
+  cursor window does not apply. An operator-supplied sort stays first, so
+  that query keeps offset cursors and the full-page-without-cursor check
+  above still fails it past the window. These walks do not use the device
+  default order (availability rank, then the first address parsed as `inet`,
+  then uid), which is not served by an index.
   """
   @spec reduce_pages(input_definition(), acc, ([map()], acc -> {:cont | :halt, acc}), keyword()) ::
           {:ok, acc} | {:error, [String.t()]}

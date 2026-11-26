@@ -595,8 +595,11 @@ For large deployments:
 Each add-on profile has a **max targets** setting (default 10,000): the most
 agents its SRQL target query may select. Reconciliation reads the whole target
 query, a page at a time, and counts distinct agents until it passes the limit.
-If the selection is larger than SRQL can page through, reconciliation fails
-with an error instead of assigning part of it.
+A devices or agents query with no operator-supplied sort is paged by uid and
+is not stopped by the cursor-offset cap; see
+[Sorting and pagination](srql-language-reference.md#sorting-and-pagination).
+A query that keeps offset paging still fails, instead of assigning part of
+the selection, when the walk passes that cap.
 
 A profile over its limit is refused whole. It is never cut down to the limit,
 because which agents would be left out is not a choice the platform can make
