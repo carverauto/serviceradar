@@ -137,9 +137,11 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
              )
   end
 
-  test "run scopes the pre-filtered uids with the SRQL query in chunks, most recently seen first" do
+  test "run checks the default all-devices query against the pre-filter in uid chunks" do
+    query = DeviceHostnameRdns.default_srql_query()
+
     settings = %{
-      srql_query: "partition:lab",
+      srql_query: query,
       batch_size: 150,
       timeout_ms: 250,
       overwrite_existing: false,
@@ -154,7 +156,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
 
     query_page = fn query, opts ->
       [scope, list] = String.split(query, " uid:(", parts: 2)
-      assert scope == "in:devices partition:lab"
+      assert scope == DeviceHostnameRdns.default_srql_query()
       assert opts[:limit] == 200
 
       uids =
@@ -214,7 +216,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
 
   test "run accepts inet-shaped SRQL IP values" do
     settings = %{
-      srql_query: "in:devices",
+      srql_query: DeviceHostnameRdns.default_srql_query(),
       batch_size: 10,
       timeout_ms: 250,
       overwrite_existing: false,
@@ -246,12 +248,217 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
              )
   end
 
-  test "run returns an error when the SRQL cohort cannot be queried" do
-    query_page = fn _query, _opts -> {:error, :translate_failed} end
+  test "run returns an error when a pre-filter uid chunk cannot be queried" do
+    query_page = fn query, _opts ->
+      assert String.contains?(query, "uid:(")
+      {:error, :translate_failed}
+    end
 
     assert {:error, {:srql_query_failed, :translate_failed}} =
              DeviceHostnameRdns.run(
-               %{srql_query: "in:devices", batch_size: 10, timeout_ms: 250},
+               %{
+                 srql_query: DeviceHostnameRdns.default_srql_query(),
+                 batch_size: 10,
+                 timeout_ms: 250
+               },
+               eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, ["sr:a"]} end,
+               query_page: query_page,
+               cache?: false
+             )
+  end
+
+  test "a narrow scope is paged in uid order and intersected, not chunked across the fleet" do
+    settings = %{
+      srql_query: "partition:lab",
+      batch_size: 150,
+      timeout_ms: 250,
+      overwrite_existing: false,
+      retry_after_minutes: 1_440
+    }
+
+    # Most recently seen first. Chunking this list would take three 200-uid queries.
+    eligible = for n <- 1..450, do: "sr:dev-#{n}"
+
+    query_page = fn query, opts ->
+      refute String.contains?(query, "uid:(")
+      assert query == "in:devices partition:lab sort:uid:asc"
+      assert opts[:limit] == 1_000
+      send(self(), {:scope_page, opts[:cursor]})
+
+      case opts[:cursor] do
+        nil ->
+          {:ok, %{rows: [%{"uid" => "sr:dev-20"}, %{"uid" => "sr:other"}], next_cursor: "page-2"}}
+
+        "page-2" ->
+          {:ok, %{rows: [%{"uid" => "sr:dev-5"}]}}
+      end
+    end
+
+    load_devices = fn requested, _actor ->
+      send(self(), {:loaded, Enum.map(requested, & &1.uid)})
+
+      {:ok,
+       Enum.map(requested, fn %{uid: uid} ->
+         hostname = if uid == "sr:dev-20", do: "host20.example.com"
+
+         %{uid: uid, ip: "192.0.2.5", hostname: hostname, metadata: %{}}
+       end)}
+    end
+
+    assert {:ok, %{cohort_rows: 2, candidates: 1, loaded: 2, looked_up: 1}} =
+             DeviceHostnameRdns.run(settings,
+               eligible_uids: fn _settings, _now, false -> {:ok, eligible} end,
+               query_page: query_page,
+               load_devices: load_devices,
+               lookup: fn _ip, _opts -> {"host.example.com", "ok", nil} end,
+               persist: fn _device, _hostname, _status, _error, _now, _actor -> :updated end,
+               cache?: false
+             )
+
+    assert_received {:scope_page, nil}
+    assert_received {:scope_page, "page-2"}
+    refute_received {:scope_page, _}
+    assert_received {:loaded, ["sr:dev-5", "sr:dev-20"]}
+    refute_received {:loaded, _}
+  end
+
+  test "a scope the same size as the pre-filter is intersected in pre-filter order" do
+    settings = %{
+      srql_query: "partition:lab",
+      batch_size: 10,
+      timeout_ms: 250,
+      overwrite_existing: false,
+      retry_after_minutes: 1_440
+    }
+
+    query_page = fn query, opts ->
+      refute String.contains?(query, "uid:(")
+      assert query == "in:devices partition:lab sort:uid:asc"
+      refute opts[:cursor]
+      send(self(), :scope_page)
+      {:ok, %{rows: [%{"uid" => "sr:a"}, %{"uid" => "sr:b"}]}}
+    end
+
+    load_devices = fn requested, _actor ->
+      send(self(), {:loaded, Enum.map(requested, & &1.uid)})
+
+      {:ok,
+       Enum.map(requested, fn %{uid: uid} ->
+         %{uid: uid, ip: "192.0.2.8", hostname: nil, metadata: %{}}
+       end)}
+    end
+
+    assert {:ok, %{cohort_rows: 2, candidates: 2, looked_up: 2}} =
+             DeviceHostnameRdns.run(settings,
+               eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, ["sr:b", "sr:a"]} end,
+               query_page: query_page,
+               load_devices: load_devices,
+               lookup: fn _ip, _opts -> {"host.example.com", "ok", nil} end,
+               persist: fn _device, _hostname, _status, _error, _now, _actor -> :updated end,
+               cache?: false
+             )
+
+    assert_received :scope_page
+    refute_received :scope_page
+    assert_received {:loaded, ["sr:b", "sr:a"]}
+  end
+
+  test "a scope larger than the pre-filter falls back to uid chunks and keeps every pre-filter uid" do
+    settings = %{
+      srql_query: "partition:wide",
+      batch_size: 10,
+      timeout_ms: 250,
+      overwrite_existing: false,
+      retry_after_minutes: 1_440
+    }
+
+    query_page = fn query, opts ->
+      send(self(), {:query, query, opts[:cursor]})
+
+      if String.contains?(query, "uid:(") do
+        [_, list] = String.split(query, "uid:(", parts: 2)
+
+        uids =
+          list
+          |> String.trim_trailing(")")
+          |> String.split(",")
+          |> Enum.map(&String.trim(&1, "\""))
+
+        {:ok,
+         %{
+           rows:
+             Enum.map(uids, fn uid ->
+               %{"uid" => uid, "ip" => "192.0.2.9", "hostname" => nil}
+             end)
+         }}
+      else
+        assert query == "in:devices partition:wide sort:uid:asc"
+        assert opts[:limit] == 1_000
+        assert opts[:cursor] == nil
+
+        {:ok,
+         %{
+           rows: [%{"uid" => "sr:a"}, %{"uid" => "sr:b"}, %{"uid" => "sr:c"}],
+           next_cursor: "more"
+         }}
+      end
+    end
+
+    load_devices = fn requested, _actor ->
+      send(self(), {:loaded, Enum.map(requested, & &1.uid)})
+      {:ok, requested}
+    end
+
+    assert {:ok, %{cohort_rows: 2, candidates: 2, looked_up: 2}} =
+             DeviceHostnameRdns.run(settings,
+               eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, ["sr:z", "sr:a"]} end,
+               query_page: query_page,
+               load_devices: load_devices,
+               lookup: fn _ip, _opts -> {"host.example.com", "ok", nil} end,
+               persist: fn _device, _hostname, _status, _error, _now, _actor -> :updated end,
+               cache?: false
+             )
+
+    assert_received {:query, "in:devices partition:wide sort:uid:asc", nil}
+    refute_received {:query, _, "more"}
+    assert_received {:loaded, ["sr:z", "sr:a"]}
+  end
+
+  test "a full scope page without a cursor is an error" do
+    rows = for n <- 1..1_000, do: %{"uid" => "sr:page-#{n}"}
+    eligible = for n <- 1..1_000, do: "sr:keep-#{n}"
+
+    query_page = fn query, opts ->
+      assert query == "in:devices partition:lab sort:uid:asc"
+      assert opts[:limit] == 1_000
+      refute opts[:cursor]
+      send(self(), :scope_page)
+      {:ok, %{rows: rows}}
+    end
+
+    assert {:error, {:srql_query_failed, :selection_exceeds_cursor_window}} =
+             DeviceHostnameRdns.run(
+               %{srql_query: "partition:lab", batch_size: 10, timeout_ms: 250},
+               eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, eligible} end,
+               query_page: query_page,
+               load_devices: fn _requested, _actor -> flunk("loaded an incomplete scope") end,
+               cache?: false
+             )
+
+    assert_received :scope_page
+    refute_received :scope_page
+  end
+
+  test "run returns an error when a narrow scope page cannot be queried" do
+    query_page = fn query, opts ->
+      assert query == "in:devices partition:lab sort:uid:asc"
+      assert opts[:limit] == 1_000
+      {:error, :translate_failed}
+    end
+
+    assert {:error, {:srql_query_failed, :translate_failed}} =
+             DeviceHostnameRdns.run(
+               %{srql_query: "partition:lab", batch_size: 10, timeout_ms: 250},
                eligible_uids: fn _settings, _now, _ignore_retry? -> {:ok, ["sr:a"]} end,
                query_page: query_page,
                cache?: false

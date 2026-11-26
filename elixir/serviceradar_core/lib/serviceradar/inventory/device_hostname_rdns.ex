@@ -6,9 +6,11 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   processes every eligible device in the operator's SRQL cohort. One database
   query pre-filters the fleet to devices that can be due (an IP, a missing or
   IP-shaped hostname unless overwriting, and outside the retry window), most
-  recently seen first; the SRQL query is then applied to those uids in chunks,
-  so it still decides the scope. Lookups are injected in tests so the job does
-  not depend on a live resolver.
+  recently seen first. The default all-devices query, and any scope larger than
+  that pre-filter, is applied to those uids in chunks. A smaller scope is read
+  in uid order and intersected with the pre-filter, then processed in the
+  pre-filter's order. `candidate?/4` still decides. Lookups are injected in
+  tests so the job does not depend on a live resolver.
   """
 
   import Ash.Expr
@@ -33,6 +35,11 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   # checked against at most this many pre-filtered uids per query.
   @srql_uid_chunk 200
 
+  # Same explicit page size `SrqlInputResolver` uses. SRQL's default limit is
+  # 100, and a full page without a cursor stops inside the cursor window, so
+  # either one would drop the rest of a scope the job has to process.
+  @scope_page_limit 1_000
+
   # Pre-filters the fleet to devices that can be due for a lookup, most recently
   # seen first. It is a superset of `candidate?/4`, which still decides on the
   # SRQL rows, so every clause errs toward keeping a device:
@@ -46,8 +53,10 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   #   A NULL `$2` (ignore_retry?) disables it. The LATERAL extracts the value
   #   once per row instead of once per reference.
   #
-  # Paging the operator's SRQL query instead sorted every in-scope device per
-  # 500-row OFFSET page to find the few that were due.
+  # Returned most recently seen first. The default all-devices query, and any
+  # operator scope larger than this set, is checked against these uids in
+  # `@srql_uid_chunk` chunks. A smaller scope is walked in uid order and the
+  # intersection is processed in this order.
   @eligible_uids_sql ~S"""
   SELECT d.uid
   FROM platform.ocsf_devices AS d
@@ -189,7 +198,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
       Map.get(settings, :srql_query) || Map.get(settings, "srql_query") || @default_srql_query
 
     with {:ok, normalized} <- normalize_device_query(query),
-         {:ok, uids} <- eligible_uids.(settings, now, ignore_retry?) do
+         {:ok, prefilter} <- eligible_uids.(settings, now, ignore_retry?) do
       context = %{
         actor: actor,
         batch_size: batch_size,
@@ -205,12 +214,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
         timeout_ms: timeout_ms
       }
 
-      case process_scoped_chunks(
-             context,
-             Enum.chunk_every(uids, @srql_uid_chunk),
-             [],
-             Map.put(empty_stats(), :query, normalized)
-           ) do
+      case select_cohort(context, prefilter, Map.put(empty_stats(), :query, normalized)) do
         {:ok, stats} ->
           Logger.info("DeviceHostnameRdns: selected cohort",
             query: normalized,
@@ -226,6 +230,143 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
           {:error, reason}
       end
     end
+  end
+
+  # The pre-filter is one query. Walking the operator's query is a page per
+  # `@scope_page_limit` devices, so a run pays for the smaller side. The default
+  # query is the whole fleet and is never the smaller side. An empty pre-filter
+  # has nothing to process, so it does not page either.
+  defp select_cohort(context, prefilter, stats) do
+    if prefilter == [] or default_device_query?(context.query) do
+      process_prefilter_chunks(context, prefilter, stats)
+    else
+      case scope_uids(context, length(prefilter)) do
+        {:ok, :scope_larger} ->
+          process_prefilter_chunks(context, prefilter, stats)
+
+        {:ok, scope} ->
+          process_intersection(
+            context,
+            Enum.filter(prefilter, &MapSet.member?(scope, &1)),
+            stats
+          )
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  defp default_device_query?(query), do: query == @default_srql_query
+
+  defp process_prefilter_chunks(context, uids, stats) do
+    process_scoped_chunks(context, Enum.chunk_every(uids, @srql_uid_chunk), [], stats)
+  end
+
+  # Pages the operator query in uid order: `sort:uid:asc` extends whatever sort
+  # the operator wrote, and each page carries an explicit limit and the previous
+  # cursor. Once the scope has more devices than the pre-filter, the rest of the
+  # walk cannot be the cheaper side, so the caller checks the pre-filter in uid
+  # chunks instead. A full page with no cursor is an incomplete read.
+  defp scope_uids(context, prefilter_count) do
+    walk_scope(
+      context.query_page,
+      context.query <> " sort:uid:asc",
+      nil,
+      MapSet.new(),
+      prefilter_count
+    )
+  end
+
+  defp walk_scope(query_page, query, cursor, seen, prefilter_count) do
+    opts = [limit: @scope_page_limit]
+    opts = if is_binary(cursor), do: Keyword.put(opts, :cursor, cursor), else: opts
+
+    with {:ok, page} <- query_scope_page(query_page, query, opts),
+         {:ok, rows} <- page_rows(page) do
+      seen = Enum.reduce(rows, seen, &put_scope_uid/2)
+
+      if MapSet.size(seen) > prefilter_count do
+        {:ok, :scope_larger}
+      else
+        case next_page_cursor(page) do
+          next when is_binary(next) ->
+            walk_scope(query_page, query, next, seen, prefilter_count)
+
+          _no_cursor when length(rows) >= @scope_page_limit ->
+            {:error, {:srql_query_failed, :selection_exceeds_cursor_window}}
+
+          _last_page ->
+            {:ok, seen}
+        end
+      end
+    end
+  end
+
+  defp query_scope_page(query_page, query, opts) do
+    case query_page.(query, opts) do
+      {:ok, page} -> {:ok, page}
+      {:error, reason} -> {:error, {:srql_query_failed, reason}}
+      other -> {:error, {:srql_query_failed, other}}
+    end
+  end
+
+  defp page_rows(%{rows: rows}) when is_list(rows), do: {:ok, rows}
+  defp page_rows(rows) when is_list(rows), do: {:ok, rows}
+  defp page_rows(other), do: {:error, {:srql_query_failed, other}}
+
+  defp put_scope_uid(row, seen) do
+    case row_uid(row) do
+      nil -> seen
+      uid -> MapSet.put(seen, uid)
+    end
+  end
+
+  defp next_page_cursor(%{next_cursor: cursor}) when is_binary(cursor) and cursor != "",
+    do: cursor
+
+  defp next_page_cursor(_page), do: nil
+
+  # The scope walk already applied the operator query. Load these uids in the
+  # pre-filter's order and let candidate?/4 drop anything the pre-filter kept
+  # in excess of a device it would actually look up.
+  defp process_intersection(context, uids, stats) do
+    stats = Map.update!(stats, :cohort_rows, &(&1 + length(uids)))
+
+    uids
+    |> Stream.chunk_every(context.batch_size)
+    |> Enum.reduce_while({:ok, stats}, fn batch, {:ok, acc} ->
+      case context.load_devices.(Enum.map(batch, &%{uid: &1}), context.actor) do
+        {:ok, devices} when is_list(devices) ->
+          candidates =
+            Enum.filter(
+              devices,
+              &candidate?(&1, context.settings, context.now, ignore_retry?: context.ignore_retry?)
+            )
+
+          next =
+            process_devices(
+              candidates,
+              context.actor,
+              context.now,
+              context.lookup,
+              context.persist,
+              context.timeout_ms,
+              context.cache?,
+              acc
+              |> Map.update!(:candidates, &(&1 + length(candidates)))
+              |> Map.update!(:loaded, &(&1 + length(devices)))
+            )
+
+          {:cont, {:ok, next}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+
+        other ->
+          {:halt, {:error, {:device_load_failed, other}}}
+      end
+    end)
   end
 
   defp process_candidate_batches(
@@ -383,6 +524,18 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
       |> String.replace("\"", "\\\"")
 
     "\"#{escaped}\""
+  end
+
+  @doc """
+  Uids the pre-filter keeps for `settings`, most recently seen first.
+
+  The pre-filter is a superset of `candidate?/4`, which still decides.
+  """
+  @spec eligible_device_uids(map(), DateTime.t(), keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def eligible_device_uids(settings, now \\ DateTime.utc_now(), opts \\ [])
+      when is_map(settings) do
+    eligible_uids(settings, now, Keyword.get(opts, :ignore_retry?, false))
   end
 
   defp eligible_uids(settings, now, ignore_retry?) do
