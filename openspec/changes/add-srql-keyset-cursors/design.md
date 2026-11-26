@@ -64,8 +64,18 @@ comparisons. Rejected for this change (see Non-Goals).
 
 ```
 {v: 3, entity, col, dir, key, sig}
-sig = HMAC(cursor_secret, "srql-cursor-v3:" || entity || col || dir || key)
+sig = HMAC-SHA256(cursor_secret, canonical_json({v, entity, col, dir, key}))
 ```
+
+`canonical_json` is compact UTF-8 JSON with no insignificant whitespace.
+Object keys appear in the fixed order `v`, `entity`, `col`, `dir`, `key`.
+`v` is the number 3. `entity`, `col` and `dir` are JSON strings. `key` is a
+JSON string for the scalar uid declared today. A later composite key is a
+JSON array of strings in declared column order, which cannot encode to the
+same bytes as a scalar string. The signature is not part of the signed
+object. Example input bytes:
+
+`{"v":3,"entity":"devices","col":"uid","dir":"asc","key":"dev-1"}`
 
 Binding the entity, column and direction stops a cursor minted for one walk
 from being replayed against a query ordered differently, where `uid > $key`
@@ -111,14 +121,28 @@ sequential scan and an external sort.
 - `direction: "prev"` with a v3 cursor is rejected; with no cursor, an eligible
   query returns its first page and no `prev_cursor`.
 
-### 6. Walkers adopt `sort:uid:asc`
+### 6. Walkers adopt `sort:uid:asc` and keep an operator sort
 
 A walker that folds a selection into a set or a count does not depend on row
-order, so it pages by uid. In scope: `SRQLInputResolver` (already does),
-`SweepCompiler.fetch_target_query_pages`, `EphemeralDeviceExpiry.collect_excluded`,
-`CompositeChecks.Scope`, `MtrAutomationDispatcher.collect_target_contexts`.
+order, so it pages by uid when the query has no operator-supplied sort. In
+scope: `SRQLInputResolver` (appends `sort:uid:asc` and does not replace an
+operator sort), `SweepCompiler.fetch_target_query_pages`,
+`EphemeralDeviceExpiry.collect_excluded`, `CompositeChecks.Scope`,
+`MtrAutomationDispatcher.collect_target_contexts`.
 `DeviceHostnameRdns` orders its cohort by `last_seen` on purpose and keeps
 offset paging. web-ng's select-all already sends `sort:uid:asc window_scan:true`.
+
+Only a device or agent selection whose effective order is uid alone is
+keyset-paged and free of the cursor window. No operator-supplied sort is that
+case: the resolver appends `sort:uid:asc`. An operator-supplied sort is kept.
+Appending `sort:uid:asc` after some other sort does not replace it and does
+not make the order uid alone (decision 1), so that selection stays on offset
+cursors and still fails closed past the cursor window.
+
+`SRQLInputResolver.reduce_page` keeps its generic fail-closed check: a full
+page without `next_cursor` is an error. Keyset walks never reach it, because
+a full eligible page always carries a cursor. There is no entity-specific
+exception for devices or agents.
 
 ## Risks / Trade-offs
 

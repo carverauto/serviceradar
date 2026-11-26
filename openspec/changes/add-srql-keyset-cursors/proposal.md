@@ -52,13 +52,18 @@ devices cannot target "all devices" with any add-on profile or credential rule.
   including every interactive table default order. An offset cursor presented
   to a keyset-eligible query is still honoured, so a walk that straddles an
   upgrade completes.
-- Control-plane walkers that fold whole selections into sets page by
-  `sort:uid:asc` so they get keyset cursors: the SRQL input resolver (already),
-  the sweep compiler, ephemeral-device expiry, composite check scopes and the
-  MTR automation dispatcher. web-ng's select-all already sorts by uid.
-- Policy target selections are no longer limited by the cursor window, because
-  the resolver only reads uid-ordered entities with keyset cursors. The
-  fail-closed rule stays for any order that cannot be read whole.
+- Control-plane walkers that fold whole selections into sets, and that do not
+  already carry an operator-supplied sort, page by `sort:uid:asc` so they get
+  keyset cursors: the SRQL input resolver (appends `sort:uid:asc` and does not
+  replace an operator sort), the sweep compiler, ephemeral-device expiry,
+  composite check scopes and the MTR automation dispatcher. web-ng's select-all
+  already sorts by uid.
+- A policy target selection is free of the cursor window only when its
+  effective order is uid alone: no operator-supplied sort, with the resolver
+  appending `sort:uid:asc`. An operator-supplied sort is kept. When that leaves
+  an order other than uid alone, the selection stays on offset cursors and
+  still fails closed past the cursor window. The fail-closed rule stays for
+  every selection that is not keyset-paged.
 
 ## Impact
 
@@ -67,8 +72,8 @@ devices cannot target "all devices" with any add-on profile or credential rule.
 - Affected code: `rust/srql` (`pagination.rs`, `query/plan.rs`,
   `query/translate.rs`, `query/engine.rs`, devices and agents query builders,
   NIF exports), `ServiceRadar.Observability.SRQLRunner`,
-  `ServiceRadarWebNG.SRQL`, `ServiceRadar.Plugins.SRQLInputResolver`, and the
-  walkers listed above.
+  `ServiceRadarWebNG.SRQL`, and the walkers listed above. The SRQL input
+  resolver keeps an operator-supplied sort and its existing fail-closed check.
 - No schema change: `ocsf_devices` and `ocsf_agents` already carry unique uid
   indexes.
 - Wire compatibility: offset (v2) cursors keep their format and meaning.

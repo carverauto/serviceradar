@@ -1,8 +1,11 @@
 ## 1. SRQL (Rust)
 
 - [ ] 1.1 `pagination.rs`: add the v3 keyset cursor (entity, column, direction,
-      key) with its own HMAC domain; keep v2 encode/decode unchanged; a decode
-      entry point that returns either an offset or a keyset position.
+      key). Sign with HMAC-SHA256 over the canonical JSON of
+      `{v, entity, col, dir, key}`: compact UTF-8, keys in that order, `key` a
+      JSON string or, later, a JSON array of strings. Keep v2 encode/decode
+      unchanged. A decode entry point returns either an offset or a keyset
+      position.
 - [ ] 1.2 Entity keyset declarations: `uid` for `devices` and `agents`.
 - [ ] 1.3 `plan.rs`: decide keyset eligibility from the effective order
       (collapsing repeated identical sort keys), record it on `QueryPlan`, and
@@ -35,9 +38,12 @@
 - [ ] 3.3 `CompositeChecks.Scope`: page by `sort:uid:asc`.
 - [ ] 3.4 `MtrAutomationDispatcher.collect_target_contexts`: page by
       `sort:uid:asc`.
-- [ ] 3.5 `SRQLInputResolver`: drop the cursor-window error for device and agent
-      selections (keyset has no window); keep it for other entities.
-- [ ] 3.6 Per-walker test that the query it sends is uid-ordered.
+- [ ] 3.5 Per-walker test that the query it sends is uid-ordered.
+
+`SRQLInputResolver.reduce_page` keeps its generic fail-closed check: a full
+page without `next_cursor` is an error. Keyset walks never reach it, because a
+full eligible page always carries a cursor. Do not drop that check for device
+or agent selections, and do not replace an operator-supplied sort.
 
 ## 4. Verification
 
