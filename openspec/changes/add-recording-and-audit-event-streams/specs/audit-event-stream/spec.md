@@ -77,7 +77,7 @@ Core SHALL create and reconcile `AUDIT_CHANGE_EVENTS` (subjects `audit.changes.v
 - **THEN** core creates it with a positive `max_bytes` and the owner metadata
 
 ### Requirement: Integrity forwarder NATS identity
-The chart SHALL define a static NATS user `CN=serviceradar-integrity-forwarder` allowed to create, read and acknowledge consumers on `CAMERA_RECORDING_EVENTS` and `AUDIT_CHANGE_EVENTS`, subscribe to `vantage.rpc.evidence.>`, and publish `_INBOX.>`, with no other core-subject grants, and core SHALL be allowed to publish `camera.recording.>` and `audit.>`.
+The chart SHALL define a static NATS user `CN=serviceradar-integrity-forwarder` allowed to create, read and acknowledge consumers on `CAMERA_RECORDING_EVENTS` and `AUDIT_CHANGE_EVENTS`, subscribe to `integrity.rpc.evidence.>`, and publish `_INBOX.>`, with no other core-subject grants, and core SHALL be allowed to publish `camera.recording.>` and `audit.>`.
 
 #### Scenario: Permission rendering
 - **WHEN** the chart is rendered with the integrity forwarder enabled

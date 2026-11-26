@@ -23,7 +23,7 @@ Core SHALL create and reconcile `CAMERA_RECORDING_EVENTS` (subjects `camera.reco
 - **THEN** core creates it with a positive `max_bytes` and the owner metadata
 
 ### Requirement: Capability-gated provider evidence export
-web-ng SHALL show an "Export evidence bundle" action on accepted holds only when a provider answers `vantage.rpc.evidence.capabilities.v1` with `evidence_bundle_export`, MUST authorize the user with the hold permission and camera scope, MUST record a `RecordingAccessAudit` row of kind `evidence_exported` before forwarding, and SHALL forward the request over `vantage.rpc.evidence.bundle.v1`.
+web-ng SHALL show an "Export evidence bundle" action on accepted holds only when a provider answers `integrity.rpc.evidence.capabilities.v1` with `evidence_bundle_export`, MUST authorize the user with the hold permission and camera scope, MUST record a `RecordingAccessAudit` row of kind `evidence_exported` before forwarding, and SHALL forward the request over `integrity.rpc.evidence.bundle.v1`.
 
 #### Scenario: Provider absent
 - **WHEN** no provider answers the evidence capabilities request
