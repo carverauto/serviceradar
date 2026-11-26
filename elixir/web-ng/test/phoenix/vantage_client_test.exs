@@ -256,6 +256,145 @@ defmodule ServiceRadarWebNG.Vantage.ClientTest do
     end
   end
 
+  describe "visual_frames/2" do
+    test "fetches and normalizes detection and motion frames for RecordingEventClips" do
+      test_pid = self()
+      profile_id = "00000000-0000-4000-8000-000000000905"
+      motion_frame_id = "00000000-0000-4000-8000-000000000906"
+      from_us = 1_700_000_000_000_000
+      to_us = 1_700_003_600_000_000
+
+      request_fn = fn subject, json_body, opts ->
+        send(test_pid, {:visual_frames_rpc, subject, Jason.decode!(json_body), opts})
+
+        {:ok,
+         %{
+           body:
+             Jason.encode!(%{
+               "status" => "ok",
+               "frames" => [
+                 %{
+                   "id" => @frame_id,
+                   "catalog_entry_id" => @entry_id,
+                   "fragment_sequence" => 7,
+                   "timeline_ts_us" => 1_700_000_012_000_000,
+                   "scene_suppressed" => false,
+                   "has_thumbnail" => true,
+                   "detections" => [
+                     %{
+                       "object_class" => "person",
+                       "confidence" => 0.93,
+                       "bbox" => [0.1, 0.2, 0.4, 0.8],
+                       "dominant_colors" => ["blue"]
+                     }
+                   ]
+                 },
+                 %{
+                   "id" => motion_frame_id,
+                   "catalog_entry_id" => @entry_id,
+                   "fragment_sequence" => 11,
+                   "timeline_ts_us" => 1_700_000_040_000_000,
+                   "scene_suppressed" => false,
+                   "has_thumbnail" => false,
+                   "detections" => []
+                 }
+               ]
+             })
+         }}
+      end
+
+      assert {:ok, [person_frame, motion_frame]} =
+               Client.visual_frames(
+                 %{
+                   camera_source_id: @camera_a,
+                   stream_profile_id: profile_id,
+                   from_us: from_us,
+                   to_us: to_us,
+                   limit: 500
+                 },
+                 request_fn: request_fn,
+                 timeout_ms: 4_000
+               )
+
+      assert_received {:visual_frames_rpc, "vantage.rpc.visual_frames.v1",
+                       %{
+                         "camera_source_id" => @camera_a,
+                         "stream_profile_id" => ^profile_id,
+                         "from_us" => ^from_us,
+                         "to_us" => ^to_us,
+                         "limit" => 500
+                       }, [receive_timeout: 4_000]}
+
+      assert person_frame == %{
+               id: @frame_id,
+               catalog_entry_id: @entry_id,
+               fragment_sequence: 7,
+               timeline_ts_us: 1_700_000_012_000_000,
+               scene_suppressed: false,
+               has_thumbnail: true,
+               detections: [
+                 %{
+                   object_class: "person",
+                   confidence: 0.93,
+                   bbox: [0.1, 0.2, 0.4, 0.8],
+                   dominant_colors: ["blue"]
+                 }
+               ]
+             }
+
+      assert motion_frame == %{
+               id: motion_frame_id,
+               catalog_entry_id: @entry_id,
+               fragment_sequence: 11,
+               timeline_ts_us: 1_700_000_040_000_000,
+               scene_suppressed: false,
+               has_thumbnail: false,
+               detections: []
+             }
+    end
+
+    test "maps error responses and fails closed on timeout or invalid params" do
+      from_us = 1_700_000_000_000_000
+      to_us = 1_700_003_600_000_000
+
+      assert {:error, :invalid_request} =
+               Client.visual_frames(%{
+                 camera_source_id: @camera_a,
+                 from_us: to_us,
+                 to_us: from_us
+               })
+
+      assert {:error, :window_too_large} =
+               Client.visual_frames(
+                 %{camera_source_id: @camera_a, from_us: from_us, to_us: to_us},
+                 request_fn: fn _, _, _ ->
+                   {:ok,
+                    %{
+                      body: Jason.encode!(%{"status" => "error", "error" => "window_too_large"})
+                    }}
+                 end
+               )
+
+      assert {:error, :vantage_unavailable} =
+               Client.visual_frames(
+                 %{camera_source_id: @camera_a, from_us: from_us, to_us: to_us},
+                 request_fn: fn _, _, _ -> {:error, :timeout} end
+               )
+
+      assert {:error, :vantage_unavailable} =
+               Client.visual_frames(
+                 %{camera_source_id: @camera_a, from_us: from_us, to_us: to_us},
+                 request_fn: fn _, _, _ -> {:error, :no_responders} end
+               )
+
+      assert {:error, :vantage_unavailable} =
+               Client.visual_frames(
+                 %{camera_source_id: @camera_a, from_us: from_us, to_us: to_us},
+                 request_fn: fn _, _, _ -> {:ok, %{body: "not-json"}} end
+               )
+    end
+  end
+
   describe "CameraSemanticSearch Vantage RPC integration" do
     test "enforces RBAC & camera scope, forwards to Vantage RPC, and records audit_meta" do
       scope = synthetic_scope(["devices.view", "devices.cameras.recordings.view"])

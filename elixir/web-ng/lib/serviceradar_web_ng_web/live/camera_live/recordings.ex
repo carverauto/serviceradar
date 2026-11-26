@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadarWebNG.CameraRecordingSettings
   alias ServiceRadarWebNG.CameraTimelineReader
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Vantage.Client, as: VantageClient
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
   alias ServiceRadarWebNGWeb.CameraMultiview
@@ -2522,7 +2523,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         RecordingHolds.list_holds(source_id, scope: scope)
       end,
       list_event_clips: fn source_id, params, scope ->
-        RecordingEventClips.list_page(source_id, params, actor: scope.user)
+        opts =
+          if VantageClient.enabled?() do
+            [actor: scope.user, loaders: %{visual_frames_loader: &default_load_visual_frames/4}]
+          else
+            [actor: scope.user]
+          end
+
+        RecordingEventClips.list_page(source_id, params, opts)
       end,
       list_cameras: &default_list_cameras/2,
       list_window_overlays: &default_list_window_overlays/5,
@@ -2876,6 +2884,18 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp default_get_frame_overlay(_source_id, _highlight_frame_id, _scope), do: []
+
+  defp default_load_visual_frames(camera_uuid, profile_uuid, from_us, to_us) do
+    case VantageClient.visual_frames(%{
+           camera_source_id: camera_uuid,
+           stream_profile_id: profile_uuid,
+           from_us: from_us,
+           to_us: to_us
+         }) do
+      {:ok, frames} -> {:ok, frames}
+      {:error, _reason} -> {:ok, []}
+    end
+  end
 
   defp deduplicate_overlay_detections(detections) do
     Enum.uniq_by(detections, fn det ->
