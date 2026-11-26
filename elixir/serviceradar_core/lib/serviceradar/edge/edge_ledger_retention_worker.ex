@@ -24,6 +24,14 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
        plus the clock tolerance: a late record may be PRIMARY only while the ledger still
        proves it was never applied, so the ledger outlives that window.
 
+  ## Projected Rows Prune Order
+
+  `edge_sweep_projected_rows` is the largest of these tables by far, so its
+  candidates are read oldest first through `edge_sweep_projected_rows_inserted_at_idx`
+  (`ORDER BY candidate.inserted_at`). The ordering keeps the planner on that index even
+  for a generic plan; without it, a batch that finds no expired row, including the last
+  batch of every run, reads the whole heap to prove there is none.
+
   ## Ledger Coverage
 
   The statement that deletes `event_ledger` rows also advances
@@ -114,6 +122,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
         WHERE batch.network_scope_id = candidate.network_scope_id
           AND batch.event_id = candidate.event_id
       )
+    ORDER BY candidate.inserted_at
     LIMIT $3
   )
   """
