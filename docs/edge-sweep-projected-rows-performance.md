@@ -69,7 +69,9 @@ blocks; a generic plan stays on the index because the query orders by `inserted_
 ## Done in this change
 
 1. `20261126070000_index_edge_sweep_projected_rows_inserted_at.exs`: concurrent B-tree on
-   `inserted_at`.
+   `inserted_at`. An interrupted build leaves an invalid index under that name; this
+   migration drops it and rebuilds it, so a retry does not record a name the planner
+   never uses.
 2. The projected-rows prune orders its candidates by `inserted_at`, so it walks the index
    oldest first and stops at the cutoff.
 
@@ -81,31 +83,40 @@ batch; that range is bounded by the expired range, not the table.
 full-scan shape at about 26k blocks per call. They are small today; the same index plus
 ORDER BY applies if they grow.
 
-## Insert cost: options (not implemented)
+## Insert cost: decided, outside this change
 
-The insert cost is the random primary key. Options, best first:
+The insert cost is the random primary key. Decision on
+[#7069](https://github.com/carverauto/serviceradar/issues/7069) (operator, 2026-11-26):
+verify, then stop writing the table. This change is the prune index. Stopping the writer
+is the next change.
 
-1. **Stop writing the table.** It has no production reader and exactly-once is already
-   enforced by `event_ledger` plus `edge_sweep_batch_slots`. Removes 61M rows, 13 GB and
-   about 250 GB of WAL written over its first 22 days. Needs: the Go vertical-slice test to assert the domain
-   rows in the real sweep tables (or the batch slot's `projected_row_count`) instead, and
-   a product decision that the "no duplicate domain rows" proof lives there. Dropping the
-   table later is a plain `DROP TABLE` after the writer is gone; it holds no data that
-   anything needs once the writer stops.
-2. **Re-key to `(network_scope_id, event_id, ordinal)`** (add an `ordinal integer`
-   column, or reuse `kind, batch_index, element_index`), keep `row_key` as a plain column.
-   A batch then touches a handful of adjacent leaves: about 28x fewer dirtied pages and
-   15x less WAL in the benchmark. The `event_id` index becomes redundant. Swapping the
-   primary key of a 60-90M row table is a rebuild; the cheap path is a new table written
-   by the projector, with the old one left to age out under retention and dropped after
-   one horizon (30 days), so no data needed for exactly-once is stranded.
-3. **Time partitioning with partition drop.** Fits 30-day retention, but a partition can
-   only be dropped when none of its rows is guarded, the unique key must include the
-   partition key (so `ON CONFLICT` on `row_key` alone no longer works), and it does not
-   fix the random-key insert cost by itself. Not worth it for a table with no reader.
+After this index is on demo, confirm nothing else depends on the table: dedup, replay,
+and exactly-once paths, the Go vertical-slice tests, specs and docs, and ledger coverage.
+If that holds, stop `ServiceRadar.Edge.Projectors.SweepObservation` from writing it and
+drop the table after one retention horizon (30 days). Exactly-once is already
+`event_ledger` plus `edge_sweep_batch_slots`, and no production code reads the table.
+Stopping the writer removes the 61M rows, 13 GB, and about 250 GB of WAL from its first
+22 days. The Go vertical-slice test currently uses these rows as the "no duplicate domain
+rows" artifact; that assertion moves to the real sweep tables, or to the batch slot's
+`projected_row_count`, before the writer stops. `DROP TABLE` is then enough: the table
+holds nothing exactly-once still needs.
 
-Rejected: BRIN on `inserted_at` (#7063; summaries only widen after delete plus space
-reuse), a narrower hash in `row_key` (any random key has the same one-leaf-per-row cost).
+Rejected for now:
+
+- **Clustered re-key** to `(network_scope_id, event_id, kind, batch_index, element_index)`
+  (an `ordinal` column, or those three columns), with `row_key` kept as a plain column.
+  A batch then touches a handful of adjacent leaves: about 28x fewer dirtied pages and
+  15x less WAL in the benchmark. The `event_id` index becomes redundant. Swapping the
+  primary key of a 60-90M row table is a rebuild; the cheap path would be a new table
+  written by the projector, with the old one left to age out under retention.
+- **Time partitioning with partition drop.** A partition can be dropped only when none of
+  its rows is guarded, the unique key must include the partition key (so `ON CONFLICT`
+  on `row_key` alone no longer works), and it does not fix the random-key insert cost
+  by itself.
+
+Rejected earlier: BRIN on `inserted_at` (#7063; summaries only widen after delete plus
+space reuse), a narrower hash in `row_key` (any random key has the same one-leaf-per-row
+cost).
 
 ## Verify on demo after rollout
 
