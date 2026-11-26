@@ -16,7 +16,9 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reports do
   import Ecto.Query
 
   alias Ash.Error.Changes.InvalidArgument
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.SourceFacts
   alias ServiceRadar.Inventory.SourceFacts.Reconciler
   alias ServiceRadar.Repo
@@ -30,6 +32,7 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reports do
            check(:value, SourceFacts.parse_reported(arguments.fact_key, arguments.value)),
          :ok <- live_device(arguments.device_uid) do
       :ok = Reconciler.report(arguments.device_uid, source, instance, fact)
+      invalidate(arguments.device_uid)
       {:ok, result(arguments, source, instance)}
     end
   end
@@ -41,6 +44,7 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reports do
          :ok <- check(:fact_key, SourceFacts.reported_key(arguments.fact_key)),
          :ok <- live_device(arguments.device_uid) do
       :ok = Reconciler.retract(arguments.device_uid, source, instance, arguments.fact_key)
+      invalidate(arguments.device_uid)
       {:ok, result(arguments, source, instance)}
     end
   end
@@ -63,6 +67,12 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reports do
   end
 
   defp live_device(_device_uid), do: invalid(:device_uid, "device uid is required")
+
+  # Reconciliation may promote or clear the device's canonical value with a raw update, which
+  # sends no notification, so readers of current device state are hinted once it commits.
+  defp invalidate(device_uid) do
+    NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated([device_uid]) end)
+  end
 
   defp check(_field, :ok), do: :ok
   defp check(_field, {:ok, value}), do: {:ok, value}

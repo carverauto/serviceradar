@@ -9,8 +9,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
   alias ServiceRadar.Automation.Ansible.AwxInventoryObservationFence
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.AwxSourceRetirementWorker
+  alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.Identity.MergeEngine
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
@@ -80,6 +85,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
   test "failed membership writes roll back earlier device writes and leave no watermark" do
     controller = fixture()
     parent = self()
+    holder = device!()
+    holder_uid = holder.uid
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
 
     assert {:error, :synthetic_membership_failure} =
              DeviceDiscoveryIngestor.ingest(payload(controller, 10), %{},
@@ -91,6 +99,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
                    "UPDATE platform.ansible_controllers SET name = $2 WHERE id = ($1::text)::uuid",
                    [controller.id, "Changed in failed transaction"]
                  )
+
+                 DeviceWrites.lock_and_clear_for_upsert([], [], [{holder_uid, holder.ip}])
 
                  {:ok, [%{synthetic_effect: true}]}
                end,
@@ -122,6 +132,49 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
 
     refute_received {:unexpected_effects, _}
     refute_received {:unexpected_notifications, _}
+    assert {:ok, %Device{ip: ip}} = Device.get_by_uid(holder_uid, false, actor: @actor)
+    assert ip == holder.ip
+    refute holder_uid in hinted_uids()
+  end
+
+  # The Atlas index rereads a device on its hint, so a hint sent before the ingestion commits
+  # reads the old row, and one never sent leaves the device stale.
+  test "device hints raised inside AWX ingestion are sent once its transaction commits" do
+    controller = fixture()
+    holder = device!()
+    updated = device!()
+    merged_away = device!()
+    survivor = device!()
+    uids = MapSet.new([holder.uid, updated.uid, merged_away.uid, survivor.uid])
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload(controller, 10), %{},
+               actor: @actor,
+               device_sync: fn _updates, %{serialize_awx?: true} ->
+                 # An address released from a live holder outside the batch.
+                 DeviceWrites.lock_and_clear_for_upsert([], [], [{holder.uid, holder.ip}])
+
+                 # An Ash write under the identity fence.
+                 assert {:ok, _} =
+                          Fence.fenced_write(%{}, :awx_observation_fence_db_test, fn _stale ->
+                            updated
+                            |> Ash.Changeset.for_update(:update, %{hostname: "host02.example.com"})
+                            |> Ash.update(actor: @actor)
+                          end)
+
+                 assert :ok =
+                          MergeEngine.merge_devices(merged_away.uid, survivor.uid,
+                            actor: @actor,
+                            reason: "awx_observation_fence_db_test"
+                          )
+
+                 assert MapSet.disjoint?(hinted_uids(), uids)
+                 {:ok, []}
+               end
+             )
+
+    assert MapSet.subset?(uids, hinted_uids())
   end
 
   test "membership notifications are delivered after the outer ingestion transaction commits" do
@@ -345,6 +398,26 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
   end
 
   defp reconcile(input), do: AwxMembershipReconciler.reconcile(input, actor: @actor)
+
+  defp device! do
+    n = System.unique_integer([:positive])
+
+    Seed.seed!(Device, %{
+      uid: "sr:" <> Ash.UUID.generate(),
+      ip: TestSupport.unique_device_ip(),
+      hostname: "awx-hint-#{n}.example.com"
+    })
+  end
+
+  # Broadcasts to a local subscriber are sent before they return, so every hint already sent
+  # is in the mailbox.
+  defp hinted_uids(acc \\ MapSet.new()) do
+    receive do
+      {:devices_invalidated, ids} -> hinted_uids(MapSet.union(acc, MapSet.new(ids)))
+    after
+      0 -> acc
+    end
+  end
 
   defp membership(controller) do
     assert {:ok, result} =

@@ -67,9 +67,11 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IntegrationIdentity
@@ -1085,9 +1087,16 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # mark, or nil when the record is not retired-only.
   defp mark(device_id, cutoff, at) do
     case Repo.query!(@mark_sql, retired_only_params(cutoff) ++ [device_id, at]) do
-      %{rows: [[marked_at]]} -> marked_at
+      %{rows: [[marked_at]]} -> announce_mark(device_id, marked_at)
       %{rows: []} -> nil
     end
+  end
+
+  # A mark takes the record out of active inventory, and this raw update sends no notification,
+  # so readers of current device state are hinted once the transaction commits.
+  defp announce_mark(device_id, marked_at) do
+    NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated([device_id]) end)
+    marked_at
   end
 
   @legacy_proxmox_candidates_sql """
@@ -1248,7 +1257,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
 
   defp mark_legacy_proxmox(device_id, now) do
     case Repo.query!(@legacy_proxmox_mark_sql, retired_only_params(now) ++ [device_id, now]) do
-      %{rows: [[marked_at]]} -> marked_at
+      %{rows: [[marked_at]]} -> announce_mark(device_id, marked_at)
       %{rows: []} -> nil
     end
   end

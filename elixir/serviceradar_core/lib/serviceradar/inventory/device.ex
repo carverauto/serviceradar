@@ -34,9 +34,11 @@ defmodule ServiceRadar.Inventory.Device do
     extensions: [AshJsonApi.Resource],
     primary_read_warning?: false
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
   alias ServiceRadar.Inventory.Changes.ForgetIpProvenance
   alias ServiceRadar.Inventory.Changes.ReleaseContestedAddress
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceFacts.Reports, as: SourceFactReports
   alias ServiceRadar.Inventory.Validations.AgentManaged
@@ -630,6 +632,10 @@ defmodule ServiceRadar.Inventory.Device do
             return_errors?: true,
             return_records?: false
           )
+
+        # A bulk update sends no notifications, so readers of current device state
+        # are hinted here, once the soft deletes commit.
+        NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated(device_uids) end)
 
         case result do
           %Ash.BulkResult{status: :success} ->

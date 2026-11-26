@@ -7,9 +7,11 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   alias Ash.Error.Changes.InvalidAttribute
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
@@ -354,9 +356,11 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
            return_records?: true
          ) do
       %Ash.BulkResult{status: :success, records: [restored | _]} ->
+        hint_restored(uid)
         {:ok, restored}
 
       %Ash.BulkResult{status: :success} ->
+        hint_restored(uid)
         Device.get_by_uid(uid, false, scope: scope)
 
       %Ash.BulkResult{errors: [error | _]} ->
@@ -369,6 +373,11 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
         Logger.warning("Failed to restore #{uid} for CSV/manual upsert: #{inspect(other)}")
         {:error, {:restore_failed, device.uid}}
     end
+  end
+
+  # A bulk update sends no notifications.
+  defp hint_restored(uid) do
+    NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated([uid]) end)
   end
 
   defp reload_follow_canonical(uid, scope) when is_binary(uid) do
@@ -391,16 +400,21 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   def update_existing_device(%Device{} = device, attrs, scope) do
     update_attrs = additional_update_attrs(device, attrs)
 
-    Repo.transaction(fn ->
-      with {:ok, device} <- put_type_ownership(device, update_attrs),
-           {:ok, updated} <-
-             device
-             |> Ash.Changeset.for_update(:update, update_attrs)
-             |> Ash.update(scope: scope) do
-        updated
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
+    # Inside this transaction Ash cannot send the update's notifications itself,
+    # so they are sent once it commits.
+    NotificationQueue.with_queue(fn ->
+      Repo.transaction(fn ->
+        with {:ok, device} <- put_type_ownership(device, update_attrs),
+             {:ok, updated, notifications} <-
+               device
+               |> Ash.Changeset.for_update(:update, update_attrs)
+               |> Ash.update(scope: scope, return_notifications?: true) do
+          NotificationQueue.notify_after_commit(notifications)
+          updated
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
     end)
   end
 

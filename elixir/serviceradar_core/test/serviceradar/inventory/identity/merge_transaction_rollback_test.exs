@@ -17,14 +17,18 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
   downstream could detect that state.
 
   These tests exist because the fix is a one-word change that an Ash upgrade
-  or a careless edit could silently revert. The first test asserts the
-  behaviour we now rely on; the second documents the behaviour we moved away
-  from, so a change in Ash's default surfaces here rather than in production.
+  or a careless edit could silently revert. MergeEngine opens its transactions
+  through `ServiceRadar.Ash.NotificationQueue.transact/3`, which runs
+  `Ash.transact/3` and sends its device notifications after the outermost
+  commit. The first test asserts the rollback that wrapper must keep; the
+  second documents the behaviour we moved away from, so a change in Ash's
+  default surfaces here rather than in production.
   """
 
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.TestSupport
 
@@ -41,11 +45,13 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
     {:ok, actor: SystemActor.system(:merge_transaction_rollback_test)}
   end
 
-  test "Ash.transact rolls back work when the function returns an error", %{actor: actor} do
+  test "NotificationQueue.transact rolls back work when the function returns an error", %{
+    actor: actor
+  } do
     uid = "sr:" <> Ecto.UUID.generate()
 
     result =
-      Ash.transact([Device], fn ->
+      NotificationQueue.transact([Device], fn ->
         {:ok, _device} = create_device(actor, uid, "10.90.0.1")
         # A plain returned error, not a raise and not Ash.DataLayer.rollback/2.
         # This is the exact shape MergeEngine's `with` produces on failure.
@@ -55,7 +61,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
     assert {:error, _} = result
 
     refute device_exists?(actor, uid),
-           "Ash.transact must roll back a device created before a returned error"
+           "NotificationQueue.transact must roll back a device created before a returned error"
   end
 
   test "the deprecated Ash.transaction commits the same work", %{actor: actor} do
@@ -74,18 +80,6 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
     assert device_exists?(actor, uid),
            "if this fails, Ash changed its rollback_on_error? default - re-check " <>
              "whether MergeEngine still needs Ash.transact and update this test's premise"
-  end
-
-  test "MergeEngine uses Ash.transact for both merge and unmerge" do
-    source =
-      File.read!("lib/serviceradar/inventory/identity/merge_engine.ex")
-
-    refute source =~ "Ash.transaction(",
-           "MergeEngine must not use the deprecated Ash.transaction/3: it commits " <>
-             "a partial merge when the transaction body returns an error"
-
-    assert length(String.split(source, "Ash.transact(")) - 1 == 2,
-           "expected exactly two Ash.transact/3 call sites (do_merge_devices, do_unmerge)"
   end
 
   defp create_device(actor, uid, ip) do

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BulkStateApplyDbTest do
 
   alias Phoenix.LiveView.Socket
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
@@ -18,20 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BulkStateApplyDbTest do
   @permissions MapSet.new(["devices.view", "devices.update", "devices.bulk_edit"])
 
   test "a failing managed leg rolls back the service change from the same submit" do
-    uid = "bulk-state-rollback-#{System.unique_integer([:positive])}"
-
-    Repo.insert_all("ocsf_devices", [
-      %{
-        uid: uid,
-        type_id: 0,
-        hostname: "bulk-state-rollback-host",
-        is_available: true,
-        is_active: true,
-        first_seen_time: ~U[2100-01-01 00:00:00Z],
-        last_seen_time: ~U[2100-01-01 00:00:00Z]
-      }
-    ])
-
+    uid = insert_device!("bulk-state-rollback")
     socket = socket_for(uid)
 
     assert {:noreply, socket} =
@@ -50,6 +38,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BulkStateApplyDbTest do
              |> Ash.read_one!(actor: AshTestHelpers.system_actor())
   end
 
+  # Bulk updates send no Ash notifications, so the ServiceRadar Atlas index learns of the
+  # change only from this hint.
+  test "a committed bulk service change hints the changed devices" do
+    uid = insert_device!("bulk-state-hint")
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
+    assert {:noreply, socket} =
+             IndexEvents.handle_event(
+               "apply_bulk_state",
+               %{"bulk_state" => %{"service_state" => "inactive", "managed_state" => "no_change"}},
+               socket_for(uid)
+             )
+
+    assert socket.assigns.flash["info"] =~ "Marked 1 device(s) out of service"
+    assert_receive {:devices_invalidated, [^uid]}
+  end
+
+  defp insert_device!(prefix) do
+    uid = "#{prefix}-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "#{prefix}-host",
+        is_available: true,
+        is_active: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    uid
+  end
+
   defp socket_for(uid) do
     scope = %Scope{user: %{id: "bulk-state-user"}, permissions: @permissions}
 
@@ -57,6 +80,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BulkStateApplyDbTest do
       __changed__: %{},
       current_scope: scope,
       srql: %{query: ""},
+      limit: 20,
       selected_devices: MapSet.new([uid]),
       select_all_matching: false,
       total_matching_count: nil,

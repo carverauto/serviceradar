@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.LaunchEnvelopes
   alias ServiceRadar.Credentials.CredentialBrokerGrant
@@ -30,6 +31,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.AgentCorroboration
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Fence
@@ -1072,7 +1074,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor) do
     source_ip = update_attrs.ip
 
-    fn ->
+    take = fn ->
       # A stale release: an anchorless sweep seed that releases its only address
       # is soft-deleted as seed_released in this transaction.
       DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [], [{holder.uid, source_ip}])
@@ -1085,7 +1087,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         {:error, reason} -> Repo.rollback(reason)
       end
     end
-    |> Repo.transaction()
+
+    # The release queues its holder's hint until this transaction commits.
+    fn -> Repo.transaction(take) end
+    |> NotificationQueue.with_queue()
     |> case do
       {:ok, notifications} ->
         Ash.Notifier.notify(notifications)
@@ -1895,22 +1900,29 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp force_gateway_sync_update(device_uid, action, update_attrs, actor) do
     {update_attrs, legacy} = split_checkin_availability(update_attrs, device_uid)
 
-    case Repo.transaction(fn ->
-           case run_force_gateway_sync_update(device_uid, action, update_attrs, actor,
-                  transaction: false
-                ) do
-             :ok ->
-               case legacy do
-                 {uid, available?} -> LegacyWrites.record([{uid, available?}])
-                 nil -> :ok
-               end
+    write = fn ->
+      case run_force_gateway_sync_update(device_uid, action, update_attrs, actor,
+             transaction: false
+           ) do
+        :ok ->
+          case legacy do
+            {uid, available?} -> LegacyWrites.record([{uid, available?}])
+            nil -> :ok
+          end
 
-               :ok
+          # A bulk update sends no notifications.
+          NotificationQueue.after_commit(fn ->
+            DevicePubSub.broadcast_invalidated([device_uid])
+          end)
 
-             {:error, reason} ->
-               Repo.rollback(reason)
-           end
-         end) do
+          :ok
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end
+
+    case NotificationQueue.with_queue(fn -> Repo.transaction(write) end) do
       {:ok, :ok} -> :ok
       {:error, reason} -> {:error, reason}
     end

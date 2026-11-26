@@ -158,6 +158,32 @@ reads share a bounded worker and rate budget with dirty updates, so a large
 fleet cannot create an unbounded scan or starve new hints. A configured cadence
 is not a guarantee that a million-row scan finishes within that interval.
 
+Each pass rereads and republishes every device on every replica, so the pass
+cadence is the index's dominant database cost: at a 30 s cadence it was most of
+the index's reads on a deployment of about 50k devices. A pass therefore starts
+`:bitmap_reconcile_interval_ms` (default five minutes) after the previous pass
+completes, plus up to a fifth of the interval of per-replica jitter. The
+cadence bounds only writes that produced no hint, which stay unrepaired for at
+most one interval plus one pass; hinted writes, hint overflow, native rescan
+requests and error recovery start a pass at once, and a pass with pages
+deferred by native memory admission retries after 30 s. The lifecycle test and
+the scale harness pin 30 s, because their unhinted replica must converge inside
+their waits and churn window.
+
+Every runtime writer of an indexed column therefore hints the devices it
+changed once its transaction commits: Ash device and alias actions through
+their notifiers, and the bulk and raw-SQL writers (bulk soft delete, ephemeral
+expiry, sweep and mapper restores, address release and seed retirement,
+source-retirement marks, hypervisor addresses, reported source facts) through
+`NotificationQueue.after_commit/1`. AWX inventory ingestion owns the queue
+around its transaction, and the identity fence, merges and source reactivation
+return their `Ash.transact/3` notifications to it, so hints raised inside that
+ingestion are sent after it commits; the manual re-add, the device list's bulk
+service and management changes, the operator force-restore and the agent
+check-in force update also hint after commit. The backstop is left with
+genuine misses and with operator remediation run from Mix tasks, which does
+not hint.
+
 Expose seed readiness, last completed reconciliation, oldest pending work,
 source errors and unavailable facets. Exact counts mean exact for the returned
 published revision, not a claim that the entire fleet was read in one database

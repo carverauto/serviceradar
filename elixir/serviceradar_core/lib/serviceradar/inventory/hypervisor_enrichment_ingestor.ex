@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   @behaviour ServiceRadar.Observability.PluginResultHandler
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Dgraph
   alias ServiceRadar.Inventory.Availability.SyncEvidence
@@ -445,9 +446,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          :ok <- VirtualizationIdentityAliases.reconcile(records),
          :ok <- retire_legacy_proxmox_records(records, actor),
          {:ok, _unresolved} <- reconcile_saved_guest_ids(Map.values(guest_ids), actor) do
-      if !Repo.in_transaction?() do
-        nics |> Stream.map(& &1[:device_uid]) |> DevicePubSub.broadcast_invalidated()
-      end
+      # Inside an edge-record transaction the hint waits for its commit.
+      uids = Enum.map(nics, & &1[:device_uid])
+      NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated(uids) end)
 
       enqueue_world_reconcile()
     end

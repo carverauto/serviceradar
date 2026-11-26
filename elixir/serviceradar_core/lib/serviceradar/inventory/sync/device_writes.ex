@@ -13,9 +13,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
@@ -487,8 +489,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # ConnectionError "transaction rolling back" instead of the server's
   # Postgrex.Error, the fenced-write retry classifier treats it as
   # non-transient, and a lost active-IP race kills the whole batch.
+  #
+  # A transaction opened here owns the notification queue, so the hints queued
+  # inside it (`lock_and_clear_for_upsert/3`) are sent only once it commits.
   defp within_transaction(fun) when is_function(fun, 0) do
-    if Repo.in_transaction?(), do: fun.(), else: Repo.transaction(fun, timeout: :infinity)
+    if Repo.in_transaction?(),
+      do: fun.(),
+      else: NotificationQueue.with_queue(fn -> Repo.transaction(fun, timeout: :infinity) end)
   end
 
   # The stored primaries a chunk's records may replace at equal strength are read in
@@ -833,20 +840,26 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     {uids_col, ips_col} = Enum.unzip(releases)
 
-    Repo.update_all(
-      from(d in Device,
-        where:
-          is_nil(d.deleted_at) and
-            fragment(
-              "(?, ?) IN (SELECT * FROM unnest(?::text[], ?::text[]))",
-              d.uid,
-              d.ip,
-              ^uids_col,
-              ^ips_col
-            )
-      ),
-      set: [ip: nil]
-    )
+    {_count, released} =
+      Repo.update_all(
+        from(d in Device,
+          where:
+            is_nil(d.deleted_at) and
+              fragment(
+                "(?, ?) IN (SELECT * FROM unnest(?::text[], ?::text[]))",
+                d.uid,
+                d.ip,
+                ^uids_col,
+                ^ips_col
+              ),
+          select: d.uid
+        ),
+        set: [ip: nil]
+      )
+
+    # A released holder, and so a retired seed, need not be among the records the caller
+    # hints, and these raw updates send no notifications.
+    NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated(released) end)
 
     retire_released_seeds(seeds)
   end

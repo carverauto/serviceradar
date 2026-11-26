@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFence do
   cannot acknowledge an observation that did not finish reconciling.
   """
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Repo
 
@@ -27,7 +28,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFence do
   settle instead of forming an advisory-lock convoy behind an active ingest.
   Otherwise it acquires each controller lock in sorted order and re-checks the
   watermark inside the transaction. Any other refusal, and a superseded
-  aggregate beside one that is not, is an error.
+  aggregate beside one that is not, is an error. Notifications and side effects
+  queued on `ServiceRadar.Ash.NotificationQueue` inside `fun` are sent once the
+  transaction commits.
   """
   @spec with_locks([map()], (-> {:ok, result} | {:error, term()}), keyword()) ::
           {:ok, result} | {:ok, {:superseded, [superseded(), ...]}} | {:error, term()}
@@ -38,9 +41,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFence do
     rollback_fn = Keyword.get(opts, :rollback, &Repo.rollback/1)
     sorted = Enum.sort_by(aggregates, & &1.controller_id)
 
+    # The ingestion transaction owns the notification queue: device hints and Ash
+    # notifications raised by the writers inside it are sent once it commits and
+    # dropped if it rolls back, never at an inner savepoint.
     transaction_fn =
       Keyword.get(opts, :transaction, fn tx_fun ->
-        Repo.transaction(tx_fun, timeout: :infinity)
+        NotificationQueue.with_queue(fn -> Repo.transaction(tx_fun, timeout: :infinity) end)
       end)
 
     case precheck_superseded(sorted, read_fn) do

@@ -2,7 +2,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection
@@ -153,6 +155,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
     |> Ash.transaction(fn ->
       with {:ok, service_result} <- maybe_apply_service(scope, uids, service_state),
            {:ok, managed_result} <- maybe_apply_managed(scope, uids, managed_state) do
+        # Bulk updates send no notifications; this transaction's commit sends the hint.
+        NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated(uids) end)
         {service_result, managed_result}
       else
         {:error, reason} -> Ash.DataLayer.rollback(resources, reason)
