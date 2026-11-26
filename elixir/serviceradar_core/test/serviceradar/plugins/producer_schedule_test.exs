@@ -688,7 +688,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
                command_bus: __MODULE__
              )
 
-    assert PagedSRQLRunner.queries() == ["in:devices tags.security_feed:true"]
+    assert PagedSRQLRunner.queries() == ["in:devices tags.security_feed:true sort:uid:asc"]
 
     assert_receive {:producer_schedule_dispatch, agent_a, "plugin.run_action", payload_a, opts_a}
 

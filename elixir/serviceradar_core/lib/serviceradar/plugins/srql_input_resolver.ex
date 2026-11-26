@@ -75,10 +75,15 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
 
   Each page is a separate offset query, so rows must come back in a unique
   order or rows with equal sort values can move between pages and be skipped.
-  SRQL already ends device and interface orders (history and `latest:true`) on
-  a unique key; agents default to `last_seen_time` alone, so `sort:uid:asc` is
-  appended to an agents query as its final sort key (repeated `sort:` tokens
-  extend the order, after any operator-supplied sort).
+  SRQL already ends interface orders (history and `latest:true`) on a unique
+  key; agents default to `last_seen_time` alone, so `sort:uid:asc` is appended
+  to an agents query as its final sort key (repeated `sort:` tokens extend the
+  order, after any operator-supplied sort).
+
+  Devices are paged by `uid` too, for cost rather than uniqueness. Their default
+  order (availability rank, then the first address parsed as `inet`, then uid)
+  cannot be served by an index, so every offset page sorts every matching device
+  row in full, and a fleet-wide walk repeats that sort once per page.
   """
   @spec reduce_pages(input_definition(), acc, ([map()], acc -> {:cont | :halt, acc}), keyword()) ::
           {:ok, acc} | {:error, [String.t()]}
@@ -107,7 +112,9 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
     reduce_page(runner, paged_query(descriptor), query_opts, nil, acc, fun)
   end
 
-  defp paged_query(%{entity: "agents", query: query}), do: query <> " sort:uid:asc"
+  defp paged_query(%{entity: entity, query: query}) when entity in ["agents", "devices"],
+    do: query <> " sort:uid:asc"
+
   defp paged_query(%{query: query}), do: query
 
   defp reduce_page(runner, query, query_opts, cursor, acc, fun) do

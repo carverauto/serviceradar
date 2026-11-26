@@ -744,7 +744,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
   defp default_query_rows do
     %{
       "in:agents sort:uid:asc" => [agent_row("agent-good")],
-      "in:devices" => [
+      "in:devices sort:uid:asc" => [
         %{
           "uid" => "device-good",
           "agent_id" => "agent-good",
