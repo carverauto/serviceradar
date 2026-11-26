@@ -33,6 +33,11 @@ NAMESPACE = "sr-cert-test"
 ENABLED = {"vantage.enabled": True}
 DISABLED = {"vantage.enabled": False}
 WORKER_CERT = "media-worker.pem"
+VANTAGE_CERT = "vantage.pem"
+VANTAGE_IDENTITIES = (
+    ("serviceradar-media-worker", WORKER_CERT, "media-worker-key.pem"),
+    ("serviceradar-vantage", VANTAGE_CERT, "vantage-key.pem"),
+)
 
 
 def generator_job(values):
@@ -114,37 +119,46 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_issues_the_listed_subject_for_its_key_under_the_root(self):
-        worker_subjects = [
-            subject for subject in chart_identity_subjects(ENABLED)
-            if subject.startswith("CN=serviceradar-media-worker,")
-        ]
-        self.assertEqual(len(worker_subjects), 1)
-        cert = self.enabled_certs / WORKER_CERT
-        key = self.enabled_certs / "media-worker-key.pem"
-        subject = openssl("x509", "-in", str(cert), "-noout", "-subject", "-nameopt", "RFC2253")
-        self.assertEqual(subject, f"subject={worker_subjects[0]}")
-        self.assertEqual(
-            openssl("x509", "-in", str(cert), "-noout", "-pubkey"),
-            openssl("pkey", "-in", str(key), "-pubout"),
-        )
-        openssl("verify", "-CAfile", str(self.enabled_certs / "root.pem"), str(cert))
+        enabled_subjects = chart_identity_subjects(ENABLED)
+        for cn, cert_name, key_name in VANTAGE_IDENTITIES:
+            with self.subTest(cn=cn):
+                subjects = [
+                    subject for subject in enabled_subjects
+                    if subject.startswith(f"CN={cn},")
+                ]
+                self.assertEqual(len(subjects), 1)
+                cert = self.enabled_certs / cert_name
+                key = self.enabled_certs / key_name
+                subject = openssl("x509", "-in", str(cert), "-noout", "-subject", "-nameopt", "RFC2253")
+                self.assertEqual(subject, f"subject={subjects[0]}")
+                san = openssl("x509", "-in", str(cert), "-noout", "-ext", "subjectAltName")
+                self.assertIn(f"DNS:{cn}", san)
+                self.assertIn(f"DNS:{cn}.{NAMESPACE}.svc.cluster.local", san)
+                self.assertEqual(
+                    openssl("x509", "-in", str(cert), "-noout", "-pubkey"),
+                    openssl("pkey", "-in", str(key), "-pubout"),
+                )
+                openssl("verify", "-CAfile", str(self.enabled_certs / "root.pem"), str(cert))
 
     def test_requires_the_worker_pair_exactly_while_the_worker_is_enabled(self):
-        # The pair is required whether or not core projects the certificate
-        # inventory: the worker mounts both files from this Secret.
+        # The pairs are required whether or not core projects the certificate
+        # inventory: the Vantage workloads mount their cert/key pairs from this Secret.
         _, without_core, _, _ = generator_job({**ENABLED, "core.enabled": False})
-        for required in (self.enabled_required, without_core):
-            self.assertIn(WORKER_CERT, required)
-            self.assertIn("media-worker-key.pem", required)
-        self.assertNotIn(WORKER_CERT, self.disabled_required)
-        self.assertNotIn("media-worker-key.pem", self.disabled_required)
+        for _, cert_name, key_name in VANTAGE_IDENTITIES:
+            for required in (self.enabled_required, without_core):
+                self.assertIn(cert_name, required)
+                self.assertIn(key_name, required)
+            self.assertNotIn(cert_name, self.disabled_required)
+            self.assertNotIn(key_name, self.disabled_required)
 
     def test_has_no_worker_identity_while_the_worker_is_off(self):
-        self.assertFalse((self.disabled_certs / WORKER_CERT).exists())
-        self.assertFalse(any(
-            subject.startswith("CN=serviceradar-media-worker,")
-            for subject in chart_identity_subjects(DISABLED)
-        ))
+        disabled_subjects = chart_identity_subjects(DISABLED)
+        for cn, cert_name, _ in VANTAGE_IDENTITIES:
+            self.assertFalse((self.disabled_certs / cert_name).exists())
+            self.assertFalse(any(
+                subject.startswith(f"CN={cn},")
+                for subject in disabled_subjects
+            ))
 
     def decide(self, secret_files, *, secret_json=None):
         """Run the rendered Job's preserve decision against a Secret holding
@@ -212,12 +226,12 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
     def test_regenerates_a_secret_without_the_worker_pair_once_enabled(self):
         self.assertEqual(
             self.decide(self.disabled_certs),
-            ("missing", ["media-worker-key.pem", WORKER_CERT]),
+            ("missing", ["media-worker-key.pem", WORKER_CERT, "vantage-key.pem", VANTAGE_CERT]),
         )
 
     def test_regenerates_a_worker_pair_kept_from_before_a_root_rotation(self):
         # Enabled, then disabled while the root was rotated: a fresh set without the
-        # worker pair is merged over the Secret, so the old pair stays beside the new root.
+        # Vantage pairs is merged over the Secret, so the old pairs stay beside the new root.
         rotation = Path(self.tmp.name) / "rotation"
         generate(self.disabled_script, self.disabled_env, rotation, force=True)
         secret = Path(self.tmp.name) / "rotated-secret"
@@ -225,7 +239,7 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         for path in rotation.rglob("*"):
             if path.is_file():
                 shutil.copy2(path, secret / path.relative_to(rotation))
-        self.assertEqual(self.decide(secret), ("invalid", [WORKER_CERT]))
+        self.assertEqual(self.decide(secret), ("invalid", [WORKER_CERT, VANTAGE_CERT]))
 
     def test_preserves_an_expired_leaf_signed_by_the_current_root(self):
         secret = Path(self.tmp.name) / "expired-leaf-secret"
@@ -290,7 +304,8 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         self.assertEqual(
             (upgraded / "root.pem").read_bytes(), (self.disabled_certs / "root.pem").read_bytes(),
         )
-        openssl("verify", "-CAfile", str(upgraded / "root.pem"), str(upgraded / WORKER_CERT))
+        for _, cert_name, _ in VANTAGE_IDENTITIES:
+            openssl("verify", "-CAfile", str(upgraded / "root.pem"), str(upgraded / cert_name))
 
 
 if __name__ == "__main__":

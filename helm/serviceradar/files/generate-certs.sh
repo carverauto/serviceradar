@@ -127,6 +127,7 @@ generate_cert "k8s-inventory" "serviceradar-k8s-inventory" "DNS:serviceradar-k8s
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 {{- if eq (include "serviceradar.vantageEnabled" .) "true" }}
 generate_cert "media-worker" "serviceradar-media-worker" "DNS:serviceradar-media-worker,DNS:media-worker,DNS:serviceradar-media-worker.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+generate_cert "vantage" "serviceradar-vantage" "DNS:serviceradar-vantage,DNS:vantage,DNS:serviceradar-vantage.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 {{- end }}
 generate_cert "tools" "serviceradar-tools" "DNS:serviceradar-tools,DNS:tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
 if [ -f "$CERT_DIR/root.pem" ] && should_copy "$CERT_DIR/ca.crt"; then
