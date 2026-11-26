@@ -10,7 +10,6 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
   alias ServiceRadarWebNGWeb.Api.CameraSemanticSearchController
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
   alias ServiceRadarWebNGWeb.CameraSemanticSearch
-  alias ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents
   alias ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents
 
   @moduletag :db_free
@@ -123,10 +122,10 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
                "/cameras/#{@camera_id}/recordings?mode=timeline&from=1700000010000000&to=1700000016000000&seek=1700000012000000&highlight_frame=#{@frame_id}"
 
       assert hit.thumbnail_url ==
-               "/api/cameras/#{@camera_id}/timeline/thumbnails/frame/#{@frame_id}.jpg"
+               "/api/cameras/#{@camera_id}/timeline/thumbnails/block/#{@entry_id}.jpg"
     end
 
-    test "normalize_hit/1 resolves frame, block fallback, legacy fallback, and nil thumbnail_url" do
+    test "normalize_hit/1 uses the block thumbnail unless the hit reports none" do
       base = %{
         catalog_entry_id: @entry_id,
         visual_frame_id: @frame_id,
@@ -134,28 +133,19 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
         best_timeline_ts_us: 1_700_000_012_000_000
       }
 
-      frame_hit =
-        CameraSemanticSearch.normalize_hit(Map.merge(base, %{has_frame_thumbnail: true, has_block_thumbnail: true}))
+      block_hit = CameraSemanticSearch.normalize_hit(Map.put(base, :has_block_thumbnail, true))
 
-      assert frame_hit.thumbnail_url ==
-               "/api/cameras/#{@camera_id}/timeline/thumbnails/frame/#{@frame_id}.jpg"
-
-      block_fallback_hit =
-        CameraSemanticSearch.normalize_hit(Map.merge(base, %{has_frame_thumbnail: false, has_block_thumbnail: true}))
-
-      assert block_fallback_hit.thumbnail_url ==
+      assert block_hit.thumbnail_url ==
                "/api/cameras/#{@camera_id}/timeline/thumbnails/block/#{@entry_id}.jpg"
 
-      none_hit =
-        CameraSemanticSearch.normalize_hit(Map.merge(base, %{has_frame_thumbnail: false, has_block_thumbnail: false}))
+      unknown_hit = CameraSemanticSearch.normalize_hit(base)
+      assert unknown_hit.thumbnail_url == block_hit.thumbnail_url
 
+      none_hit = CameraSemanticSearch.normalize_hit(Map.put(base, :has_block_thumbnail, false))
       assert is_nil(none_hit.thumbnail_url)
 
-      legacy_block_only =
-        CameraSemanticSearch.normalize_hit(Map.put(base, :visual_frame_id, nil))
-
-      assert legacy_block_only.thumbnail_url ==
-               "/api/cameras/#{@camera_id}/timeline/thumbnails/block/#{@entry_id}.jpg"
+      no_entry_hit = CameraSemanticSearch.normalize_hit(Map.put(base, :catalog_entry_id, nil))
+      assert is_nil(no_entry_hit.thumbnail_url)
     end
   end
 
@@ -338,7 +328,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
     end
   end
 
-  describe "Stage 4.4 Policy visual_index_mode and Health visual_indexing card (:db_free)" do
+  describe "Stage 4.4 Policy visual_index_mode (:db_free)" do
     test "validates visual_index_mode, interval bounds, max_frames bounds, and StorageEntitlement limits" do
       scope = synthetic_scope(["settings.recording.manage"])
 
@@ -397,7 +387,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
       assert disabled_plan[:visual_index_mode] =~ "not enabled on your plan"
     end
 
-    test "renders visual indexing controls in PolicyComponents and #health-visual-indexing-card in HealthComponents" do
+    test "renders the Vantage-read visual indexing controls in PolicyComponents" do
       policy_html =
         render_component(&PolicyComponents.editor_form_card/1,
           can_manage?: true,
@@ -417,25 +407,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
       assert policy_html =~ ~s(id="policy-visual-max-frames-input")
       assert policy_html =~ "keyframes (sampled IDR frames)"
 
-      health_html =
-        render_component(&HealthComponents.visual_indexing_card/1,
-          visual_indexing: %{
-            enabled_policy_count: 2,
-            model_id: "siglip-b16-384",
-            model_version: "v1",
-            embedding_dim: 768,
-            pending_count: 3,
-            dispatched_count: 1,
-            completed_count: 42,
-            failed_terminal_count: 0,
-            worker_health_status: :healthy
-          },
-          timezone: "Etc/UTC"
-        )
-
-      assert health_html =~ ~s(id="health-visual-indexing-card")
-      assert health_html =~ "siglip-b16-384 (v1 · 768-d)"
-      assert health_html =~ "42"
+      assert policy_html =~ ~s(id="policy-visual-index-vantage-note")
     end
   end
 

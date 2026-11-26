@@ -52,6 +52,8 @@ SIGNING_WORKFLOWS = (
     "native-addons.yml",
     "external-wasm-plugin.yml",
     "publish-dockerfile-image.yml",
+    # The media-worker CUDA workflow has left this repository. It stays listed so the
+    # signatures its earlier runs made remain explained until LEDGER_RETENTION passes.
     "publish-media-worker-cuda.yml",
 )
 LEDGER_ARTIFACT_PREFIX = "signing-ledger-"

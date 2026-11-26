@@ -1,9 +1,6 @@
 defmodule ServiceRadar.EventWriter.ReleaseRuntimeConfigTest do
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Camera.VisualIndexDispatchWorker
-  alias ServiceRadar.Repo
-
   @moduletag :db_free
   # The release loads serviceradar_core_elx's runtime config, not this app's,
   # and it once carried a stale ATTRIBUTED_FLOW registration nothing consumes.
@@ -40,28 +37,6 @@ defmodule ServiceRadar.EventWriter.ReleaseRuntimeConfigTest do
     end
   end
 
-  test "release config consumes visual index results only where visual indexing is enabled" do
-    names = fn env ->
-      env |> event_writer_config() |> provisioned_entries() |> Enum.map(& &1[:name])
-    end
-
-    assert "CAMERA_VISUAL_INDEX_RESULTS" in names.(%{
-             "SERVICERADAR_CAMERA_RECORDING_ENABLED" => "true",
-             "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" => "true"
-           })
-
-    Repo.put_dynamic_repo(:unavailable_visual_index_repo)
-
-    for {recording, indexing} <- [{"true", "false"}, {"false", "true"}] do
-      refute "CAMERA_VISUAL_INDEX_RESULTS" in names.(%{
-               "SERVICERADAR_CAMERA_RECORDING_ENABLED" => recording,
-               "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" => indexing
-             })
-
-      assert :ok = VisualIndexDispatchWorker.perform(%Oban.Job{})
-    end
-  end
-
   defp provisioned_entries(event_writer) do
     Enum.flat_map([:streams, :flow_streams], fn key ->
       entries = event_writer[key]
@@ -83,8 +58,8 @@ defmodule ServiceRadar.EventWriter.ReleaseRuntimeConfigTest do
     "SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED" => "false"
   }
 
-  defp event_writer_config(extra_env \\ %{}) do
-    env = Map.merge(@base_env, extra_env)
+  defp event_writer_config do
+    env = @base_env
     previous = Map.new(env, fn {key, _value} -> {key, System.get_env(key)} end)
 
     Enum.each(env, fn {key, value} -> System.put_env(key, value) end)

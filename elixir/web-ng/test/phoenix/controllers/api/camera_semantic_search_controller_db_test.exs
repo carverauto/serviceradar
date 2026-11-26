@@ -13,8 +13,6 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
@@ -188,8 +186,6 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
   defp seed_visual_search_fixture(actor) do
     opts = [actor: actor]
     key = Ecto.UUID.generate()
-    model_cfg = VisualIndexDispatcher.active_model_config()
-    dim = model_cfg.embedding_dim
 
     {:ok, source} =
       Source.create_source(
@@ -250,52 +246,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
         opts
       )
 
-    assert {:ok, _} =
-             VisualIndexResultProjector.ingest_result(%{
-               "schema" => "media.results.visual_index.v1",
-               "schema_version" => 1,
-               "catalog_entry_id" => playable_entry.id,
-               "descriptor_sha256" => playable_entry.descriptor_sha256,
-               "detector_model_id" => model_cfg.detector_model_id,
-               "detector_model_version" => model_cfg.detector_model_version,
-               "embedder_model_id" => model_cfg.embedder_model_id,
-               "embedder_model_version" => model_cfg.embedder_model_version,
-               "embedding_dim" => dim,
-               "frames" => [
-                 %{
-                   "fragment_sequence" => 0,
-                   "media_pts_ns" => 0,
-                   "scene_suppressed" => false,
-                   "detections" => [
-                     %{
-                       "object_class" => "person",
-                       "confidence" => 0.92,
-                       "bbox" => [0.2, 0.15, 0.45, 0.85],
-                       "dominant_colors" => ["red"]
-                     }
-                   ],
-                   "embeddings" => [
-                     %{
-                       "region_kind" => "scene",
-                       "region_index" => 0,
-                       "dominant_colors" => [],
-                       "embedding" => basis_vector(dim, 2)
-                     },
-                     %{
-                       "region_kind" => "crop",
-                       "region_index" => 1,
-                       "object_class" => "person",
-                       "confidence" => 0.92,
-                       "bbox" => [0.2, 0.15, 0.45, 0.85],
-                       "dominant_colors" => ["red"],
-                       "embedding" => basis_vector(dim, 0)
-                     }
-                   ]
-                 }
-               ]
-             })
-
-    # Second block that is indexed and then reclaimed -> purged by trigger & excluded from search
+    # Second block, later reclaimed
     block_1 = reserve_block(live_ctx, 1, "epoch-sem-1", opts)
     desc_1 = single_frag_descriptor(block_1, init_bytes, init_sha, frag_bytes, frag_sha, 4_000_000_000)
 
@@ -313,45 +264,6 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
         opts
       )
 
-    assert {:ok, _} =
-             VisualIndexResultProjector.ingest_result(%{
-               "schema" => "media.results.visual_index.v1",
-               "schema_version" => 1,
-               "catalog_entry_id" => reclaimed_entry.id,
-               "descriptor_sha256" => reclaimed_entry.descriptor_sha256,
-               "detector_model_id" => model_cfg.detector_model_id,
-               "detector_model_version" => model_cfg.detector_model_version,
-               "embedder_model_id" => model_cfg.embedder_model_id,
-               "embedder_model_version" => model_cfg.embedder_model_version,
-               "embedding_dim" => dim,
-               "frames" => [
-                 %{
-                   "fragment_sequence" => 0,
-                   "media_pts_ns" => 4_000_000_000,
-                   "scene_suppressed" => false,
-                   "detections" => [
-                     %{
-                       "object_class" => "person",
-                       "confidence" => 0.95,
-                       "bbox" => [0.1, 0.1, 0.4, 0.9],
-                       "dominant_colors" => ["red"]
-                     }
-                   ],
-                   "embeddings" => [
-                     %{
-                       "region_kind" => "crop",
-                       "region_index" => 1,
-                       "object_class" => "person",
-                       "confidence" => 0.95,
-                       "bbox" => [0.1, 0.1, 0.4, 0.9],
-                       "dominant_colors" => ["red"],
-                       "embedding" => basis_vector(dim, 0)
-                     }
-                   ]
-                 }
-               ]
-             })
-
     reclaimed_entry =
       reclaimed_entry
       |> Ash.Changeset.for_update(
@@ -366,10 +278,6 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
       playable_entry: playable_entry,
       reclaimed_entry: reclaimed_entry
     }
-  end
-
-  defp basis_vector(dim, hot_idx) do
-    for idx <- 0..(dim - 1), do: if(idx == hot_idx, do: 1.0, else: 0.0)
   end
 
   defp open_claim(source, profile, storage_id, tag, opts) do

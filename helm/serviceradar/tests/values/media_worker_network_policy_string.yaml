@@ -1,4 +1,0 @@
-# What `--set-string mediaWorker.networkPolicy.enabled=false` produces.
-mediaWorker:
-  networkPolicy:
-    enabled: "false"

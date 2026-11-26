@@ -1,0 +1,32 @@
+suite: Vantage media worker control-plane ingress hook
+templates:
+  - templates/vantage-media-worker-control-ingress.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: renders nothing without the chart's network policies
+    set:
+      vantage.enabled: true
+      networkPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: admits the addon media worker to web-ng's control-plane port
+    set:
+      vantage.enabled: true
+      networkPolicy.enabled: true
+      webNg.controlPlaneRuntime.port: 4101
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: serviceradar-web-ng
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels.app
+          value: serviceradar-media-worker
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 4101

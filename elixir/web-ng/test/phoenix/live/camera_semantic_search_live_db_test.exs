@@ -14,9 +14,6 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
-  alias ServiceRadar.Camera.VisualFrame
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
@@ -187,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
     assert has_element?(tl_view, "#camera-timeline-search-results [data-role='timeline-semantic-hit']")
   end
 
-  test "Settings /settings/recording Policy and Health tabs persist visual_index_mode and display VisualIndexJob summary",
+  test "Settings /settings/recording Policy tab persists visual_index_mode as Vantage-read data and the Health tab shows no visual indexing card",
        %{recording_admin: admin, actor: actor} do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     ctx = seed_recent_visual_fixture(actor, now)
@@ -196,6 +193,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
     assert has_element?(pol_view, "#policy-visual-index-mode-select")
     assert has_element?(pol_view, "#policy-visual-min-interval-input")
     assert has_element?(pol_view, "#policy-visual-max-frames-input")
+    assert has_element?(pol_view, "#policy-visual-index-vantage-note")
 
     pol_view
     |> element("#edit-policy-#{ctx.policy.id}")
@@ -221,9 +219,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
     assert updated.visual_index_max_frames_per_block == 48
 
     {:ok, health_view, _} = live(authed_conn(admin), ~p"/settings/recording?tab=health")
-    assert has_element?(health_view, "#health-visual-indexing-card")
-    assert has_element?(health_view, "#health-visual-indexing-model-badge")
-    assert has_element?(health_view, "#health-visual-jobs-completed", "1")
+    refute has_element?(health_view, "#health-visual-indexing-card")
   end
 
   defp authed_conn(user), do: log_in_user(build_conn(), user)
@@ -277,8 +273,6 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
   defp seed_recent_visual_fixture(actor, now) do
     opts = [actor: actor]
     key = Ecto.UUID.generate()
-    model_cfg = VisualIndexDispatcher.active_model_config()
-    dim = model_cfg.embedding_dim
     block_dt = DateTime.shift(now, second: -30)
 
     {:ok, source} =
@@ -369,49 +363,8 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
         opts
       )
 
-    assert {:ok, _} =
-             VisualIndexResultProjector.ingest_result(%{
-               "schema" => "media.results.visual_index.v1",
-               "schema_version" => 1,
-               "catalog_entry_id" => entry.id,
-               "descriptor_sha256" => entry.descriptor_sha256,
-               "detector_model_id" => model_cfg.detector_model_id,
-               "detector_model_version" => model_cfg.detector_model_version,
-               "embedder_model_id" => model_cfg.embedder_model_id,
-               "embedder_model_version" => model_cfg.embedder_model_version,
-               "embedding_dim" => dim,
-               "frames" => [
-                 %{
-                   "fragment_sequence" => 1,
-                   "media_pts_ns" => 2_000_000_000,
-                   "scene_suppressed" => false,
-                   "detections" => [
-                     %{
-                       "object_class" => "person",
-                       "confidence" => 0.94,
-                       "bbox" => [0.25, 0.2, 0.55, 0.88],
-                       "dominant_colors" => ["red"]
-                     }
-                   ],
-                   "embeddings" => [
-                     %{
-                       "region_kind" => "crop",
-                       "region_index" => 1,
-                       "object_class" => "person",
-                       "confidence" => 0.94,
-                       "bbox" => [0.25, 0.2, 0.55, 0.88],
-                       "dominant_colors" => ["red"],
-                       "embedding" => basis_vector(dim, 0)
-                     }
-                   ]
-                 }
-               ]
-             })
-
-    frame =
-      VisualFrame
-      |> Ash.Query.filter(catalog_entry_id == ^entry.id)
-      |> Ash.read_one!(opts)
+    # Frames live in the Vantage addon; tests address one by id through the stubbed RPC.
+    frame = %{id: Ecto.UUID.generate(), timeline_ts_us: entry.timeline_start_us + 2_000_000}
 
     %{source: source, profile: profile, policy: policy, entry: entry, frame: frame}
   end
@@ -439,10 +392,6 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
         :error -> Application.delete_env(:serviceradar_core, :nvr_recovery_gate)
       end
     end)
-  end
-
-  defp basis_vector(dim, hot_idx) do
-    for idx <- 0..(dim - 1), do: if(idx == hot_idx, do: 1.0, else: 0.0)
   end
 
   defp open_claim(source, profile, storage_id, tag, opts) do

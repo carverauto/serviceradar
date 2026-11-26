@@ -618,6 +618,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
         clip_start_us: @base_us + 195_000_000,
         clip_end_us: @base_us + 205_000_000,
         visual_frame_id: "frame-hit-1",
+        catalog_entry_id: "entry-hit-1",
         score: 0.91,
         object_class: "animal",
         time_basis: "received"
@@ -640,7 +641,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
 
     assert has_selector?(
              doc,
-             "#select-timeline-semantic-hit-0 img[loading='lazy'][src='/api/cameras/#{@source_id}/timeline/thumbnails/frame/frame-hit-1.jpg']"
+             "#select-timeline-semantic-hit-0 img[loading='lazy'][src='/api/cameras/#{@source_id}/timeline/thumbnails/block/entry-hit-1.jpg']"
            )
 
     assert text_of(doc, "#select-timeline-semantic-hit-0 [data-role='semantic-hit-object-class']") == "Animal"

@@ -1,7 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneMediaWorkerGrants do
   @moduledoc """
   Execution-time scoped fragment read grant endpoint (`POST /v1/media/workers/read-grants`)
-  for standalone `serviceradar-media-worker` workloads (`Stage 1.6`, `design.md` `2.3`).
+  for external media worker workloads, such as the Vantage addon's.
 
   Authenticated exclusively with the domain-separated `:media_worker` workload
   installation credential. Response bodies are marked `Cache-Control: no-store`
@@ -37,14 +37,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneMediaWorkerGrants do
     :invalid_recording_descriptor,
     :fragment_not_found,
     :no_sampled_fragments,
-    :job_not_found,
-    :job_state_conflict,
-    :job_already_completed,
-    :job_already_terminal,
-    :job_cancelled,
-    :job_catalog_mismatch,
-    :job_catalog_entry_mismatch,
-    :invalid_job_state,
     :archive_binding_destination_mismatch,
     :grant_egress_scope_mismatch,
     :grant_methods_not_reader_only
@@ -53,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneMediaWorkerGrants do
   @bad_request_reasons [
     :invalid_request,
     :invalid_read_grant_request,
-    :invalid_job_id,
+    :too_many_fragments,
     :invalid_catalog_entry_id,
     :invalid_descriptor_sha256,
     :invalid_schema_version,

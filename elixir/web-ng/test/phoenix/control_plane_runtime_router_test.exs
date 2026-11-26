@@ -1097,16 +1097,6 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
              frozen_descriptor: descriptor
            }}
         end,
-        job_loader: fn _ ->
-          {:ok,
-           %{
-             id: job_id,
-             catalog_entry_id: entry_id,
-             state: :dispatched,
-             descriptor_sha256: desc_sha,
-             sampled_fragments: [%{"sequence" => 0}]
-           }}
-        end,
         binding_loader: fn _ ->
           {:ok,
            %{
@@ -1165,6 +1155,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
         Jason.encode!(%{
           "schema_version" => 1,
           "job_id" => job_id,
+          "fragment_sequences" => "0",
           "catalog_entry_id" => entry_id,
           "descriptor_sha256" => desc_sha
         })

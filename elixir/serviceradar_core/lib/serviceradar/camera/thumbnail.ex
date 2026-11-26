@@ -1,12 +1,11 @@
 defmodule ServiceRadar.Camera.Thumbnail do
   @moduledoc """
-  Validation, URL construction, and scoped retrieval for bounded JPEG clip
-  thumbnails stored on `VisualFrame` and `RecordingCatalogEntry` rows.
+  Validation, URL construction, and scoped retrieval for bounded JPEG keyframe
+  thumbnails stored on `RecordingCatalogEntry` rows.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RecordingCatalogEntry
-  alias ServiceRadar.Camera.VisualFrame
 
   require Ash.Query
 
@@ -17,7 +16,7 @@ defmodule ServiceRadar.Camera.Thumbnail do
 
   @system_actor SystemActor.system(:camera_thumbnail)
 
-  @type kind :: :frame | :block
+  @type kind :: :block
 
   @doc "Maximum permitted thumbnail size in bytes (64 KiB)."
   @spec max_bytes() :: pos_integer()
@@ -77,12 +76,6 @@ defmodule ServiceRadar.Camera.Thumbnail do
 
   def decode_base64_jpeg(_), do: {:error, :invalid_thumbnail_jpeg}
 
-  @doc "Builds the authenticated thumbnail URL for a `VisualFrame`."
-  @spec frame_url(String.t(), String.t()) :: String.t()
-  def frame_url(camera_source_id, visual_frame_id) do
-    "/api/cameras/#{camera_source_id}/timeline/thumbnails/frame/#{visual_frame_id}.jpg"
-  end
-
   @doc "Builds the authenticated thumbnail URL for a `RecordingCatalogEntry`."
   @spec block_url(String.t(), String.t()) :: String.t()
   def block_url(camera_source_id, catalog_entry_id) do
@@ -110,22 +103,6 @@ defmodule ServiceRadar.Camera.Thumbnail do
     end
   end
 
-  defp load_from_repo(camera_uuid, :frame, record_uuid) do
-    VisualFrame
-    |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
-    |> Ash.Query.filter(
-      id == ^record_uuid and
-        camera_source_id == ^camera_uuid and
-        catalog_entry.local_state != :quarantined and
-        is_nil(catalog_entry.quarantine_reason) and
-        not is_nil(catalog_entry.recording_block_id) and
-        (catalog_entry.local_state == :present or catalog_entry.archive_state == :verified)
-    )
-    |> Ash.Query.select([:id, :thumbnail_jpeg])
-    |> Ash.read_one(actor: @system_actor)
-    |> unwrap_thumbnail_row()
-  end
-
   defp load_from_repo(camera_uuid, :block, record_uuid) do
     RecordingCatalogEntry
     |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
@@ -148,8 +125,6 @@ defmodule ServiceRadar.Camera.Thumbnail do
   defp unwrap_thumbnail_row({:ok, _}), do: {:error, :thumbnail_not_found}
   defp unwrap_thumbnail_row({:error, _} = error), do: error
 
-  defp normalize_kind(:frame), do: {:ok, :frame}
-  defp normalize_kind("frame"), do: {:ok, :frame}
   defp normalize_kind(:block), do: {:ok, :block}
   defp normalize_kind("block"), do: {:ok, :block}
   defp normalize_kind(_), do: {:error, :invalid_id}

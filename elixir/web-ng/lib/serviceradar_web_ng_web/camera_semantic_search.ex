@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
   alias Ash.Error.Forbidden
   alias ServiceRadar.Camera.RecordingAccessAudit
   alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Camera.Thumbnail
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
@@ -25,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
   @max_limit 50
   @default_window_us 86_400_000_000
   @max_window_us 31 * 86_400 * 1_000_000
+  @max_window_overlay_frames 500
 
   @spec search_permissions() :: [String.t()]
   def search_permissions, do: @search_permissions
@@ -155,6 +157,40 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
         VantageClient.frame_overlay(
           %{camera_source_id: cam_uuid, visual_frame_id: frame_uuid},
           vantage_opts
+        )
+      end
+    else
+      {:error, :vantage_unavailable}
+    end
+  end
+
+  @doc """
+  Loads overlay detections for every frame with detections in a timeline window.
+
+  Served only by the Vantage provider (`vantage.rpc.frame_overlay.v1`) after RBAC
+  and camera source authorization in web-ng; returns
+  `{:error, :vantage_unavailable}` when the provider is not enabled.
+  """
+  @spec list_window_overlays(Scope.t() | nil, String.t(), integer(), integer(), String.t() | nil, keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def list_window_overlays(scope, camera_source_id, from_us, to_us, stream_profile_id, opts \\ [])
+      when is_binary(camera_source_id) and is_integer(from_us) and is_integer(to_us) and is_list(opts) do
+    if vantage_rpc_enabled?(opts) do
+      authorize_fn = Keyword.get(opts, :authorize_fn, &authorize/1)
+
+      with {:ok, refreshed_scope} <- authorize_fn.(scope),
+           {:ok, cam_uuid} <- cast_uuid(camera_source_id, :invalid_camera_source_id),
+           {:ok, authorized_by_id} <- load_authorized_sources_map(refreshed_scope, opts),
+           :ok <- ensure_camera_authorized(cam_uuid, authorized_by_id) do
+        VantageClient.frame_overlay_window(
+          %{
+            camera_source_id: cam_uuid,
+            from_us: from_us,
+            to_us: to_us,
+            stream_profile_id: normalize_optional_id(stream_profile_id),
+            limit: @max_window_overlay_frames
+          },
+          Keyword.get(opts, :vantage_opts, [])
         )
       end
     else
@@ -489,7 +525,6 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       |> Enum.reject(&(&1 == ""))
 
     catalog_entry_id = normalize_optional_id(fetch_val(hit, :catalog_entry_id))
-    has_frame_thumbnail = normalize_optional_boolean(fetch_val(hit, :has_frame_thumbnail))
     has_block_thumbnail = normalize_optional_boolean(fetch_val(hit, :has_block_thumbnail))
 
     timeline_path =
@@ -501,14 +536,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
         visual_frame_id
       )
 
-    thumbnail_url =
-      build_thumbnail_url(
-        camera_source_id,
-        visual_frame_id,
-        catalog_entry_id,
-        has_frame_thumbnail,
-        has_block_thumbnail
-      )
+    thumbnail_url = build_thumbnail_url(camera_source_id, catalog_entry_id, has_block_thumbnail)
 
     %{
       catalog_entry_id: catalog_entry_id,
@@ -528,7 +556,6 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       dominant_colors: dominant_colors,
       bbox: bbox,
       frame_detections: frame_detections,
-      has_frame_thumbnail: has_frame_thumbnail,
       has_block_thumbnail: has_block_thumbnail,
       thumbnail_url: thumbnail_url,
       caption_text: caption_text,
@@ -538,42 +565,17 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
     }
   end
 
-  @spec build_thumbnail_url(
-          String.t() | nil,
-          String.t() | nil,
-          String.t() | nil,
-          boolean() | nil,
-          boolean() | nil
-        ) :: String.t() | nil
-  def build_thumbnail_url(camera_source_id, visual_frame_id, catalog_entry_id, has_frame_thumbnail, has_block_thumbnail) do
+  @doc """
+  Builds the recording block thumbnail URL for a hit, or `nil` when the hit has
+  no catalog entry or reports that its block has no thumbnail.
+  """
+  @spec build_thumbnail_url(String.t() | nil, String.t() | nil, boolean() | nil) :: String.t() | nil
+  def build_thumbnail_url(camera_source_id, catalog_entry_id, has_block_thumbnail) do
     source_id = normalize_optional_id(camera_source_id)
-    frame_id = normalize_optional_id(visual_frame_id)
     entry_id = normalize_optional_id(catalog_entry_id)
 
-    cond do
-      is_nil(source_id) ->
-        nil
-
-      has_frame_thumbnail == true and is_binary(frame_id) ->
-        "/api/cameras/#{source_id}/timeline/thumbnails/frame/#{frame_id}.jpg"
-
-      has_block_thumbnail == true and is_binary(entry_id) ->
-        "/api/cameras/#{source_id}/timeline/thumbnails/block/#{entry_id}.jpg"
-
-      is_nil(has_frame_thumbnail) and is_nil(has_block_thumbnail) ->
-        cond do
-          is_binary(frame_id) ->
-            "/api/cameras/#{source_id}/timeline/thumbnails/frame/#{frame_id}.jpg"
-
-          is_binary(entry_id) ->
-            "/api/cameras/#{source_id}/timeline/thumbnails/block/#{entry_id}.jpg"
-
-          true ->
-            nil
-        end
-
-      true ->
-        nil
+    if is_binary(source_id) and is_binary(entry_id) and has_block_thumbnail != false do
+      Thumbnail.block_url(source_id, entry_id)
     end
   end
 

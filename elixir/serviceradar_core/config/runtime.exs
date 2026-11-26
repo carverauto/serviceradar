@@ -2049,9 +2049,6 @@ if config_env() == :prod do
         Config.edge_record_security_quarantine_stream(),
         Config.edge_record_recovery_stream(),
         Config.edge_record_dead_letter_stream()
-        # Media worker visual index results, only where visual indexing is
-        # enabled; the media worker owns their stream.
-        | Config.camera_visual_index_results_streams()
       ],
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
       # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so

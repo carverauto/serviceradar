@@ -8,8 +8,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   """
 
   alias ServiceRadar.Camera.RelaySessionReaperWorker
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexDispatchWorker
   alias ServiceRadar.CompositeChecks.TickWorker
   alias ServiceRadar.Credentials.BrokerRetentionWorker
   alias ServiceRadar.DeclarativeChecks.TickWorker, as: DeclarativeCheckTickWorker
@@ -112,7 +110,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
     ] ++
       object_store_retention_entries(fetch) ++
       capacity_forecasting_entries(fetch) ++
-      visual_index_relay_entries(fetch) ++
       ProductionSchedule.cron_entries(fetch) ++
       DispatchSchedule.cron_entries(fetch)
   end
@@ -134,14 +131,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
         {env_or_default(fetch, "SERVICERADAR_CAPACITY_FORECASTING_CRON", "41 * * * *"),
          CapacityForecastingWorker, args: %{"trigger" => "cron"}, queue: :maintenance}
       ]
-    else
-      []
-    end
-  end
-
-  defp visual_index_relay_entries(fetch) do
-    if VisualIndexDispatcher.deployment_enabled?(fetch) do
-      [{"* * * * *", VisualIndexDispatchWorker, queue: :maintenance}]
     else
       []
     end

@@ -1,17 +1,9 @@
-defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
+defmodule ServiceRadar.Camera.CameraRecordingVantageHooksUnitTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Camera.ArchiveCredentialResolver
   alias ServiceRadar.Camera.CameraRecordingPolicies
-  alias ServiceRadar.Camera.RecordingArchiveSettings
-  alias ServiceRadar.Camera.RecordingHealth
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexDispatchWorker
-  alias ServiceRadar.Camera.VisualIndexJob
-  alias ServiceRadar.Camera.VisualIndexResultEnvelope
   alias ServiceRadar.Camera.VisualWorkerReadGrants
-  alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
-  alias ServiceRadar.EventWriter.TerminalMessageError
   alias ServiceRadar.Storage.StorageEntitlement
   alias ServiceRadar.Storage.StorageEntitlements
 
@@ -244,295 +236,6 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
     end
   end
 
-  describe "VisualIndexDispatcher keyframe sampling, metadata-only envelope, and health summary (1.4)" do
-    test "samples only IDR keyframes honoring min_interval_ms and max_frames and builds credential-free envelope" do
-      descriptor = sample_descriptor()
-
-      sampled = VisualIndexDispatcher.sample_descriptor_fragments(descriptor, 2_000, 64)
-      assert Enum.map(sampled, & &1["sequence"]) == [0, 2]
-
-      capped = VisualIndexDispatcher.sample_descriptor_fragments(descriptor, 500, 1)
-      assert Enum.map(capped, & &1["sequence"]) == [0]
-
-      job = %{
-        id: @job_id,
-        catalog_entry_id: @catalog_id,
-        camera_source_id: @cam_a,
-        stream_profile_id: @prof_a,
-        job_kind: :live,
-        attempt_count: 1,
-        max_attempts: 5,
-        detector_model_id: "yolox-s",
-        detector_model_version: "2026.1",
-        embedder_model_id: "siglip-b16-384",
-        embedder_model_version: "2026.1",
-        embedding_dim: 768,
-        sampled_fragments: sampled,
-        descriptor_sha256: @desc_sha
-      }
-
-      assert {:ok, subject, payload_bin, decoded} =
-               VisualIndexDispatcher.build_envelope(job, now: ~U[2026-11-17 16:30:00Z])
-
-      assert subject == "media.jobs.visual_index.v1"
-      assert Jason.decode!(payload_bin) == decoded
-      assert decoded["schema_version"] == 1
-      assert decoded["job_id"] == @job_id
-      assert decoded["catalog_entry_id"] == @catalog_id
-      assert decoded["descriptor_sha256"] == @desc_sha
-      assert decoded["fragment_count"] == 2
-      assert decoded["sampled_fragment_sequences"] == [0, 2]
-
-      refute Map.has_key?(decoded, "secret_access_key")
-      refute Map.has_key?(decoded, "access_key_id")
-      refute Map.has_key?(decoded, "media_bytes")
-      refute Map.has_key?(decoded, "roi_grid")
-    end
-
-    test "includes compact roi_grid in job envelope when camera source has detection_roi_grid ignore cells" do
-      descriptor = sample_descriptor()
-      sampled = VisualIndexDispatcher.sample_descriptor_fragments(descriptor, 2_000, 64)
-
-      job = %{
-        id: @job_id,
-        catalog_entry_id: @catalog_id,
-        camera_source_id: @cam_a,
-        stream_profile_id: @prof_a,
-        job_kind: :live,
-        attempt_count: 0,
-        max_attempts: 5,
-        detector_model_id: "yolox-s",
-        detector_model_version: "2026.1",
-        embedder_model_id: "siglip-b16-384",
-        embedder_model_version: "2026.1",
-        embedding_dim: 768,
-        sampled_fragments: sampled,
-        descriptor_sha256: @desc_sha
-      }
-
-      # 12x8 grid: cell 0 -> [0, 0], cell 13 -> [1, 1], cell 25 -> [2, 1] (also in focus so excluded)
-      source_with_roi = %{
-        id: @cam_a,
-        metadata: %{
-          "detection_roi_grid" => %{
-            "version" => 1,
-            "rows" => 8,
-            "cols" => 12,
-            "focus" => [25],
-            "ignore" => [13, 0, 25]
-          }
-        }
-      }
-
-      assert {:ok, _subject, payload_bin, decoded} =
-               VisualIndexDispatcher.build_envelope(job,
-                 now: ~U[2026-11-17 16:30:00Z],
-                 camera_source: source_with_roi
-               )
-
-      assert byte_size(payload_bin) <= 4_096
-
-      assert decoded["roi_grid"] == %{
-               "rows" => 8,
-               "cols" => 12,
-               "ignore_cells" => [[0, 0], [1, 1]]
-             }
-
-      # Empty ignore list omits roi_grid completely
-      source_focus_only = %{
-        id: @cam_a,
-        metadata: %{
-          "detection_roi_grid" => %{
-            "version" => 1,
-            "rows" => 8,
-            "cols" => 12,
-            "focus" => [0, 1],
-            "ignore" => []
-          }
-        }
-      }
-
-      assert {:ok, _subject, _bin, decoded_empty} =
-               VisualIndexDispatcher.build_envelope(job,
-                 now: ~U[2026-11-17 16:30:00Z],
-                 camera_source: source_focus_only
-               )
-
-      refute Map.has_key?(decoded_empty, "roi_grid")
-    end
-
-    test "a catalog lookup failure prevents live and backfill publication on initial dispatch and retry" do
-      now = ~U[2026-01-05 00:00:00Z]
-      expired = ~U[2026-01-01 00:00:00Z]
-      publisher = fn _, _, _ -> flunk("published without checking the catalog entry") end
-      loaders = %{entry_loader: fn @catalog_id -> {:error, :catalog_unavailable} end}
-
-      for kind <- [:live, :backfill], state <- [:pending, :dispatched] do
-        job = %VisualIndexJob{
-          id: @job_id,
-          catalog_entry_id: @catalog_id,
-          job_kind: kind,
-          state: state,
-          attempt_count: 1,
-          max_attempts: 5,
-          deadline_at: expired,
-          updated_at: expired,
-          dispatched_at: expired
-        }
-
-        assert {:error, :catalog_unavailable} =
-                 VisualIndexDispatcher.dispatch_job(job,
-                   loaders: loaders,
-                   publisher: publisher,
-                   now: now
-                 )
-      end
-    end
-
-    test "legacy dispatch start cannot expire a job before its acknowledged update ages out" do
-      start = ~U[2026-01-01 00:00:00Z]
-      ack = DateTime.shift(start, second: 3)
-      tick = DateTime.shift(start, day: 3, second: 1)
-
-      for max_attempts <- [1, 2] do
-        job = %VisualIndexJob{
-          id: @job_id,
-          catalog_entry_id: @catalog_id,
-          state: :dispatched,
-          attempt_count: 1,
-          max_attempts: max_attempts,
-          dispatched_at: start,
-          updated_at: ack,
-          deadline_at: DateTime.shift(start, minute: 1)
-        }
-
-        assert {:ok, ^job} = VisualIndexDispatcher.dispatch_job(job, now: tick)
-      end
-    end
-
-    test "RecordingHealth.summary/1 aggregates visual_indexing queue states and active model" do
-      now = ~U[2026-11-17 16:30:00Z]
-      oldest_pending = ~U[2026-11-17 16:25:00Z]
-
-      loaders = %{
-        settings_loader: fn ->
-          {:ok, RecordingArchiveSettings.default_settings()}
-        end,
-        entitlement_loader: fn -> {:ok, nil} end,
-        catalog_entries_loader: fn -> {:ok, []} end,
-        archive_bindings_loader: fn -> {:ok, []} end,
-        holds_loader: fn -> {:ok, []} end,
-        reservations_loader: fn ->
-          {:ok, %{unresolved_count: 0, oldest_age_seconds: nil, items: []}}
-        end,
-        policies_loader: fn ->
-          {:ok,
-           [
-             %{
-               id: "00000000-0000-4000-8000-000000000991",
-               camera_source_id: @cam_a,
-               stream_profile_id: @prof_a,
-               mode: :continuous,
-               nvr_member: "nvr-0",
-               storage: :local_only,
-               visual_index_mode: :keyframes
-             }
-           ]}
-        end,
-        storage_settings_loader: fn -> {:ok, []} end,
-        local_storage_bindings_loader: fn -> {:ok, []} end,
-        gaps_loader: fn _ -> {:ok, []} end,
-        dispositions_loader: fn _ -> {:ok, []} end,
-        visual_index_jobs_loader: fn ->
-          {:ok,
-           [
-             %{state: :pending, job_kind: :live, count: 3, oldest_inserted_at: oldest_pending},
-             %{state: :dispatched, job_kind: :backfill, count: 2, oldest_inserted_at: now},
-             %{state: :completed, job_kind: :live, count: 14}
-           ]}
-        end,
-        alerts_loader: fn -> {:ok, []} end
-      }
-
-      assert {:ok, summary} =
-               RecordingHealth.summary(
-                 actor: %{id: "op-1", role: :system},
-                 now: now,
-                 loaders: loaders
-               )
-
-      vi = summary.visual_indexing
-      assert vi.enabled_policy_count == 1
-      assert vi.pending_count == 3
-      assert vi.dispatched_count == 2
-      assert vi.completed_count == 14
-      assert vi.failed_terminal_count == 0
-      assert vi.backlog_count == 5
-      assert vi.oldest_pending_age_seconds == 300
-      assert vi.worker_health_status == :healthy
-      assert vi.active_model.embedder_model_id == "siglip-b16-384"
-      assert vi.active_model.embedding_dim == 768
-    end
-
-    test "VisualIndexDispatchWorker coalesces pending ticks without blocking on executing jobs" do
-      changeset = VisualIndexDispatchWorker.new(%{})
-      unique = Ecto.Changeset.get_change(changeset, :unique)
-
-      assert Ecto.Changeset.get_field(changeset, :queue) == "maintenance"
-      assert Ecto.Changeset.get_field(changeset, :max_attempts) == 1
-      assert unique.period == :infinity
-      assert Enum.sort(unique.states) == [:available, :scheduled]
-      refute :executing in unique.states
-    end
-
-    test "VisualIndexDispatchWorker.enqueue/1 enqueues immediately when enabled and is :noop when disabled" do
-      parent = self()
-
-      assert :noop =
-               VisualIndexDispatchWorker.enqueue(
-                 enabled_fn: fn -> false end,
-                 insert_fn: fn _cs ->
-                   flunk("should not insert when visual indexing is disabled")
-                 end
-               )
-
-      assert {:ok, :enqueued} =
-               VisualIndexDispatchWorker.enqueue(
-                 enabled_fn: fn -> true end,
-                 insert_fn: fn cs ->
-                   send(parent, {:inserted, cs})
-                   {:ok, :enqueued}
-                 end
-               )
-
-      assert_receive {:inserted, %Ecto.Changeset{} = cs}
-
-      assert Ecto.Changeset.get_field(cs, :worker) ==
-               "ServiceRadar.Camera.VisualIndexDispatchWorker"
-
-      assert Ecto.Changeset.get_field(cs, :queue) == "maintenance"
-    end
-
-    test "VisualIndexDispatcher.nudge_dispatch/1 invokes dispatch_enqueuer and stays best-effort on errors" do
-      parent = self()
-
-      assert :ok =
-               VisualIndexDispatcher.nudge_dispatch(
-                 dispatch_enqueuer: fn ->
-                   send(parent, :nudged)
-                   {:ok, :queued}
-                 end
-               )
-
-      assert_receive :nudged
-
-      assert :ok =
-               VisualIndexDispatcher.nudge_dispatch(
-                 dispatch_enqueuer: fn -> {:error, :oban_unavailable} end
-               )
-    end
-  end
-
   describe "VisualWorkerReadGrants execution-time fragment grants and 410 Gone (1.6)" do
     test "returns {:error, :recording_gone} for missing, quarantined, or reclaimed+deleted entries" do
       installation = %{deployment_ref: "dep-1", generation: 1, purpose: :media_worker}
@@ -540,6 +243,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       req = %{
         "schema_version" => 1,
         "job_id" => @job_id,
+        "fragment_sequences" => "0,2",
         "catalog_entry_id" => @catalog_id,
         "descriptor_sha256" => @desc_sha
       }
@@ -580,6 +284,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       req = %{
         "schema_version" => 1,
         "job_id" => @job_id,
+        "fragment_sequences" => "0,2",
         "catalog_entry_id" => @catalog_id,
         "descriptor_sha256" => @desc_sha
       }
@@ -682,6 +387,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       req = %{
         "schema_version" => 1,
         "job_id" => @job_id,
+        "fragment_sequences" => "0,2",
         "catalog_entry_id" => @catalog_id,
         "descriptor_sha256" => @desc_sha
       }
@@ -760,6 +466,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       req = %{
         "schema_version" => 1,
         "job_id" => @job_id,
+        "fragment_sequences" => "0,2",
         "catalog_entry_id" => @catalog_id,
         "descriptor_sha256" => @desc_sha
       }
@@ -781,207 +488,48 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       assert plan.nvr_member == "nvr-0"
       assert plan.init["path"] == "/v1/blocks/#{@block_key}/init"
     end
-  end
 
-  test "every worker payload field rejects an invalid value before disposition" do
-    envelope = worker_result()
-    frame = [:frames, Access.at(0)]
-    detection = frame ++ [:detections, Access.at(0)]
-    crop = frame ++ [:embeddings, Access.at(0)]
-    track = [:tracks, Access.at(0)]
+    test "grants requested or all descriptor fragments, echoes job_id, and never needs a job row" do
+      installation = %{deployment_ref: "dep-1", generation: 1, purpose: :media_worker}
 
-    for {path, value} <- [
-          {[:schema], nil},
-          {[:schema_version], 1.0},
-          {[:job_id], nil},
-          {[:catalog_entry_id], <<0::128>>},
-          {[:descriptor_sha256], 123},
-          {[:detector_model_id], false},
-          {[:detector_model_version], "a\0b"},
-          {[:embedder_model_id], nil},
-          {[:embedder_model_version], 1},
-          {[:model_id], false},
-          {[:model_version], nil},
-          {[:embedding_dim], 512.0},
-          {[:frames], %{}},
-          {[:tracks], nil},
-          {[:tracks, Access.at(0)], false},
-          {frame ++ [:fragment_sequence], 4_294_967_296},
-          {frame ++ [:media_pts_ns], -1},
-          {frame ++ [:scene_suppressed], "false"},
-          {frame ++ [:detections], false},
-          {frame ++ [:embeddings], false},
-          {detection ++ [:object_class], false},
-          {detection ++ [:confidence], "0.5"},
-          {detection ++ [:bbox], [1.0, 0.0, 0.5, 1.0]},
-          {detection ++ [:dominant_colors], [123]},
-          {detection ++ [:track_id], -1},
-          {crop ++ [:region_kind], :crop},
-          {crop ++ [:region_index], 0.5},
-          {crop ++ [:object_class], false},
-          {crop ++ [:confidence], 1},
-          {crop ++ [:bbox], %{}},
-          {crop ++ [:dominant_colors], false},
-          {crop ++ [:track_id], "1"},
-          {crop ++ [:embedding], unit_vec(768)},
-          {crop ++ [:embedding, Access.at(0)], 1},
-          {track ++ [:track_id], -1},
-          {track ++ [:object_class], ""},
-          {track ++ [:first_seen_offset_ms], "0"},
-          {track ++ [:last_seen_offset_ms], 0.5},
-          {track ++ [:dwell_ms], 9_223_372_036_854_775_808},
-          {track ++ [:frame_count], -1},
-          {track ++ [:peak_confidence], 1.1}
-        ] do
-      outcome = VisualIndexResultEnvelope.validate(put_in(envelope, path, value))
+      local_entry =
+        Map.merge(playable_archive_entry(), %{
+          local_state: :present,
+          archive_state: :not_required,
+          archive_binding_id: nil
+        })
 
-      assert match?({:error, _}, outcome) or match?({:ok, _, {:error, _}}, outcome),
-             "accepted invalid value at #{inspect(path)}"
+      base = %{"catalog_entry_id" => @catalog_id, "descriptor_sha256" => @desc_sha}
+
+      issue =
+        &VisualWorkerReadGrants.issue_read_grant(installation, &1,
+          loaders: grant_loaders(local_entry)
+        )
+
+      assert {:ok, all} = issue.(base)
+      assert Enum.map(all.fragments, & &1["sequence"]) == [0, 1, 1_001, 2]
+      assert all.job_id == ""
+
+      assert {:ok, picked} =
+               issue.(Map.merge(base, %{"job_id" => @job_id, "fragment_sequences" => "2,0"}))
+
+      assert Enum.map(picked.fragments, & &1["sequence"]) == [0, 2]
+      assert picked.job_id == @job_id
+
+      assert {:error, :fragment_not_found} = issue.(Map.put(base, "fragment_sequences", "7"))
+
+      assert {:error, :too_many_fragments} =
+               issue.(Map.put(base, "fragment_sequences", Enum.join(0..64, ",")))
+
+      for bad <- ["", "0,0", "-1", "0,", "a", [0]] do
+        assert {:error, :invalid_read_grant_request} =
+                 issue.(Map.put(base, "fragment_sequences", bad)),
+               "accepted fragment_sequences #{inspect(bad)}"
+      end
+
+      assert {:error, :invalid_read_grant_request} =
+               issue.(Map.put(base, "job_id", String.duplicate("j", 129)))
     end
-
-    assert {:ok, _, {:ok, %{frames: [parsed], tracks: [summary]}}} =
-             VisualIndexResultEnvelope.validate(Map.put(envelope, :future_field, %{}))
-
-    assert summary.track_id == 1
-    assert [%{region_kind: :crop, embedding: vector}] = parsed.embeddings
-    assert Ash.Vector.to_list(vector) == unit_vec(512)
-
-    assert [stored_detection] = parsed.detections
-
-    assert stored_detection |> Map.keys() |> Enum.sort() == [
-             "bbox",
-             "confidence",
-             "dominant_colors",
-             "object_class"
-           ]
-
-    optional_omitted =
-      envelope
-      |> Map.drop([:job_id, :tracks])
-      |> update_in(detection, &Map.delete(&1, :track_id))
-
-    assert {:ok, %{job_id: nil}, {:ok, %{frames: [parsed_no_track], tracks: []}}} =
-             VisualIndexResultEnvelope.validate(optional_omitted)
-
-    assert [no_track_detection] = parsed_no_track.detections
-    refute Map.has_key?(no_track_detection, "track_id")
-
-    for {parent, key} <- [
-          {[], :schema},
-          {[], :schema_version},
-          {frame, :scene_suppressed},
-          {frame, :detections},
-          {frame, :embeddings},
-          {detection, :dominant_colors},
-          {crop, :region_index},
-          {crop, :dominant_colors}
-        ] do
-      omitted =
-        case parent do
-          [] -> Map.delete(envelope, key)
-          path -> update_in(envelope, path, &Map.delete(&1, key))
-        end
-
-      assert {:ok, _, {:error, :invalid_result_envelope}} =
-               VisualIndexResultEnvelope.validate(omitted),
-             "accepted omitted required field #{inspect(parent ++ [key])}"
-    end
-
-    for {parent, canonical, alias_key, alias_value} <- [
-          {frame, :fragment_sequence, :fragment_index, 1},
-          {frame, :media_pts_ns, :media_offset_ns, 0},
-          {detection, :object_class, :class, "parcel"},
-          {detection, :object_class, :label, "parcel"},
-          {detection, :confidence, :score, 0.75},
-          {detection, :bbox, :bbox_norm, [0.0, 0.1, 0.5, 0.9]},
-          {crop, :region_kind, :embedding_kind, "crop"},
-          {crop, :region_index, :crop_index, 1},
-          {crop, :dominant_colors, :attributes, %{dominant_colors: ["blue"]}},
-          {crop, :embedding, :vector, unit_vec(512)}
-        ] do
-      aliased =
-        update_in(envelope, parent, fn map ->
-          map |> Map.delete(canonical) |> Map.put(alias_key, alias_value)
-        end)
-
-      assert {:ok, _, {:error, :invalid_result_envelope}} =
-               VisualIndexResultEnvelope.validate(aliased),
-             "accepted legacy alias #{inspect(alias_key)} for #{inspect(parent ++ [canonical])}"
-    end
-
-    aliased_optional =
-      update_in(envelope, crop, fn map ->
-        map
-        |> Map.drop([:confidence, :bbox])
-        |> Map.merge(%{detector_confidence: 0.75, bbox_norm: [0.0, 0.1, 0.5, 0.9]})
-      end)
-
-    assert {:ok, _, {:ok, %{frames: [%{embeddings: [parsed_crop]}]}}} =
-             VisualIndexResultEnvelope.validate(aliased_optional)
-
-    assert parsed_crop.confidence == nil
-    assert parsed_crop.bbox == nil
-  end
-
-  test "a bare job ID cannot authorize a terminal job update" do
-    message = %Broadway.Message{
-      data: Jason.encode!(%{"job_id" => @job_id}),
-      acknowledger: Broadway.NoopAcknowledger.init()
-    }
-
-    assert {:incomplete, 0, [{^message, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
-             CameraVisualIndexResults.process_batch([message])
-  end
-
-  # ---------------------------------------------------------------------------
-  # Synthetic fixture helpers (zero live/captured values, low-entropy digests)
-  # ---------------------------------------------------------------------------
-
-  defp worker_result do
-    detection = %{
-      object_class: "parcel",
-      confidence: 0.75,
-      bbox: [0.0, 0.1, 0.5, 0.9],
-      dominant_colors: ["blue"],
-      track_id: 1
-    }
-
-    crop = Map.merge(detection, %{region_kind: "crop", region_index: 1, embedding: unit_vec(512)})
-
-    frame = %{
-      fragment_sequence: 1,
-      media_pts_ns: 0,
-      scene_suppressed: false,
-      detections: [detection],
-      embeddings: [crop]
-    }
-
-    track = %{
-      track_id: 1,
-      object_class: "parcel",
-      first_seen_offset_ms: 0,
-      last_seen_offset_ms: 5,
-      dwell_ms: 5,
-      frame_count: 1,
-      peak_confidence: 0.75
-    }
-
-    %{
-      schema: "media.results.visual_index.v1",
-      schema_version: 1,
-      job_id: @job_id,
-      catalog_entry_id: @catalog_id,
-      descriptor_sha256: @desc_sha,
-      detector_model_id: "detector",
-      detector_model_version: "1",
-      embedder_model_id: "embedder",
-      embedder_model_version: "1",
-      model_id: "embedder",
-      model_version: "1",
-      embedding_dim: 512,
-      frames: [frame],
-      tracks: [track]
-    }
   end
 
   defp policy_loaders(entitlement, existing_policies) do
@@ -1083,25 +631,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   end
 
   defp grant_loaders(entry, secret_key \\ "test-reader-secret-key-0000000000") do
-    sampled = VisualIndexDispatcher.sample_descriptor_fragments(sample_descriptor(), 2_000, 64)
-
     %{
-      job_loader: fn id ->
-        if id == @job_id do
-          {:ok,
-           %{
-             id: @job_id,
-             catalog_entry_id: @catalog_id,
-             camera_source_id: @cam_a,
-             stream_profile_id: @prof_a,
-             state: :dispatched,
-             descriptor_sha256: @desc_sha,
-             sampled_fragments: sampled
-           }}
-        else
-          {:ok, nil}
-        end
-      end,
       entry_loader: fn _id ->
         {:ok, entry}
       end,
@@ -1183,9 +713,5 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
         {:ok, %{nvr_member: "nvr-0"}}
       end
     }
-  end
-
-  defp unit_vec(dim) do
-    [1.0 | List.duplicate(0.0, dim - 1)]
   end
 end

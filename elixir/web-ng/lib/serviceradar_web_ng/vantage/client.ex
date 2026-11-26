@@ -181,6 +181,44 @@ defmodule ServiceRadarWebNG.Vantage.Client do
     end
   end
 
+  @doc """
+  Fetches normalized overlay detections for every frame with detections in a
+  timeline window over `vantage.rpc.frame_overlay.v1`.
+
+  Expects a pre-authorized `camera_source_id`, `from_us` < `to_us`, and an
+  optional `stream_profile_id` and `limit`.
+  """
+  @spec frame_overlay_window(map(), keyword()) :: {:ok, [map()]} | {:error, atom()}
+  def frame_overlay_window(params, opts \\ []) when is_map(params) and is_list(opts) do
+    camera_source_id = fetch_val(params, :camera_source_id)
+    from_us = fetch_val(params, :from_us)
+    to_us = fetch_val(params, :to_us)
+
+    if is_binary(camera_source_id) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+      timeout_ms =
+        Keyword.get(
+          opts,
+          :timeout_ms,
+          Application.get_env(:serviceradar_web_ng, :vantage_rpc_timeout_ms, @default_rpc_timeout_ms)
+        )
+
+      payload =
+        %{"camera_source_id" => camera_source_id, "from_us" => from_us, "to_us" => to_us}
+        |> maybe_put_payload("stream_profile_id", fetch_val(params, :stream_profile_id))
+        |> maybe_put_payload("limit", fetch_val(params, :limit))
+
+      with {:ok, json} <- encode_payload(payload),
+           {:ok, decoded} <- rpc_request(@frame_overlay_subject, json, timeout_ms, opts) do
+        parse_frame_overlay_response(decoded)
+      end
+    else
+      {:error, :invalid_request}
+    end
+  end
+
+  defp maybe_put_payload(payload, _key, nil), do: payload
+  defp maybe_put_payload(payload, key, value), do: Map.put(payload, key, value)
+
   # ---------------------------------------------------------------------------
   # Payload construction & response parsing
   # ---------------------------------------------------------------------------

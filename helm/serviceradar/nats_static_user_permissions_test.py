@@ -27,7 +27,6 @@ RENDERINGS = {
         "flowCollector.enabled": True,
         "k8sInventory.enabled": True,
     },
-    "media worker enabled": {"mediaWorker.enabled": True},
     "vantage enabled": {"vantage.enabled": True},
 }
 
@@ -149,14 +148,6 @@ class OpenIdentityTest(unittest.TestCase):
                         self.assertFalse(may(users[subject_dn], direction, subject))
 
 
-class VisualIndexJobPermissionsTest(unittest.TestCase):
-    def test_core_may_publish_live_and_backfill_jobs(self):
-        users = {user["user"].split(",")[0]: user for user in render_static_users()}
-        for subject in ("media.jobs.visual_index.v1", "media.jobs.visual_index.backfill.v1"):
-            with self.subTest(subject=subject):
-                self.assertTrue(may_publish(users["CN=serviceradar-core"], subject))
-
-
 class NormalizedLogSubjectTest(unittest.TestCase):
     def test_only_the_log_collector_may_publish_normalized_logs(self):
         for rendering, values in RENDERINGS.items():
@@ -226,9 +217,11 @@ OTHER_INBOX = "_INBOX.Qa71c.4"
 
 
 class MediaWorkerPermissionsTest(unittest.TestCase):
+    """The Vantage addon's media worker identity, enabled by vantage.enabled."""
+
     @classmethod
     def setUpClass(cls):
-        cls.enabled_cm = render_static_users_configmap({"mediaWorker.enabled": True})
+        cls.enabled_cm = render_static_users_configmap({"vantage.enabled": True})
         cls.disabled_cm = render_static_users_configmap()
         cls.enabled = index_users_by_subject(yaml.safe_load(cls.enabled_cm["static-users.yaml"]))
         cls.disabled = index_users_by_subject(yaml.safe_load(cls.disabled_cm["static-users.yaml"]))
@@ -243,7 +236,7 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
         self.assertNotIn(MEDIA_WORKER, disabled_identities)
 
     def test_the_worker_can_run_its_job_loop_and_answer_searches_only_while_enabled(self):
-        # What rust/media-worker/src/worker.rs sends through async-nats: stream
+        # What the addon media worker sends through async-nats: stream
         # get-or-create, durable consumer get-or-create (named, with its filter),
         # pulls, acks, result and metrics publishes, and replies to requesters.
         # Disabled, the same identity (say, a certificate left from an earlier
@@ -263,7 +256,7 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             f"$JS.ACK.{JOBS_STREAM}.{BACKFILL_CONSUMER}.1.3.3.1700000000000000000.0",
             "media.results.visual_index.v1",
             "telemetry.media_worker.metrics.v1",
-            # The embedding reply goes to web-ng's reply subject.
+            # The embedding reply goes to the requester's reply subject.
             OTHER_INBOX,
         )
         subscribe = (TEXT_EMBED_REQUEST, WORKER_INBOX)
@@ -301,18 +294,12 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             with self.subTest(subscribe=subject):
                 self.assertFalse(may(worker, "subscribe", subject))
 
-    def test_core_dispatches_jobs_and_neither_core_nor_web_ng_requests_text_embeddings(self):
+    def test_core_and_web_ng_hold_no_camera_media_grants(self):
         for rendering, users in (("enabled", self.enabled), ("disabled", self.disabled)):
-            core = users[CORE]
-            web = users[WEB_NG]
-            for subject in (LIVE_JOBS, BACKFILL_JOBS):
-                with self.subTest(rendering=rendering, core=subject):
-                    self.assertTrue(may_publish(core, subject))
-            with self.subTest(rendering=rendering, core=TEXT_EMBED_REQUEST):
-                self.assertFalse(may_publish(core, TEXT_EMBED_REQUEST))
-            with self.subTest(rendering=rendering, web=TEXT_EMBED_REQUEST):
-                self.assertFalse(may_publish(web, TEXT_EMBED_REQUEST))
-        self.assertFalse(may_publish(self.enabled[WEB_NG], LIVE_JOBS))
+            for name, identity in (("core", users[CORE]), ("web-ng", users[WEB_NG])):
+                for subject in (LIVE_JOBS, BACKFILL_JOBS, TEXT_EMBED_REQUEST):
+                    with self.subTest(rendering=rendering, identity=name, publish=subject):
+                        self.assertFalse(may_publish(identity, subject))
 
 
 VANTAGE = chart_subject("serviceradar-vantage")
@@ -323,7 +310,6 @@ class VantagePermissionsTest(unittest.TestCase):
     def setUpClass(cls):
         cls.disabled = index_users_by_subject(render_static_users())
         cls.vantage_enabled = index_users_by_subject(render_static_users({"vantage.enabled": True}))
-        cls.media_worker_enabled = index_users_by_subject(render_static_users({"mediaWorker.enabled": True}))
 
     def test_web_ng_may_call_vantage_rpc_and_receive_inbox_replies(self):
         web = self.disabled[WEB_NG]
@@ -336,7 +322,7 @@ class VantagePermissionsTest(unittest.TestCase):
                 self.assertTrue(may_publish(web, subject))
         self.assertTrue(may(web, "subscribe", OTHER_INBOX))
 
-    def test_vantage_user_is_enabled_by_vantage_or_media_worker_flag(self):
+    def test_vantage_user_is_enabled_by_the_vantage_flag(self):
         publish = (
             OTHER_INBOX,
             TEXT_EMBED_REQUEST,
@@ -357,7 +343,6 @@ class VantagePermissionsTest(unittest.TestCase):
         for rendering, users, expected in (
             ("disabled", self.disabled, False),
             ("vantage.enabled", self.vantage_enabled, True),
-            ("mediaWorker.enabled", self.media_worker_enabled, True),
         ):
             vantage = users[VANTAGE]
             for subject in publish:

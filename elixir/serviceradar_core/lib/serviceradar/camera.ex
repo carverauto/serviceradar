@@ -52,9 +52,6 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.ArchiveUploadIntent
     resource ServiceRadar.Camera.ArchiveUploadDispatch
     resource ServiceRadar.Camera.AnalysisWorker
-    resource ServiceRadar.Camera.VisualIndexJob
-    resource ServiceRadar.Camera.VisualFrame
-    resource ServiceRadar.Camera.VisualEmbedding
     resource ServiceRadar.Storage.StorageEntitlement
     resource ServiceRadar.Storage.StorageUsageDailyReport
   end

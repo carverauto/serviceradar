@@ -35,8 +35,6 @@ defmodule ServiceRadar.Camera.RecordingHealth do
   alias ServiceRadar.Camera.RecordingHold
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadar.Camera.RetentionCalculator
-  alias ServiceRadar.Camera.VisualIndexDispatcher
-  alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Infrastructure.HealthEvent
 
   require Ash.Query
@@ -111,7 +109,6 @@ defmodule ServiceRadar.Camera.RecordingHealth do
         object_retention_enforced?: not is_nil(Map.get(base, :retention_credential_secret_id)),
         object_projection: projected.object_projection
       },
-      visual_indexing: default_visual_indexing_summary(),
       alerts: []
     }
   end
@@ -148,7 +145,6 @@ defmodule ServiceRadar.Camera.RecordingHealth do
          {:ok, local_bindings} <- load_local_storage_bindings(loaders),
          {:ok, gaps} <- load_recent_and_open_gaps(now, loaders),
          {:ok, dispositions} <- load_recent_dispositions(now, loaders),
-         {:ok, visual_indexing} <- load_visual_indexing_summary(policies, now, loaders),
          {:ok, alerts} <- load_active_alerts(loaders) do
       settings = usage.settings
 
@@ -196,7 +192,6 @@ defmodule ServiceRadar.Camera.RecordingHealth do
          storage_by_id: storage_by_id,
          unassigned_continuous_cameras: unassigned_continuous,
          retention_and_dispositions: retention_and_dispositions,
-         visual_indexing: visual_indexing,
          alerts: alerts
        }}
     end
@@ -1448,8 +1443,7 @@ defmodule ServiceRadar.Camera.RecordingHealth do
     |> Ash.Query.filter(
       entity_type == :core and
         (fragment("? LIKE 'storage.recordings.%'", entity_id) or
-           fragment("? LIKE 'nvr.%'", entity_id) or
-           fragment("? LIKE 'camera.visual_index.%'", entity_id))
+           fragment("? LIKE 'nvr.%'", entity_id))
     )
     |> Ash.Query.sort(event_sequence: :desc)
     |> Ash.Query.limit(@health_events_limit)
@@ -1477,184 +1471,8 @@ defmodule ServiceRadar.Camera.RecordingHealth do
     id = to_string(fetch_field(event, :entity_id) || fetch_field(event, :check_id) || "")
 
     String.starts_with?(id, "storage.recordings.") or
-      String.starts_with?(id, "nvr.") or
-      String.starts_with?(id, "camera.visual_index.")
+      String.starts_with?(id, "nvr.")
   end
-
-  defp default_visual_indexing_summary do
-    active_model = VisualIndexDispatcher.active_model_config()
-
-    %{
-      enabled_policy_count: 0,
-      active_model: active_model,
-      model_id: active_model.embedder_model_id,
-      model_version: active_model.embedder_model_version,
-      embedding_dim: active_model.embedding_dim,
-      detector_model_id: active_model.detector_model_id,
-      detector_model_version: active_model.detector_model_version,
-      pending_count: 0,
-      dispatched_count: 0,
-      completed_count: 0,
-      cancelled_count: 0,
-      failed_terminal_count: 0,
-      live_backlog_count: 0,
-      backfill_backlog_count: 0,
-      backlog_count: 0,
-      oldest_pending_at: nil,
-      oldest_pending_age_seconds: nil,
-      worker_health_status: :idle
-    }
-  end
-
-  defp load_visual_indexing_summary(policies, now, loaders) do
-    enabled_count =
-      Enum.count(policies, fn pol ->
-        fetch_field(pol, :visual_index_mode) in [:keyframes, "keyframes"]
-      end)
-
-    cond do
-      is_function(Map.get(loaders, :visual_indexing_loader), 0) ->
-        with {:ok, custom} <- loaders.visual_indexing_loader.() do
-          {:ok, Map.merge(default_visual_indexing_summary(), custom)}
-        end
-
-      is_function(Map.get(loaders, :visual_index_jobs_loader), 0) ->
-        with {:ok, rows} <- loaders.visual_index_jobs_loader.() do
-          {:ok, summarize_visual_index_jobs(rows, enabled_count, now)}
-        end
-
-      map_size(loaders) > 0 ->
-        {:ok, %{default_visual_indexing_summary() | enabled_policy_count: enabled_count}}
-
-      true ->
-        query_visual_indexing_summary(enabled_count, now)
-    end
-  end
-
-  defp query_visual_indexing_summary(enabled_count, now) do
-    import Ecto.Query, only: [from: 2]
-
-    rows =
-      ServiceRadar.Repo.all(
-        from(j in {"camera_visual_index_jobs", VisualIndexJob},
-          prefix: "platform",
-          group_by: [j.state, j.job_kind],
-          select: {j.state, j.job_kind, count(j.id), min(j.inserted_at)}
-        )
-      )
-
-    mapped =
-      Enum.map(rows, fn {state, kind, cnt, min_ts} ->
-        %{state: state, job_kind: kind, count: cnt, oldest_inserted_at: min_ts}
-      end)
-
-    {:ok, summarize_visual_index_jobs(mapped, enabled_count, now)}
-  rescue
-    _ -> {:ok, %{default_visual_indexing_summary() | enabled_policy_count: enabled_count}}
-  end
-
-  defp summarize_visual_index_jobs(rows, enabled_count, now) when is_list(rows) do
-    base = %{default_visual_indexing_summary() | enabled_policy_count: enabled_count}
-
-    acc =
-      Enum.reduce(
-        rows,
-        %{
-          pending: 0,
-          dispatched: 0,
-          completed: 0,
-          cancelled: 0,
-          failed_terminal: 0,
-          live_backlog: 0,
-          backfill_backlog: 0,
-          oldest_pending_at: nil
-        },
-        &accumulate_visual_job_bucket/2
-      )
-
-    backlog = acc.pending + acc.dispatched
-
-    oldest_age =
-      case acc.oldest_pending_at do
-        %DateTime{} = dt -> max(0, DateTime.diff(now, dt, :second))
-        _ -> nil
-      end
-
-    worker_status =
-      cond do
-        acc.failed_terminal > 0 -> :degraded
-        enabled_count == 0 and backlog == 0 and acc.completed == 0 -> :idle
-        is_integer(oldest_age) and oldest_age > 900 -> :degraded
-        true -> :healthy
-      end
-
-    Map.merge(base, %{
-      pending_count: acc.pending,
-      dispatched_count: acc.dispatched,
-      completed_count: acc.completed,
-      cancelled_count: acc.cancelled,
-      failed_terminal_count: acc.failed_terminal,
-      live_backlog_count: acc.live_backlog,
-      backfill_backlog_count: acc.backfill_backlog,
-      backlog_count: backlog,
-      oldest_pending_at: acc.oldest_pending_at,
-      oldest_pending_age_seconds: oldest_age,
-      worker_health_status: worker_status
-    })
-  end
-
-  defp accumulate_visual_job_bucket(row, acc) do
-    state = normalize_visual_job_state(fetch_field(row, :state))
-    kind = normalize_visual_job_kind(fetch_field(row, :job_kind))
-    cnt = max(1, int_or_zero(fetch_field(row, :count) || 1))
-    ts = fetch_field(row, :oldest_inserted_at) || fetch_field(row, :inserted_at)
-    in_backlog? = state in [:pending, :dispatched]
-
-    acc
-    |> add_visual_state_count(state, cnt)
-    |> add_visual_backlog_kind_count(in_backlog?, kind, cnt)
-    |> maybe_update_oldest_pending(in_backlog?, ts)
-  end
-
-  defp add_visual_state_count(acc, :pending, cnt), do: %{acc | pending: acc.pending + cnt}
-
-  defp add_visual_state_count(acc, :dispatched, cnt),
-    do: %{acc | dispatched: acc.dispatched + cnt}
-
-  defp add_visual_state_count(acc, :completed, cnt), do: %{acc | completed: acc.completed + cnt}
-  defp add_visual_state_count(acc, :cancelled, cnt), do: %{acc | cancelled: acc.cancelled + cnt}
-
-  defp add_visual_state_count(acc, :failed_terminal, cnt),
-    do: %{acc | failed_terminal: acc.failed_terminal + cnt}
-
-  defp add_visual_state_count(acc, _, _cnt), do: acc
-
-  defp add_visual_backlog_kind_count(acc, false, _kind, _cnt), do: acc
-
-  defp add_visual_backlog_kind_count(acc, true, :backfill, cnt),
-    do: %{acc | backfill_backlog: acc.backfill_backlog + cnt}
-
-  defp add_visual_backlog_kind_count(acc, true, _live, cnt),
-    do: %{acc | live_backlog: acc.live_backlog + cnt}
-
-  defp maybe_update_oldest_pending(acc, true, %DateTime{} = ts) do
-    %{acc | oldest_pending_at: min_dt(acc.oldest_pending_at, ts)}
-  end
-
-  defp maybe_update_oldest_pending(acc, _in_backlog?, _ts), do: acc
-
-  defp normalize_visual_job_state(s) when s in [:pending, "pending"], do: :pending
-  defp normalize_visual_job_state(s) when s in [:dispatched, "dispatched"], do: :dispatched
-  defp normalize_visual_job_state(s) when s in [:completed, "completed"], do: :completed
-  defp normalize_visual_job_state(s) when s in [:cancelled, "cancelled"], do: :cancelled
-
-  defp normalize_visual_job_state(s) when s in [:failed_terminal, "failed_terminal"],
-    do: :failed_terminal
-
-  defp normalize_visual_job_state(_), do: nil
-
-  defp normalize_visual_job_kind(k) when k in [:backfill, "backfill"], do: :backfill
-  defp normalize_visual_job_kind(_), do: :live
 
   defp normalize_alert_item(item) when is_map(item) do
     check_id = to_string(fetch_field(item, :check_id) || fetch_field(item, :entity_id) || "")

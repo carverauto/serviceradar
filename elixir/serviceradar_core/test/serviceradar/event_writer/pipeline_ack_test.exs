@@ -9,7 +9,6 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AdhocScan
-  alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
   alias ServiceRadar.EventWriter.Processors.Mtr
   alias ServiceRadar.EventWriter.TerminalMessageError
   alias ServiceRadar.EventWriter.TransientMessageError
@@ -229,7 +228,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
     message =
-      visual_index_result_failure(
+      failed_result_message(
         %TerminalMessageError{reason: :descriptor_sha256_mismatch},
         1,
         parent
@@ -248,7 +247,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     parent = self()
 
     message =
-      visual_index_result_failure(%TransientMessageError{reason: :db_unavailable}, 2, parent)
+      failed_result_message(%TransientMessageError{reason: :db_unavailable}, 2, parent)
 
     assert :ok == Pipeline.ack(:ack_ref, [], [message])
 
@@ -256,15 +255,15 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     refute_receive {:ack_action, _}, 50
   end
 
-  defp visual_index_result_failure(reason, delivery_count, parent) do
+  defp failed_result_message(reason, delivery_count, parent) do
     Message.failed(
       %Message{
         data: "",
         metadata: %{
-          subject: "media.results.visual_index.v1",
-          reply_to: "$JS.ACK.CAMERA_MEDIA_RESULTS.consumer.#{delivery_count}.9.8.0.0",
+          subject: "mtr.results.ingest",
+          reply_to: "$JS.ACK.MTR_RESULTS.consumer.#{delivery_count}.9.8.0.0",
           jetstream_ack: %{
-            stream: "CAMERA_MEDIA_RESULTS",
+            stream: "MTR_RESULTS",
             consumer: "consumer",
             delivery_count: delivery_count
           },
@@ -631,8 +630,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     routes = [
       {"mtr.results.ingest", :mtr_results, Mtr},
-      {"scans.results.run01", :scan_results, AdhocScan},
-      {"media.results.visual_index.v1", :camera_visual_index_results, CameraVisualIndexResults}
+      {"scans.results.run01", :scan_results, AdhocScan}
     ]
 
     for {subject, batcher, processor} <- routes do

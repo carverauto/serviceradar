@@ -98,8 +98,6 @@ func coreAllowedSubjects() []string {
 	return []string{
 		"scans.results.run01",
 		"mtr.results.ingest",
-		"media.jobs.visual_index.v1",
-		"media.jobs.visual_index.backfill.v1",
 		"events.example",
 		"metrics.event_writer.warehouse",
 		"metrics.sysmon.sysmon_cpu.cpu_usage_percent",
@@ -127,6 +125,8 @@ func coreDeniedSubjects() []string {
 		"$JS.API.STREAM.PURGE.EXPOSURE_RECOVERY",
 		"$JS.API.STREAM.DELETE.EXPOSURE_RECOVERY",
 		"$JS.API.STREAM.PURGE.TELEMETRY_EDGE_RECORD_DLQ_V1_BULK",
+		// Camera media jobs belong to the Vantage addon's identity.
+		"media.jobs.visual_index.v1",
 		"zz.not.allowed",
 	}
 }

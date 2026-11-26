@@ -21,7 +21,6 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
-  alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
@@ -433,262 +432,98 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     refute has_element?(archive_only_view, "#camera-timeline-archive-only")
   end
 
-  test "renders event clip strip with detection & recorded fallback cards, filters by mode/category, and jumps playback on clip click",
+  test "without a detection provider the event clip strip lists recorded fallback cards that open clip playback",
        %{viewer: viewer, actor: actor} do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     ctx = seed_rich_timeline_camera(actor, now)
-
     entry = ctx.local_and_archived_entry
-
-    {:ok, person_frame} =
-      VisualFrame
-      |> Ash.Changeset.for_create(
-        :upsert_frame,
-        %{
-          catalog_entry_id: entry.id,
-          camera_source_id: ctx.source.id,
-          stream_profile_id: ctx.profile.id,
-          fragment_sequence: 0,
-          media_pts_ns: entry.media_start_ns + 1_000_000_000,
-          timeline_ts_us: entry.timeline_start_us + 1_000_000,
-          time_basis: :received,
-          scene_suppressed: false,
-          detector_model_id: "synthetic-detector",
-          detector_model_version: "v1",
-          detections: [
-            %{
-              "object_class" => "person",
-              "confidence" => 0.92,
-              "bbox" => %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.4, "y2" => 0.8},
-              "dominant_colors" => ["navy"]
-            }
-          ]
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
-
-    {:ok, motion_frame} =
-      VisualFrame
-      |> Ash.Changeset.for_create(
-        :upsert_frame,
-        %{
-          catalog_entry_id: entry.id,
-          camera_source_id: ctx.source.id,
-          stream_profile_id: ctx.profile.id,
-          fragment_sequence: 1,
-          media_pts_ns: entry.media_start_ns + 500_000_000,
-          timeline_ts_us: entry.timeline_start_us + 500_000,
-          time_basis: :received,
-          scene_suppressed: false,
-          detector_model_id: "synthetic-detector",
-          detector_model_version: "v1",
-          detections: []
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
-
-    {:ok, suppressed_frame} =
-      VisualFrame
-      |> Ash.Changeset.for_create(
-        :upsert_frame,
-        %{
-          catalog_entry_id: entry.id,
-          camera_source_id: ctx.source.id,
-          stream_profile_id: ctx.profile.id,
-          fragment_sequence: 2,
-          media_pts_ns: entry.media_start_ns + 9_500_000_000,
-          timeline_ts_us: entry.timeline_start_us + 9_500_000,
-          time_basis: :received,
-          scene_suppressed: true,
-          detector_model_id: "synthetic-detector",
-          detector_model_version: "v1",
-          detections: []
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    rec_clip_id = "rec-#{entry.id}"
 
     {:ok, view, _html} = live(authed_conn(viewer), ~p"/cameras/#{ctx.source.id}/recordings?mode=timeline")
 
-    person_clip_id = "evt-#{person_frame.id}-person"
-    motion_clip_id = "evt-#{motion_frame.id}-motion"
-    suppressed_clip_id = "evt-#{suppressed_frame.id}-motion"
     assert has_element?(view, "#camera-timeline-event-clips-section")
-    # Defaults to Smart mode when smart detections exist in the window
-    assert has_element?(view, "#camera-clips-mode-smart[aria-pressed='true']")
-    assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
-    refute has_element?(view, "#camera-clip-card-#{person_clip_id} img")
-    refute has_element?(view, "#camera-clip-card-#{motion_clip_id}")
-    refute has_element?(view, "#camera-clip-card-#{suppressed_clip_id}")
-    refute has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
-    assert has_element?(view, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
-
-    # Switch to All -> shows person, motion, and recording fallbacks while keeping suppressed frames excluded
     view |> element("#camera-clips-mode-all") |> render_click()
-    assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
-    assert has_element?(view, "#camera-clip-card-#{motion_clip_id}")
-    refute has_element?(view, "#camera-clip-card-#{suppressed_clip_id}")
-    assert has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
+    assert has_element?(view, "#camera-clip-card-#{rec_clip_id}")
+    refute has_element?(view, "#camera-clips-grid [data-clip-smart-type='smart']")
 
-    # Filter back to Smart -> hides motion and recording fallbacks, keeps person detection
+    # Smart detections come only from the Vantage addon, so the Smart view is empty here
     view |> element("#camera-clips-mode-smart") |> render_click()
-    assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
-    refute has_element?(view, "#camera-clip-card-#{motion_clip_id}")
     refute has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
 
-    # Filter to Animal -> empty state + reset filters button
-    view |> element("#camera-clips-category-animal") |> render_click()
-    assert has_element?(view, "#camera-clips-empty")
-    assert has_element?(view, "#camera-clips-reset-filters")
-
-    # Reset filters restores full strip
-    view |> element("#camera-clips-reset-filters") |> render_click()
-    assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
-    assert has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
-
-    # Clicking the person clip card opens the clip playback modal with [started_at - 5s, ended_at + 10s]
-    # and selects the card
-    view |> element("#camera-clip-card-#{person_clip_id}") |> render_click()
-    assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='true']")
+    view |> element("#camera-clips-mode-all") |> render_click()
+    view |> element("#camera-clip-card-#{rec_clip_id}") |> render_click()
+    assert has_element?(view, "#camera-clip-card-#{rec_clip_id}[aria-pressed='true']")
     assert has_element?(view, "#camera-clip-playback-modal")
-    assert has_element?(view, "#camera-clip-modal-player[data-has-adjacent-window='false']")
     assert is_binary(player_playlist_path(view))
-
-    # Clicking View in Timeline closes the modal and focuses the main stage timeline player
-    view |> element("#camera-clip-modal-open-timeline") |> render_click()
-    refute has_element?(view, "#camera-clip-playback-modal")
-    assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='true']")
-    assert is_binary(player_playlist_path(view))
-
-    # Seeking on the vertical timeline rail clears the previously selected clip highlight
-    view
-    |> element("#camera-timeline-coverage-bar")
-    |> render_hook("seek_timeline_fraction", %{"fraction" => 0.99})
-
-    assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='false']")
   end
 
-  test "populates data-overlay-detections from VisualFrame detections during normal timeline playback and clip playback while excluding quarantined entries",
+  test "window detection overlays come from the Vantage provider and are absent without it",
        %{viewer: viewer, actor: actor} do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     ctx = seed_rich_timeline_camera(actor, now)
     entry = ctx.local_and_archived_entry
+    frame_id = Ecto.UUID.generate()
+    source_id = to_string(ctx.source.id)
+    test_pid = self()
 
-    {:ok, person_frame} =
-      VisualFrame
-      |> Ash.Changeset.for_create(
-        :upsert_frame,
-        %{
-          catalog_entry_id: entry.id,
-          camera_source_id: ctx.source.id,
-          stream_profile_id: ctx.profile.id,
-          fragment_sequence: 0,
-          media_pts_ns: entry.media_start_ns + 1_000_000_000,
-          timeline_ts_us: entry.timeline_start_us + 1_000_000,
-          time_basis: :received,
-          scene_suppressed: false,
-          detector_model_id: "yolox-s",
-          detector_model_version: "2026.1",
-          detections: [
-            %{
-              "object_class" => "person",
-              "confidence" => 0.92,
-              "bbox" => %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.4, "y2" => 0.8},
-              "dominant_colors" => ["navy"]
-            }
-          ]
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    previous_enabled = Application.get_env(:serviceradar_web_ng, :vantage_rpc_enabled)
+    previous_request_fn = Application.get_env(:serviceradar_web_ng, :vantage_rpc_request_fn)
 
-    {:ok, vehicle_frame} =
-      VisualFrame
-      |> Ash.Changeset.for_create(
-        :upsert_frame,
-        %{
-          catalog_entry_id: entry.id,
-          camera_source_id: ctx.source.id,
-          stream_profile_id: ctx.profile.id,
-          fragment_sequence: 1,
-          media_pts_ns: entry.media_start_ns + 4_000_000_000,
-          timeline_ts_us: entry.timeline_start_us + 4_000_000,
-          time_basis: :received,
-          scene_suppressed: false,
-          detector_model_id: "yolox-s",
-          detector_model_version: "2026.1",
-          detections: [
-            %{
-              "object_class" => "vehicle",
-              "confidence" => 0.87,
-              "bbox" => %{"x1" => 0.5, "y1" => 0.3, "x2" => 0.9, "y2" => 0.7},
-              "dominant_colors" => ["white"]
-            }
-          ]
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    on_exit(fn ->
+      restore_web_env(:vantage_rpc_enabled, previous_enabled)
+      restore_web_env(:vantage_rpc_request_fn, previous_request_fn)
+    end)
 
-    {:ok, quarantined_frame} =
-      VisualFrame
-      |> Ash.Changeset.for_create(
-        :upsert_frame,
-        %{
-          catalog_entry_id: ctx.quarantined_entry.id,
-          camera_source_id: ctx.source.id,
-          stream_profile_id: ctx.profile.id,
-          fragment_sequence: 0,
-          media_pts_ns: 0,
-          timeline_ts_us: entry.timeline_start_us + 2_000_000,
-          time_basis: :received,
-          scene_suppressed: false,
-          detector_model_id: "yolox-s",
-          detector_model_version: "2026.1",
-          detections: [
-            %{
-              "object_class" => "package",
-              "confidence" => 0.85,
-              "bbox" => %{"x1" => 0.2, "y1" => 0.2, "x2" => 0.3, "y2" => 0.4}
-            }
-          ]
-        },
-        actor: actor
-      )
-      |> Ash.create(actor: actor)
+    # Without the provider: no overlays
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_enabled, false)
+    {:ok, off_view, _html} = live(authed_conn(viewer), ~p"/cameras/#{ctx.source.id}/recordings?mode=timeline")
+    assert player_overlay_detections(off_view) == []
 
-    # Normal timeline playback (no search / no highlight_frame) populates window VisualFrame detections
+    # With the provider: the window request carries only the authorized camera
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_enabled, true)
+
+    Application.put_env(:serviceradar_web_ng, :vantage_rpc_request_fn, fn
+      "vantage.rpc.frame_overlay.v1", json, _opts ->
+        request = Jason.decode!(json)
+        send(test_pid, {:window_overlay_request, request})
+
+        {:ok,
+         %{
+           body:
+             Jason.encode!(%{
+               "status" => "ok",
+               "camera_source_id" => request["camera_source_id"],
+               "detections" => [
+                 %{
+                   "visual_frame_id" => frame_id,
+                   "timeline_ts_us" => entry.timeline_start_us + 1_000_000,
+                   "start_us" => entry.timeline_start_us,
+                   "end_us" => entry.timeline_start_us + 2_500_000,
+                   "bbox" => [0.1, 0.1, 0.4, 0.8],
+                   "object_class" => "person",
+                   "score" => 0.92,
+                   "dominant_colors" => ["navy"],
+                   "time_basis" => "received"
+                 }
+               ]
+             })
+         }}
+
+      _subject, _json, _opts ->
+        {:error, :no_responders}
+    end)
+
     {:ok, view, _html} = live(authed_conn(viewer), ~p"/cameras/#{ctx.source.id}/recordings?mode=timeline")
 
-    normal_overlays = player_overlay_detections(view)
-    normal_frame_ids = Enum.map(normal_overlays, & &1["visual_frame_id"])
-    assert person_frame.id in normal_frame_ids
-    assert vehicle_frame.id in normal_frame_ids
-    refute quarantined_frame.id in normal_frame_ids
+    assert_receive {:window_overlay_request, request}
+    assert request["camera_source_id"] == source_id
+    assert is_integer(request["from_us"]) and request["to_us"] > request["from_us"]
 
-    # Clip playback opens the clip modal with VisualFrame detections inside [start_us - 5s, end_us + 10s],
-    # and View in Timeline focuses the main stage player with those detections
-    person_clip_id = "evt-#{person_frame.id}-person"
-    view |> element("#camera-clip-card-#{person_clip_id}") |> render_click()
-    assert has_element?(view, "#camera-clip-playback-modal")
-
-    modal_overlays = player_overlay_detections(view, "#camera-clip-modal-player")
-    modal_frame_ids = Enum.map(modal_overlays, & &1["visual_frame_id"])
-    assert person_frame.id in modal_frame_ids
-    assert vehicle_frame.id in modal_frame_ids
-    refute quarantined_frame.id in modal_frame_ids
-
-    view |> element("#camera-clip-modal-open-timeline") |> render_click()
-    refute has_element?(view, "#camera-clip-playback-modal")
-
-    clip_overlays = player_overlay_detections(view)
-    clip_frame_ids = Enum.map(clip_overlays, & &1["visual_frame_id"])
-    assert person_frame.id in clip_frame_ids
-    assert vehicle_frame.id in clip_frame_ids
-    refute quarantined_frame.id in clip_frame_ids
+    assert [%{"visual_frame_id" => ^frame_id, "object_class" => "person"}] = player_overlay_detections(view)
   end
+
+  defp restore_web_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_web_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
   defp player_overlay_detections(view, selector \\ "#camera-timeline-player") do
     view

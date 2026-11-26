@@ -58,12 +58,11 @@ _INBOX.media-worker
      is honored as a fallback for releases that only set it under .agent. It
      MUST match SERVICERADAR_OTX_PARTITION on the core-elx runtime config. */ -}}
 {{- $partitionId := coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" }}
-{{- /* Camera semantic search (serviceradar-media-worker) and Vantage provider
-     (serviceradar-vantage). The stream and durable consumer names are fixed in
-     the worker binary (rust/media-worker/src/config.rs). */}}
-{{- $mediaWorkerEnabled := eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
-{{- $vantage := default (dict) .Values.vantage }}
-{{- $vantageEnabled := or (default false $vantage.enabled) $mediaWorkerEnabled }}
+{{- /* The commercial Vantage addon's identities (serviceradar-vantage and its
+     serviceradar-media-worker), both enabled by vantage.enabled. The stream and
+     durable consumer names are fixed by the addon's worker; they are part of the
+     documented camera media contract. */}}
+{{- $vantageEnabled := eq (include "serviceradar.vantageEnabled" .) "true" }}
 {{- $mediaJobsStream := "CAMERA_MEDIA_JOBS" }}
 {{- $mediaResultsStream := "CAMERA_MEDIA_RESULTS" }}
 {{- $mediaLiveConsumer := "camera_visual_index_worker_v1_live" }}
@@ -243,14 +242,6 @@ _INBOX.media-worker
       - "telemetry.edge-record-dlq.v1.bulk.>"
       - "telemetry.edge-record.v1.bulk.>"
       - "telemetry.edge-record-audit.v1.bulk.>"
-      {{- /* Visual index jobs (Camera.VisualIndexDispatcher), relayed from the
-           camera_visual_index_jobs outbox onto CAMERA_MEDIA_JOBS, which the
-           media worker owns. The publish waits for a PubAck, so a missing
-           entry leaves every job pending. Results the worker returns on
-           media.results.visual_index.v1 are read through a JetStream consumer,
-           which the API, ACK and inbox grants below already cover. */}}
-      - "media.jobs.visual_index.v1"
-      - "media.jobs.visual_index.backfill.v1"
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
            the bucket through the JetStream API and writes each bundle here. */}}
       - "$KV.{{ $zenRuleBucket }}.>"
@@ -478,20 +469,17 @@ _INBOX.media-worker
     allow: []
     deny: [">"]
     {{- end }}
-{{- /* The media worker (rust/media-worker/src/worker.rs) creates its jobs and
-     results streams if they are missing, creates and pulls its two durable job
-     consumers, acknowledges their deliveries, publishes results and its own
-     metrics snapshot, and answers query-embedding requests from web-ng. Every
-     JetStream API grant names its own stream or consumer, so it cannot read,
-     purge or delete anything else. Everything addressed to the worker arrives
-     under its own inbox prefix, the only inbox it may subscribe to.
-     Publishing to _INBOX.> remains: an embedding reply goes to web-ng's reply
-     subject, which Gnat draws from web-ng's single connection-wide _INBOX.
-     prefix. Narrowing it needs a dedicated reply prefix for those requests in
-     web-ng (follow-up). */}}
+{{- /* The Vantage addon's media worker creates its jobs and results streams if
+     they are missing, creates and pulls its two durable job consumers,
+     acknowledges their deliveries, publishes results and its own metrics
+     snapshot, and answers text-embedding requests. Every JetStream API grant
+     names its own stream or consumer, so it cannot read, purge or delete
+     anything else. Everything addressed to the worker arrives under its own
+     inbox prefix, the only inbox it may subscribe to. Publishing to _INBOX.>
+     remains: an embedding reply goes to the requester's reply subject. */}}
 - user: "CN=serviceradar-media-worker,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
-    {{- if $mediaWorkerEnabled }}
+    {{- if $vantageEnabled }}
     allow:
       - "media.results.visual_index.v1"
       - "telemetry.media_worker.metrics.v1"
@@ -513,7 +501,7 @@ _INBOX.media-worker
     deny: [">"]
     {{- end }}
   subscribe:
-    {{- if $mediaWorkerEnabled }}
+    {{- if $vantageEnabled }}
     allow: ["media.rpc.visual_text_embed.v1.>", "{{ $mediaWorkerInbox }}.>"]
     {{- else }}
     allow: []
@@ -522,7 +510,7 @@ _INBOX.media-worker
 {{- /* Vantage provider (serviceradar-vantage): serves web-ng RPC requests on
      vantage.rpc.>, dispatches visual-index jobs and text-embedding requests to
      the media worker, and consumes visual-index results via JetStream. Active
-     when either vantage.enabled or mediaWorker.enabled is true. */}}
+     when vantage.enabled is true. */}}
 - user: "CN=serviceradar-vantage,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     {{- if $vantageEnabled }}

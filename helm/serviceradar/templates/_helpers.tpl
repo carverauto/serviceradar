@@ -183,39 +183,37 @@ Takes (dict "name" <value path> "value" <value> "default" <int>). Renders the nu
 {{- end -}}
 
 {{/*
-The media worker's booleans, validated once for every template that reads them.
-mediaWorker.enabled gates the worker, its certificate, NATS grants, JetStream
-budget, the namespace policies' exclusions and core's dispatch flag;
-networkPolicy.enabled the worker's own policy; networkPolicy.allowNvrRead both
-the worker's egress and the NVR's ingress for analysis reads.
+Hooks for the commercial ServiceRadar Vantage addon, which deploys its own
+services. vantage.enabled turns on the serviceradar-vantage and
+serviceradar-media-worker NATS identities, issues the addon media worker's
+client certificate, counts the addon's fixed JetStream streams, and leaves the
+addon media worker pods out of the namespace-wide egress policies (the addon
+ships their own). vantage.mediaWorker.allowNvrRead admits those pods to the NVR
+analysis-read listener for local read grants.
 */}}
-{{- define "serviceradar.mediaWorkerEnabled" -}}
-{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.enabled" "value" (default (dict) .Values.mediaWorker).enabled "default" false) -}}
+{{- define "serviceradar.vantageEnabled" -}}
+{{- include "serviceradar.strictBool" (dict "name" "vantage.enabled" "value" (default (dict) .Values.vantage).enabled "default" false) -}}
 {{- end -}}
 
-{{- define "serviceradar.mediaWorkerNetworkPolicyEnabled" -}}
-{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.enabled" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).enabled "default" true) -}}
+{{- define "serviceradar.vantageMediaWorkerAllowNvrRead" -}}
+{{- include "serviceradar.strictBool" (dict "name" "vantage.mediaWorker.allowNvrRead" "value" (default (dict) (default (dict) .Values.vantage).mediaWorker).allowNvrRead "default" false) -}}
 {{- end -}}
 
-{{- define "serviceradar.mediaWorkerAllowNvrRead" -}}
-{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.allowNvrRead" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).allowNvrRead "default" false) -}}
-{{- end -}}
-
-{{- define "serviceradar.validateMediaWorkerNvrReadPort" -}}
-{{- if and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") -}}
+{{- define "serviceradar.validateVantageMediaWorkerNvrReadPort" -}}
+{{- if and (eq (include "serviceradar.vantageEnabled" .) "true") (eq (include "serviceradar.vantageMediaWorkerAllowNvrRead" .) "true") -}}
 {{- $nvr := default (dict) .Values.nvr -}}
 {{- if $nvr.enabled -}}
-{{- $np := default (dict) (default (dict) .Values.mediaWorker).networkPolicy -}}
-{{- $nvrReadPort := int (default 8444 $np.nvrReadPort) -}}
+{{- $mw := default (dict) (default (dict) .Values.vantage).mediaWorker -}}
+{{- $nvrReadPort := int (default 8445 $mw.nvrReadPort) -}}
 {{- $read := default (dict) $nvr.read -}}
 {{- $readPort := int (default 8444 $read.port) -}}
 {{- if and $read.enabled (eq $nvrReadPort $readPort) -}}
-{{- fail (printf "mediaWorker.networkPolicy.nvrReadPort (%d) collides with nvr.read.port (%d), which is restricted to serviceradar-web-ng playback reads: set a dedicated analysis-read port or disable mediaWorker.networkPolicy.allowNvrRead" $nvrReadPort $readPort) -}}
+{{- fail (printf "vantage.mediaWorker.nvrReadPort (%d) collides with nvr.read.port (%d), which is restricted to serviceradar-web-ng playback reads: set a dedicated analysis-read port or disable vantage.mediaWorker.allowNvrRead" $nvrReadPort $readPort) -}}
 {{- end -}}
 {{- $ingest := default (dict) $nvr.ingest -}}
 {{- $ingestPort := int (default 8443 $ingest.port) -}}
 {{- if and $ingest.enabled (eq $nvrReadPort $ingestPort) -}}
-{{- fail (printf "mediaWorker.networkPolicy.nvrReadPort (%d) collides with nvr.ingest.port (%d), which is restricted to serviceradar-core ingest: set a dedicated analysis-read port or disable mediaWorker.networkPolicy.allowNvrRead" $nvrReadPort $ingestPort) -}}
+{{- fail (printf "vantage.mediaWorker.nvrReadPort (%d) collides with nvr.ingest.port (%d), which is restricted to serviceradar-core ingest: set a dedicated analysis-read port or disable vantage.mediaWorker.allowNvrRead" $nvrReadPort $ingestPort) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -282,8 +280,8 @@ issues for a NATS client, and the common name of its subject. One list feeds
 core's inventory projection, the subject list core reads, and the generator's
 required-files check, so the three cannot drift. The files that are copies of
 another identity's certificate (flowgger, otel, netflow-collector) are not
-identities and are not listed. Disabling the media worker removes it from this
-inventory even if the Secret still holds its certificate.
+identities and are not listed. Disabling vantage removes the addon media worker
+from this inventory even if the Secret still holds its certificate.
 */}}
 {{- define "serviceradar.natsChartIdentities" -}}
 - {file: "tools.pem", cn: "serviceradar-tools"}
@@ -299,7 +297,7 @@ inventory even if the Secret still holds its certificate.
 - {file: "falcosidekick.pem", cn: "serviceradar-falcosidekick"}
 - {file: "trivy-sidecar.pem", cn: "serviceradar-trivy-sidecar"}
 - {file: "k8s-inventory.pem", cn: "serviceradar-k8s-inventory"}
-{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+{{- if eq (include "serviceradar.vantageEnabled" .) "true" }}
 - {file: "media-worker.pem", cn: "serviceradar-media-worker"}
 {{- end }}
 {{- end -}}
@@ -1631,13 +1629,13 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
   (dict "id" "aranciniFallback" "stream" "ARANCINI_CAUSAL" "source" "core.eventWriter.streams.ARANCINI_CAUSAL.maxBytes" "value" $ewArancini.maxBytes "replicaSource" "core.eventWriter.streams.ARANCINI_CAUSAL.replicas" "replicaValue" $ewArancini.replicas "counted" false)
 ) -}}
 
-{{- /* The media worker creates its jobs and results streams itself at fixed sizes, one
-     replica each (rust/media-worker/src/worker.rs ensure_media_streams); the chart
-     cannot change them, so it counts them while the worker is enabled. */ -}}
-{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+{{- /* The Vantage addon's media worker creates its jobs and results streams itself at
+     fixed sizes, one replica each; the chart cannot change them, so it counts them
+     while vantage is enabled. */ -}}
+{{- if eq (include "serviceradar.vantageEnabled" .) "true" -}}
 {{- $entries = concat $entries (list
-  (dict "id" "cameraMediaJobs" "stream" "CAMERA_MEDIA_JOBS" "source" "fixed media worker jobs reservation" "value" "512Mi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
-  (dict "id" "cameraMediaResults" "stream" "CAMERA_MEDIA_RESULTS" "source" "fixed media worker results reservation" "value" "2Gi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
+  (dict "id" "cameraMediaJobs" "stream" "CAMERA_MEDIA_JOBS" "source" "fixed Vantage media worker jobs reservation" "value" "512Mi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
+  (dict "id" "cameraMediaResults" "stream" "CAMERA_MEDIA_RESULTS" "source" "fixed Vantage media worker results reservation" "value" "2Gi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
 ) -}}
 {{- end -}}
 

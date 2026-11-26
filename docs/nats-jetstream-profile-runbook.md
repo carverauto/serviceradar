@@ -77,10 +77,10 @@ stream. Against an external NATS the configured replica counts are kept.
 
 The per-stream sizes of each profile are chart data in
 `helm/serviceradar/files/jetstream-profiles.yaml`. Per-stream chart values
-override the corresponding profile sizes. The camera worker creates
-its streams at fixed sizes. For their budget impact, minimum file store and
-cleanup after disabling the worker, see the
-[chart's worker guide](../helm/serviceradar/README.md#camera-semantic-search-worker).
+override the corresponding profile sizes. The Vantage addon's media worker
+creates its two streams at fixed sizes, which the budget counts while
+`vantage.enabled` is set; see
+[Vantage addon hooks](../helm/serviceradar/README.md#serviceradar-vantage-addon-hooks).
 `nats.jetstream.maxFileStore` overrides the profile's `max_file_store`.
 NATS reads `G` as 10^9 bytes and `Gi` as 2^30 bytes. The chart renders the
 exact byte count.
@@ -193,10 +193,9 @@ running and serving, and the PVCs are untouched.
 
 Set both values together in the values files your install uses (Git for an
 Argo CD install), or pass them on the command line alongside the complete
-deployment overrides. When upgrading with the media worker enabled from a chart
-with retired media worker keys, follow the
-[worker migration instructions](../helm/serviceradar/README.md#camera-semantic-search-worker)
-before reapplying those overrides.
+deployment overrides. Values files that still set `mediaWorker` keys must move
+them to the Vantage addon chart, see
+[Vantage addon hooks](../helm/serviceradar/README.md#serviceradar-vantage-addon-hooks).
 
 ```
 helm upgrade <release> <chart> -n <ns> --reset-values -f my-values.yaml \

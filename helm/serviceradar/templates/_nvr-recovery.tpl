@@ -86,7 +86,7 @@ credential can neither record nor archive. */ -}}
 {{- end -}}
 {{- end }}
 
-{{- /* The dedicated analysis-read listener for serviceradar-media-worker: its
+{{- /* The dedicated analysis-read listener for the Vantage addon's media worker: its
 own port (default 8445), client certificate pin, bearer token, and read pool,
 completely isolated from both core ingest (8443) and web-ng playback (8444). */ -}}
 {{- define "serviceradar.validateNvrAnalysisRead" -}}
@@ -123,61 +123,6 @@ completely isolated from both core ingest (8443) and web-ng playback (8444). */ 
 {{- fail "nvr.analysisRead.client.tlsSecretName must be distinct from the ingest and playback read TLS Secrets" -}}
 {{- end -}}
 {{- end -}}
-{{- end }}
-
-{{- define "serviceradar.nvrAnalysisReadClientEnv" -}}
-{{- $nvr := default (dict) .Values.nvr -}}
-{{- $analysis := default (dict) $nvr.analysisRead -}}
-{{- if and $nvr.enabled $analysis.enabled (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") }}
-{{- $nvrName := printf "%s-nvr" (include "serviceradar.fullname" .) }}
-- name: SERVICERADAR_MEDIA_WORKER_NVR_SCHEME
-  value: "https"
-- name: SERVICERADAR_MEDIA_WORKER_NVR_HOST_SUFFIX
-  value: {{ printf ".%s.%s.svc.cluster.local" $nvrName .Release.Namespace | quote }}
-- name: SERVICERADAR_MEDIA_WORKER_NVR_TLS_CA_FILE
-  value: /etc/serviceradar/nvr-analysis-read/tls/ca.crt
-- name: SERVICERADAR_MEDIA_WORKER_NVR_TLS_CERT_FILE
-  value: /etc/serviceradar/nvr-analysis-read/tls/tls.crt
-- name: SERVICERADAR_MEDIA_WORKER_NVR_TLS_KEY_FILE
-  value: /etc/serviceradar/nvr-analysis-read/tls/tls.key
-- name: SERVICERADAR_MEDIA_WORKER_NVR_AUTH_TOKEN_FILE
-  value: /etc/serviceradar/nvr-analysis-read/auth/analysis-read-token
-{{- end }}
-{{- end }}
-
-{{- define "serviceradar.nvrAnalysisReadClientMounts" -}}
-{{- $nvr := default (dict) .Values.nvr -}}
-{{- $analysis := default (dict) $nvr.analysisRead -}}
-{{- if and $nvr.enabled $analysis.enabled (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") }}
-- name: nvr-analysis-read-auth
-  mountPath: /etc/serviceradar/nvr-analysis-read/auth
-  readOnly: true
-- name: nvr-analysis-read-tls
-  mountPath: /etc/serviceradar/nvr-analysis-read/tls
-  readOnly: true
-{{- end }}
-{{- end }}
-
-{{- define "serviceradar.nvrAnalysisReadClientVolumes" -}}
-{{- $nvr := default (dict) .Values.nvr -}}
-{{- $analysis := default (dict) $nvr.analysisRead -}}
-{{- if and $nvr.enabled $analysis.enabled (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") }}
-{{- $client := default (dict) $analysis.client }}
-- name: nvr-analysis-read-auth
-  secret:
-    secretName: {{ $client.tokenSecretName | quote }}
-    defaultMode: 0440
-    items:
-      - {key: analysis-read-token, path: analysis-read-token}
-- name: nvr-analysis-read-tls
-  secret:
-    secretName: {{ $client.tlsSecretName | quote }}
-    defaultMode: 0440
-    items:
-      - {key: tls.crt, path: tls.crt}
-      - {key: tls.key, path: tls.key}
-      - {key: ca.crt, path: ca.crt}
-{{- end }}
 {{- end }}
 
 {{- define "serviceradar.nvrReadClientEnv" -}}

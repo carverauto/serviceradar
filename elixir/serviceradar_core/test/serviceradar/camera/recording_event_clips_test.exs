@@ -402,7 +402,7 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       assert Enum.map(smart_page.clips, & &1.category) == [:person]
     end
 
-    test "wires authenticated thumbnail URLs from has_thumbnail flags without loading bytea blobs" do
+    test "uses a provider thumbnail URL or the block thumbnail, never loading bytea blobs" do
       entries = [
         @entry_1_id
         |> playable_entry(
@@ -425,9 +425,10 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       ]
 
       frames = [
-        # Frame with its own thumbnail -> uses frame URL
+        # Frame with a provider-supplied thumbnail URL -> uses it
         %{
           id: @frame_1_id,
+          thumbnail_url: "/vantage/thumbnails/#{@frame_1_id}.jpg",
           catalog_entry_id: @entry_1_id,
           camera_source_id: @camera_id,
           stream_profile_id: @profile_id,
@@ -439,7 +440,7 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
             %{"object_class" => "person", "confidence" => 0.92, "dominant_colors" => []}
           ]
         },
-        # Motion frame without its own thumbnail -> falls back to parent block URL
+        # Frame without a provider thumbnail -> falls back to parent block URL
         %{
           id: @frame_3_id,
           catalog_entry_id: @entry_1_id,
@@ -467,8 +468,7 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
 
       person_clip = Enum.find(clips, &(&1.category == :person))
 
-      assert person_clip.thumbnail_url ==
-               "/api/cameras/#{@camera_id}/timeline/thumbnails/frame/#{@frame_1_id}.jpg"
+      assert person_clip.thumbnail_url == "/vantage/thumbnails/#{@frame_1_id}.jpg"
 
       motion_clip = Enum.find(clips, &(&1.category == :motion))
 

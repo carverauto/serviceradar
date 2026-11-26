@@ -109,12 +109,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
           binding: binding,
           archive_opts: archive_opts,
           archive_fn: &NVRArchive.archive_block/5,
-          visual_index_enabled_fn: fn -> true end,
-          has_pending_visual_job_fn: fn id -> id == @entry_id end,
-          dispatch_enqueuer: fn ->
-            send(parent, :visual_index_nudged)
-            {:ok, :queued}
-          end,
           commit_verified_fn: fn committed_entry, committed_binding, receipt_bytes, now ->
             send(parent, {:committed, committed_entry.id, committed_binding.id, receipt_bytes, now})
             {:ok, :verified}
@@ -129,7 +123,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
       assert request.target == "/v1/blocks/#{@block_key}/archive"
 
       assert_receive {:committed, @entry_id, @binding_id, receipt_bytes, @fixed_now}
-      assert_receive :visual_index_nudged
       assert {:ok, expected_canonical} = CanonicalJSON.encode(receipt())
       assert receipt_bytes == expected_canonical
       assert {:ok, parsed} = NVRArchiveReceipt.parse_receipt_bytes(receipt_bytes)
