@@ -11,7 +11,9 @@ defmodule ServiceRadar.Repo.Migrations.IndexEdgeSweepProjectedRowsInsertedAt do
 
   The table is written continuously, so the index is built `CONCURRENTLY`, which cannot run
   inside a transaction; hence a migration of its own with the DDL transaction and migration
-  lock disabled.
+  lock disabled. A concurrent build that is interrupted leaves an invalid index under this
+  name, which `IF NOT EXISTS` would then skip forever while every insert still maintained it,
+  so the next run drops an invalid index and rebuilds it.
   """
 
   use Ecto.Migration
@@ -19,23 +21,48 @@ defmodule ServiceRadar.Repo.Migrations.IndexEdgeSweepProjectedRowsInsertedAt do
   @disable_ddl_transaction true
   @disable_migration_lock true
 
+  @index "edge_sweep_projected_rows_inserted_at_idx"
+
+  @create """
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS edge_sweep_projected_rows_inserted_at_idx
+  ON platform.edge_sweep_projected_rows (inserted_at)
+  """
+
   def up do
-    create_if_not_exists(
-      index(:edge_sweep_projected_rows, [:inserted_at],
-        prefix: "platform",
-        name: "edge_sweep_projected_rows_inserted_at_idx",
-        concurrently: true
-      )
-    )
+    case index_state(@index) do
+      :valid ->
+        :ok
+
+      :invalid ->
+        execute("DROP INDEX CONCURRENTLY IF EXISTS platform.#{@index}")
+        execute(@create)
+
+      :missing ->
+        execute(@create)
+    end
   end
 
   def down do
-    drop_if_exists(
-      index(:edge_sweep_projected_rows, [:inserted_at],
-        prefix: "platform",
-        name: "edge_sweep_projected_rows_inserted_at_idx",
-        concurrently: true
+    execute("DROP INDEX CONCURRENTLY IF EXISTS platform.#{@index}")
+  end
+
+  defp index_state(name) do
+    %{rows: rows} =
+      repo().query!(
+        """
+        SELECT COALESCE(i.indisvalid AND i.indisready AND i.indislive, false)
+        FROM pg_class AS c
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        JOIN pg_index AS i ON i.indexrelid = c.oid
+        WHERE n.nspname = 'platform' AND c.relname = $1
+        """,
+        [name]
       )
-    )
+
+    case rows do
+      [] -> :missing
+      [[true]] -> :valid
+      [[false]] -> :invalid
+    end
   end
 end
