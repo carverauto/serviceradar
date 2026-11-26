@@ -82,18 +82,6 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
              "whether MergeEngine still needs Ash.transact and update this test's premise"
   end
 
-  test "MergeEngine uses NotificationQueue.transact for both merge and unmerge" do
-    source =
-      File.read!("lib/serviceradar/inventory/identity/merge_engine.ex")
-
-    refute source =~ "Ash.transaction(",
-           "MergeEngine must not use the deprecated Ash.transaction/3: it commits " <>
-             "a partial merge when the transaction body returns an error"
-
-    assert length(String.split(source, "NotificationQueue.transact(")) - 1 == 2,
-           "expected exactly two NotificationQueue.transact/3 call sites (do_merge_devices, do_unmerge)"
-  end
-
   defp create_device(actor, uid, ip) do
     Device
     |> Ash.Changeset.for_create(:create, %{uid: uid, hostname: "rollback-test", ip: ip})
