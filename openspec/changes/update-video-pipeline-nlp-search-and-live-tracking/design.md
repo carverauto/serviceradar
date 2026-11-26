@@ -7,7 +7,7 @@ Detailed codebase evidence and 8,000-camera derivations live in [docs/video-pipe
 ## Goals / Non-Goals
 
 - Goals:
-  - Accurate compositional NLP retrieval (`"find the man in the red dress"`) using Apache-2.0 pure-Rust `YOLOX` detection + `SigLIP-b16-384` + torso/lower-body HSV sub-crop attributes + optional bounded top-K VLM reranking.
+  - Apache-2.0 pure-Rust `YOLOX` detection with torso/lower-body HSV sub-crop attributes recorded alongside each detection.
   - Pure-Rust live object detection and multi-object tracking (`YOLOX` + `trackforge` `ByteTrack`/`BotSort` stateful per-camera `ClipTracker`) sharing existing camera ingests without duplicate camera sessions.
   - 8,000-camera viability (`2-4 Mbit/s`, `0.2-0.5 fps`) via two-tier gating (`add-vms-frame-change-gate`), bounded live-tracking concurrency/substream/Tier-2 caps (`<= 1,000` opt-in cams @ `1 fps` or `8,000` cams @ `0.5 fps` substream + `10-15%` Tier-2 pass-through), binary/f16 result payloads, track-crop dedup, configurable JetStream stream budgets, PG18 `timeline_ts_us` partitioned `halfvec(768)` embeddings, and scaled outbox dispatch (`> 318 jobs/s` continuous arrival, `>= 500 jobs/s` burst drain).
   - Shared pure-Rust workspace consolidation (`serviceradar-media-core`, `serviceradar-nats`, `serviceradar-spool`, `serviceradar-service-probes`, `serviceradar-anomaly-core`, `longshore >= 0.2.0`, selective `ultragraphdb_core_*` patterns) and `rusty_h264` fork adoption (`carverauto/0.17.3-fixes` `4439375cf`).
@@ -21,7 +21,7 @@ Detailed codebase evidence and 8,000-camera derivations live in [docs/video-pipe
 
 ### 1. Decoupled Model Identity & Pure-Rust Apache-2.0 Detector (`YOLOX`)
 - **Decision:** Separate `detector_model_id` / `detector_model_version` from `embedder_model_id` / `embedder_model_version` in Core (`VisualIndexDispatcher`), Helm (`media-worker.yaml`), and `serviceradar-media-worker`. Replace AGPL-3.0 YOLOv8 weights with pure-Rust **YOLOX** (Apache-2.0, `candle-nn` CSPDarknet + PAFPN + decoupled anchor-free head). Keep `SigLIP-b16-384` (`768`-dim) for Stage 2 embeddings and text RPC (`2.20 ms` p50 on GB10 F16).
-- **Attribute Binding Fix:** Extend `vision.rs` `classify_dominant_colors` from full-bbox averaging to **upper-body (torso) vs lower-body (legs/skirt) sub-crop HSV histograms** and structured attributes (`upper_color`, `lower_color`, `object_class`), stored alongside crop embeddings. Optionally allow query-time **top-K VLM reranking** (`qwen3_vl` or `moondream` in `candle-transformers 0.11.1`) strictly bounded to `<= 20` candidate frames at query time (never on ingestion).
+- **Attribute Binding Fix:** Extend `vision.rs` `classify_dominant_colors` from full-bbox averaging to **upper-body (torso) vs lower-body (legs/skirt) sub-crop HSV histograms** and structured attributes (`upper_color`, `lower_color`, `object_class`), stored alongside crop embeddings.
 - **SPS Dimension Fallback:** When `camera_stream_profiles.metadata` reports `fps=0, width=0, height=0` (observed on inventory bootstrap), derive frame geometry from decoded SPS / `ParsedInitSegment` (`cmaf.rs`) so bounding-box normalization and tracking never divide by zero.
 
 ### 2. Pure-Rust Live Object Detection & Tracking

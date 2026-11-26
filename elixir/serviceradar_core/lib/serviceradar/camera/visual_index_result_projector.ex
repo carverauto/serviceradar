@@ -24,8 +24,6 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RecordingCatalogEntry
-  alias ServiceRadar.Camera.VisualCaptionClient
-  alias ServiceRadar.Camera.VisualCaptionWorker
   alias ServiceRadar.Camera.VisualEmbedding
   alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Camera.VisualIndexDispatcher
@@ -152,11 +150,10 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
       case disposition(validation, job && job.state, recording) do
         {:store, frames, block_thumbnail_jpeg} ->
           store_block_thumbnail(entry, block_thumbnail_jpeg)
-          stored_frames = store_frames(entry, parsed, frames)
+          store_frames(entry, parsed, frames)
 
-          with {:ok, _} <- complete_job(job, now),
-               {:ok, summary} <- projection_summary(job, frames) do
-            {:ingested_with_caption, summary, pick_smart_anchor_frame_id(stored_frames)}
+          with {:ok, _} <- complete_job(job, now) do
+            projection_summary(job, frames)
           end
 
         :ack ->
@@ -222,7 +219,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   end
 
   defp store_frames(entry, parsed, frames) do
-    Enum.map(frames, fn f_spec ->
+    Enum.each(frames, fn f_spec ->
       timeline_ts_us = compute_timeline_ts_us(entry, f_spec.media_pts_ns)
 
       {:ok, frame} =
@@ -248,13 +245,6 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
         |> Ash.create(actor: @system_actor)
 
       upsert_frame_embeddings(entry, frame, timeline_ts_us, parsed, f_spec.embeddings)
-      {frame.id, f_spec.detections}
-    end)
-  end
-
-  defp pick_smart_anchor_frame_id(stored_frames) do
-    Enum.find_value(stored_frames, fn {frame_id, detections} ->
-      if VisualCaptionWorker.has_smart_detection?(detections), do: to_string(frame_id)
     end)
   end
 
@@ -340,11 +330,6 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     end
   end
 
-  defp unwrap_transaction({:ok, {:ingested_with_caption, summary, smart_anchor_frame_id}}) do
-    maybe_enqueue_caption(summary.catalog_entry_id, smart_anchor_frame_id)
-    {:ok, summary}
-  end
-
   defp unwrap_transaction({:ok, {:ok, _} = projection}), do: projection
   defp unwrap_transaction({:ok, :recording_gone}), do: {:error, :recording_gone}
   defp unwrap_transaction({:ok, {:report, reason}}), do: {:error, reason}
@@ -362,26 +347,4 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   end
 
   defp unwrap_transaction(other), do: other
-
-  defp maybe_enqueue_caption(_catalog_entry_id, nil), do: :ok
-
-  defp maybe_enqueue_caption(catalog_entry_id, smart_anchor_frame_id) do
-    if VisualCaptionClient.enabled?() do
-      try do
-        _ =
-          VisualCaptionWorker.enqueue_for_entry(
-            to_string(catalog_entry_id),
-            smart_anchor_frame_id
-          )
-
-        :ok
-      rescue
-        _ -> :ok
-      catch
-        _, _ -> :ok
-      end
-    else
-      :ok
-    end
-  end
 end

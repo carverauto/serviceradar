@@ -86,7 +86,7 @@ Browse published first-party and community packs on the developer portal at [dev
 
 `serviceradar-sdk-vantage` is the video ML extensibility SDK for [ServiceRadar Vantage](./vantage.md). It enables operators and third-party developers to build and package custom camera analytics (such as ALPR, PPE compliance, hazard detection, or bay guidance) across three progressive compute ramps without forking ServiceRadar core:
 
-- **Ramp 1 (Declarative VLM Pipelines)**: Zero-code structured JSON prompts run by `serviceradar-camera-vlm` against full-resolution cropped IDR keyframes around Stage 1 detections.
+- **Ramp 1 (Declarative VLM Pipelines)**: Zero-code structured JSON prompts run by the Vantage VLM runtime against full-resolution cropped IDR keyframes around Stage 1 detections.
 - **Ramp 2 (External `vantage.worker.v1` Workers)**: Out-of-process Rust or Python workers built with the SDK's Rust core crate (wrapping `serviceradar-media-core` H.264 decode and SHA-256 verification), Python PyO3 bindings, and a synthetic local development harness. Workers pull jobs from NATS JetStream, read sealed video blocks via execution-time scoped Fragment Read Grants, and require zero database credentials.
 - **Ramp 3 (WASM Action Bridges)**: Connects structured Vantage observations (`in:camera_observations`) and OCSF events to sandboxed Wasm plugins for deterministic post-processing, watchlist enrichment, and northbound actions.
 

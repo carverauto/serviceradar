@@ -433,6 +433,30 @@ defmodule ServiceRadarWebNG.Vantage.ClientTest do
       assert_received :overlay_rpc_called
       assert det.visual_frame_id == @frame_id
     end
+
+    test "search and frame overlays fail closed without calling Vantage when the provider is disabled" do
+      scope = synthetic_scope(["devices.view", "devices.cameras.recordings.view"])
+      test_pid = self()
+
+      request_fn = fn subject, _body, _opts ->
+        send(test_pid, {:unexpected_vantage_rpc, subject})
+        {:ok, %{body: Jason.encode!(%{"status" => "ok", "results" => []})}}
+      end
+
+      opts = [
+        vantage_rpc_enabled: false,
+        authorize_fn: fn s -> {:ok, s} end,
+        vantage_opts: [request_fn: request_fn]
+      ]
+
+      assert {:error, :vantage_unavailable} =
+               CameraSemanticSearch.execute(scope, %{"q" => "white van"}, opts)
+
+      assert {:error, :vantage_unavailable} =
+               CameraSemanticSearch.get_frame_overlay(scope, @camera_a, @frame_id, opts)
+
+      refute_received {:unexpected_vantage_rpc, _}
+    end
   end
 
   defp synthetic_scope(perms) do

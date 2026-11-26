@@ -7,8 +7,8 @@
 {{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
 {{- $models := default (dict) $mw.models -}}
 {{- /* Model identity. Core has no setting for it: ServiceRadar.Camera.VisualIndexDispatcher
-     stamps these compiled defaults on every job, and ServiceRadar.Camera.SemanticSearch
-     requests query embeddings on media.rpc.visual_text_embed.v1.<embedder id>.<version>.
+     stamps these compiled defaults on every job, and text-embedding requests arrive on
+     media.rpc.visual_text_embed.v1.<embedder id>.<version>.
      A worker announcing anything else rejects every job (embedder id and dimension are
      checked per job) and subscribes to an RPC subject nobody requests, so the chart pins
      the worker to core's values instead of exposing them, and refuses the removed keys
@@ -669,15 +669,6 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $nvrReadPort }}
-    {{- end }}
-    {{- if eq (include "serviceradar.cameraVlmEnabled" .) "true" }}
-    - to:
-        - podSelector:
-            matchLabels:
-              app: serviceradar-camera-vlm
-      ports:
-        - protocol: TCP
-          port: {{ include "serviceradar.cameraVlmPort" . }}
     {{- end }}
     {{- if gt (len $s3Cidrs) 0 }}
     - to:

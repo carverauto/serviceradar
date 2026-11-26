@@ -12,7 +12,6 @@ defmodule ServiceRadar.Catalog.BuiltinPacksTest do
   @moduletag :db_free
 
   @expected_pack_slugs [
-    "camera-semantic-search-health",
     "http-api-and-tls-posture",
     "network-segmentation-and-wan",
     "proxmox-monitoring",
@@ -20,7 +19,6 @@ defmodule ServiceRadar.Catalog.BuiltinPacksTest do
   ]
 
   @expected_pack_ids [
-    "io.serviceradar.camera-semantic-search-health",
     "io.serviceradar.http-api-and-tls-posture",
     "io.serviceradar.network-segmentation-and-wan",
     "io.serviceradar.proxmox-monitoring",
@@ -103,7 +101,7 @@ defmodule ServiceRadar.Catalog.BuiltinPacksTest do
       end
     end
 
-    test "verifies expected check topologies, rule install states, and dashboard titles for the 3 new packs" do
+    test "verifies expected check topologies, rule install states, and dashboard titles for the new packs" do
       {:ok, http_pack} = BuiltinPacks.load_builtin_pack("http-api-and-tls-posture")
 
       assert http_pack.manifest["categories"] == ["Synthetic HTTP", "Security & Posture"]
@@ -119,22 +117,6 @@ defmodule ServiceRadar.Catalog.BuiltinPacksTest do
 
       assert Enum.map(http_pack.rules, & &1.normalized["install_state"]) == ["enabled", "paused"]
       assert hd(http_pack.dashboards).normalized["title"] == "Synthetic HTTP & TLS Posture"
-
-      {:ok, search_pack} = BuiltinPacks.load_builtin_pack("camera-semantic-search-health")
-
-      assert search_pack.manifest["categories"] == ["Storage & NVR", "Infrastructure"]
-
-      assert Enum.map(search_pack.checks, & &1.normalized["slug"]) == [
-               "visual-index-queue-lag",
-               "media-worker-readiness"
-             ]
-
-      assert Enum.map(search_pack.checks, fn c ->
-               SchemaValidator.classify_topology(c.normalized["nodes"])
-             end) == [:core_only, :edge_only]
-
-      assert length(search_pack.rules) == 2
-      assert hd(search_pack.dashboards).normalized["title"] == "Camera Semantic Search Health"
 
       {:ok, net_pack} = BuiltinPacks.load_builtin_pack("network-segmentation-and-wan")
 

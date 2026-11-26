@@ -201,68 +201,6 @@ the worker's egress and the NVR's ingress for analysis reads.
 {{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.allowNvrRead" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).allowNvrRead "default" false) -}}
 {{- end -}}
 
-{{/*
-In-cluster / external camera VLM runtime helpers.
-cameraVlm.enabled gates the in-cluster GPU VLM Deployment, Service, its
-zero-egress NetworkPolicy, the namespace-wide policy exclusions, and egress
-from core / web-ng / media-worker. cameraVlm.externalUrl allows wiring an
-operator-managed external OpenAI-compatible VLM endpoint without deploying the
-in-cluster GPU pod.
-*/}}
-{{- define "serviceradar.cameraVlmEnabled" -}}
-{{- include "serviceradar.strictBool" (dict "name" "cameraVlm.enabled" "value" (default (dict) .Values.cameraVlm).enabled "default" false) -}}
-{{- end -}}
-
-{{- define "serviceradar.cameraVlmNetworkPolicyEnabled" -}}
-{{- include "serviceradar.strictBool" (dict "name" "cameraVlm.networkPolicy.enabled" "value" (default (dict) (default (dict) .Values.cameraVlm).networkPolicy).enabled "default" true) -}}
-{{- end -}}
-
-{{- define "serviceradar.cameraVlmPort" -}}
-{{- $vlm := default (dict) .Values.cameraVlm -}}
-{{- $port := int (include "serviceradar.wholeCount" (dict "name" "cameraVlm.port" "value" $vlm.port "default" 8080)) -}}
-{{- if or (lt $port 1) (gt $port 65535) -}}
-{{- fail (printf "cameraVlm.port must be between 1 and 65535, got %d" $port) -}}
-{{- end -}}
-{{- $port -}}
-{{- end -}}
-
-{{- define "serviceradar.cameraVlmExternalUrl" -}}
-{{- $vlm := default (dict) .Values.cameraVlm -}}
-{{- $raw := $vlm.externalUrl -}}
-{{- if kindIs "invalid" $raw -}}
-{{- "" -}}
-{{- else if not (kindIs "string" $raw) -}}
-{{- fail (printf "cameraVlm.externalUrl must be a string, got %s" (kindOf $raw)) -}}
-{{- else -}}
-{{- $url := trim $raw -}}
-{{- if ne $url "" -}}
-{{- if not (or (hasPrefix "http://" $url) (hasPrefix "https://" $url)) -}}
-{{- fail (printf "cameraVlm.externalUrl must start with http:// or https://, got %q" $url) -}}
-{{- end -}}
-{{- if eq (include "serviceradar.cameraVlmEnabled" .) "true" -}}
-{{- fail "cameraVlm.enabled and cameraVlm.externalUrl are mutually exclusive: disable cameraVlm.enabled to target an external VLM endpoint, or clear cameraVlm.externalUrl to use the in-cluster service" -}}
-{{- end -}}
-{{- end -}}
-{{- $url -}}
-{{- end -}}
-{{- end -}}
-
-{{- define "serviceradar.cameraVlmEnv" -}}
-{{- $enabled := eq (include "serviceradar.cameraVlmEnabled" .) "true" -}}
-{{- $externalUrl := include "serviceradar.cameraVlmExternalUrl" . -}}
-{{- if or $enabled (ne $externalUrl "") -}}
-{{- $url := $externalUrl -}}
-{{- if $enabled -}}
-{{- $port := include "serviceradar.cameraVlmPort" . -}}
-{{- $url = printf "http://serviceradar-camera-vlm.%s.svc.cluster.local:%s/v1/chat/completions" .Release.Namespace $port -}}
-{{- end }}
-- name: SERVICERADAR_CAMERA_VLM_ENABLED
-  value: "true"
-- name: SERVICERADAR_CAMERA_VLM_URL
-  value: {{ $url | quote }}
-{{- end -}}
-{{- end -}}
-
 {{- define "serviceradar.validateMediaWorkerNvrReadPort" -}}
 {{- if and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") -}}
 {{- $nvr := default (dict) .Values.nvr -}}
