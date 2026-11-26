@@ -1,9 +1,9 @@
-use super::{QueryPlan, QueryRequest, max_time_range_days_for_ast};
+use super::{KeysetPlan, QueryDirection, QueryPlan, QueryRequest, max_time_range_days_for_ast};
 use crate::{
     config::AppConfig,
     error::{Result, ServiceError},
-    pagination::decode_cursor,
-    parser::{Entity, Filter, QueryAst},
+    pagination::{CursorPosition, KEYSET_KEYS, KeysetDirection, decode_position},
+    parser::{Entity, Filter, OrderClause, OrderDirection, QueryAst},
     time::TimeRange,
 };
 use chrono::{Duration as ChronoDuration, Utc};
@@ -43,13 +43,19 @@ pub(crate) fn build_query_plan(
     } else {
         config.max_cursor_offset
     };
-    let offset = request
+    let aggregated = ast.stats.is_some() || ast.rollup_stats.is_some() || downsample.is_some();
+    let keyset = keyset_for(&ast.entity, &order, aggregated);
+    let order = match &keyset {
+        // Repeated identical sort keys collapse to the one key.
+        Some(_) => order.into_iter().take(1).collect(),
+        None => order,
+    };
+    let position = request
         .cursor
         .as_deref()
-        .map(|cursor| decode_cursor(cursor, &config.cursor_secret, max_offset))
-        .transpose()?
-        .unwrap_or(0)
-        .max(0);
+        .map(|cursor| decode_position(cursor, &config.cursor_secret, max_offset))
+        .transpose()?;
+    let (offset, keyset) = position_page(keyset, position, &request.direction)?;
 
     Ok(QueryPlan {
         entity: ast.entity,
@@ -64,7 +70,82 @@ pub(crate) fn build_query_plan(
         other: ast.other,
         include_deleted,
         exhaustive_window,
+        keyset,
     })
+}
+
+/// The keyset this query pages by, when its effective order is exactly one
+/// declared keyset key of its entity (repeated identical sort keys count as
+/// one). Aggregations and any other order keep offset paging.
+fn keyset_for(entity: &Entity, order: &[OrderClause], aggregated: bool) -> Option<KeysetPlan> {
+    if aggregated {
+        return None;
+    }
+    let entity_name = match entity {
+        Entity::Devices => "devices",
+        Entity::Agents => "agents",
+        _ => return None,
+    };
+    let (_, column) = KEYSET_KEYS
+        .iter()
+        .find(|(declared, _)| *declared == entity_name)?;
+    let direction = |clause: &OrderClause| match clause.direction {
+        OrderDirection::Asc => KeysetDirection::Asc,
+        OrderDirection::Desc => KeysetDirection::Desc,
+    };
+    let first = order.first()?;
+    if !order
+        .iter()
+        .all(|clause| clause.field == *column && direction(clause) == direction(first))
+    {
+        return None;
+    }
+    Some(KeysetPlan {
+        entity: entity_name,
+        column,
+        direction: direction(first),
+        after: None,
+    })
+}
+
+/// Resolves the cursor against the query's paging mode. A v2 offset is
+/// honoured on any query, so a walk that straddles an upgrade completes; a
+/// keyset position is honoured only on the keyset it was minted for, and only
+/// forward.
+fn position_page(
+    keyset: Option<KeysetPlan>,
+    position: Option<CursorPosition>,
+    direction: &QueryDirection,
+) -> Result<(i64, Option<KeysetPlan>)> {
+    match (keyset, position) {
+        (keyset, None) => Ok((0, keyset)),
+        (keyset, Some(CursorPosition::Offset(offset))) => Ok((offset.max(0), keyset)),
+        (None, Some(CursorPosition::Keyset(_))) => Err(ServiceError::InvalidRequest(
+            "invalid cursor: keyset cursor does not match the query order".into(),
+        )),
+        (Some(keyset), Some(CursorPosition::Keyset(position))) => {
+            if matches!(direction, QueryDirection::Prev) {
+                return Err(ServiceError::InvalidRequest(
+                    "keyset cursors are forward-only; direction prev is not supported".into(),
+                ));
+            }
+            if position.entity != keyset.entity
+                || position.column != keyset.column
+                || position.direction != keyset.direction
+            {
+                return Err(ServiceError::InvalidRequest(
+                    "invalid cursor: keyset cursor does not match the query order".into(),
+                ));
+            }
+            Ok((
+                0,
+                Some(KeysetPlan {
+                    after: Some(position.key),
+                    ..keyset
+                }),
+            ))
+        }
+    }
 }
 
 /// Shared by cursor decoding, execution, and translation to avoid truncating

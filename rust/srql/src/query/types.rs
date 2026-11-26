@@ -1,4 +1,5 @@
 use crate::{
+    pagination::KeysetDirection,
     parser::{Entity, Filter, OrderClause},
     time::TimeRange,
 };
@@ -50,6 +51,40 @@ pub struct QueryPlan {
     /// Maintenance window scans may page past the interactive cursor ceiling.
     /// Set from the `window_scan:true` query token, which is not a column filter.
     pub exhaustive_window: bool,
+    /// Set when the effective order is a single declared keyset key: the page
+    /// is read by key position and the executor mints the next cursor.
+    pub keyset: Option<KeysetPlan>,
+}
+
+/// A keyset-paged read: the declared key, its direction, and the last key of
+/// the previous page (`None` on the first page, or when a v2 offset cursor
+/// positioned this page).
+#[derive(Debug, Clone)]
+pub struct KeysetPlan {
+    pub entity: &'static str,
+    pub column: &'static str,
+    pub direction: KeysetDirection,
+    pub after: Option<String>,
+}
+
+impl KeysetPlan {
+    pub fn meta(&self) -> KeysetMeta {
+        KeysetMeta {
+            entity: self.entity.to_string(),
+            column: self.column.to_string(),
+            direction: self.direction.as_str().to_string(),
+        }
+    }
+}
+
+/// Returned with a keyset-paged translation in place of `next_cursor`: the
+/// executor reads `column` from the last row of a full page and asks SRQL to
+/// sign the next cursor.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct KeysetMeta {
+    pub entity: String,
+    pub column: String,
+    pub direction: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -115,6 +150,8 @@ pub struct PaginationMeta {
     pub next_cursor: Option<String>,
     pub prev_cursor: Option<String>,
     pub limit: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keyset: Option<KeysetMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

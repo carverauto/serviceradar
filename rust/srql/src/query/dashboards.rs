@@ -329,6 +329,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         }
     }
 
@@ -352,6 +353,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let (sql, params) = to_sql_and_params(&plan).expect("dashboard SQL should translate");

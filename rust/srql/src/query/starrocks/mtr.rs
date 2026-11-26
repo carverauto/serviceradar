@@ -320,6 +320,7 @@ pub(super) fn translate(
             next_cursor: None,
             prev_cursor: None,
             limit: Some(plan.limit),
+            keyset: None,
         },
         viz: None,
     })

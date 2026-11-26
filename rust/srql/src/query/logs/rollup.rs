@@ -152,6 +152,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_rollup_stats_query(&plan).expect("should build rollup_stats query");
@@ -197,6 +198,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_rollup_stats_query(&plan).expect("should build rollup_stats query");
@@ -228,6 +230,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_rollup_stats_query(&plan);

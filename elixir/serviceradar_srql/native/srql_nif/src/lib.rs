@@ -86,6 +86,30 @@ fn translate(
     }
 }
 
+/// Sign the next keyset (v3) cursor for a keyset-paged translation.
+///
+/// A translation whose order is a declared keyset key returns
+/// `pagination.keyset = {entity, column, direction}` instead of a cursor. The
+/// executor that ran the page reads `column` from the last row of a full page
+/// and calls this; the signing secret never leaves the NIF.
+#[rustler::nif]
+fn keyset_cursor(env: Env, entity: String, column: String, direction: String, key: String) -> Term {
+    let config = srql::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let minted = srql::pagination::KeysetDirection::parse(&direction).and_then(|direction| {
+        srql::pagination::encode_keyset_cursor(
+            &entity,
+            &column,
+            direction,
+            &key,
+            &config.cursor_secret,
+        )
+    });
+    match minted {
+        Ok(cursor) => (atoms::ok(), cursor).encode(env),
+        Err(err) => (atoms::error(), err.to_string()).encode(env),
+    }
+}
+
 /// Compile exact interface pairs without expanding them to a device/index cross
 /// product. The owner enforces the complete request budget before JSON decode.
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -95,7 +119,7 @@ fn translate_interface_rates<'a>(
     mode: Option<String>,
 ) -> Term<'a> {
     use srql::query::interface_rates::{
-        InterfaceRateRequest, MAX_REQUEST_BYTES, translate_interface_rates,
+        translate_interface_rates, InterfaceRateRequest, MAX_REQUEST_BYTES,
     };
     if request.len() > MAX_REQUEST_BYTES {
         return (atoms::error(), "interface-rate request exceeds byte budget").encode(env);

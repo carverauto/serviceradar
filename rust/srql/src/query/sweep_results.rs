@@ -401,6 +401,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         }
     }
 

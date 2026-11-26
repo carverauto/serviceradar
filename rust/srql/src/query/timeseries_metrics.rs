@@ -2715,6 +2715,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
         (plan, spec)
     }
@@ -2859,6 +2860,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
         let spec = TimeseriesStatsSpec {
             aggregations: vec![TimeseriesAggregationSpec {
@@ -2908,6 +2910,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let result = build_query(&plan, MetricScope::Any);
@@ -2949,6 +2952,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -2991,6 +2995,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3034,6 +3039,7 @@ mod tests {
             other: true,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3102,6 +3108,7 @@ mod tests {
             other: true,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3160,6 +3167,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3240,6 +3248,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3309,6 +3318,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3351,6 +3361,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3413,6 +3424,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3482,6 +3494,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3535,6 +3548,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3587,6 +3601,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
@@ -3624,6 +3639,7 @@ mod tests {
             other: false,
             include_deleted: false,
             exhaustive_window: false,
+            keyset: None,
         };
 
         let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))

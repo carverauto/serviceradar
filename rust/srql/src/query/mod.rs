@@ -93,8 +93,8 @@ pub(crate) use sql::{
 pub(crate) use sql_placeholders::{rewrite_numbered_to_question_marks, rewrite_placeholders};
 pub use translate::translate_request;
 pub use types::{
-    BindParam, PaginationMeta, QueryDirection, QueryPlan, QueryRequest, QueryResponse,
-    TranslateRequest, TranslateResponse,
+    BindParam, KeysetMeta, KeysetPlan, PaginationMeta, QueryDirection, QueryPlan, QueryRequest,
+    QueryResponse, TranslateRequest, TranslateResponse,
 };
 
 #[cfg(test)]
