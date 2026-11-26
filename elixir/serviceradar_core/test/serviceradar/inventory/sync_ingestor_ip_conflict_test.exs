@@ -23,10 +23,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   alias ServiceRadar.Actors.SystemActor
   alias Serviceradar.Agent.Netprobe.V1.DeviceCensusObservation
   alias Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Discovery.Decoders
   alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.IdentityDecision
@@ -126,6 +128,33 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     assert seed.deleted_by == "system:seed_release"
     assert seed.hostname == nil
     assert_received {:seed_released, %{count: 1}, %{deleted_reason: "seed_released"}}
+    # The seed is not one of the batch's records, so the release hints it itself.
+    seed_uid = seed.uid
+    assert_receive {:devices_invalidated, [^seed_uid]}
+  end
+
+  # The release is a raw update: its hint waits for the transaction, and a rollback drops it.
+  test "a released holder is hinted only once its transaction commits", %{actor: actor} do
+    ip = unique_test_ip()
+    holder = create_device!(actor, "released-holder", ip)
+    holder_uid = holder.uid
+    release = fn -> DeviceWrites.lock_and_clear_for_upsert([], [], [{holder_uid, ip}]) end
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
+    assert {:error, :synthetic_failure} =
+             NotificationQueue.with_queue(fn ->
+               Repo.transaction(fn ->
+                 release.()
+                 Repo.rollback(:synthetic_failure)
+               end)
+             end)
+
+    refute_received {:devices_invalidated, [^holder_uid]}
+    assert {:ok, _device} = Device.get_by_uid(holder_uid, false, actor: actor)
+
+    assert {:ok, :ok} = NotificationQueue.with_queue(fn -> Repo.transaction(release) end)
+    assert_receive {:devices_invalidated, [^holder_uid]}
+    assert {:ok, %Device{ip: nil}} = Device.get_by_uid(holder_uid, false, actor: actor)
   end
 
   test "a seed's alias of the address it releases does not keep it live", %{actor: actor} do
@@ -1344,8 +1373,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   # The #4705 move: an Armis device synced at one address is synced again at the address of a
   # sweep seed. `anchor` gives the seed whatever it has beyond the address before the move.
   # Asserts the device took the address and the conflict was recorded, and returns the seed as
-  # the move left it, deleted or not, with the seed_released events the move emitted waiting in
-  # the mailbox.
+  # the move left it, deleted or not, with the seed_released events and invalidation hints the
+  # move emitted waiting in the mailbox.
   defp move_onto_seed!(actor, seed_attrs \\ %{}, anchor \\ fn _seed -> :ok end) do
     {old_ip, new_ip} = seed_ip_pair()
     armis_id = "armis-4705-#{System.unique_integer([:positive])}"
@@ -1381,6 +1410,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       )
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
 
     assert :ok = SyncIngestor.ingest_updates([armis_update(armis_id, new_ip, 60)], actor: actor)
 

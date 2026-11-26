@@ -40,8 +40,10 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
 
   import Ecto.Query
 
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
@@ -349,16 +351,21 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
         select: [:uid]
       )
 
-    case result do
-      %Ash.BulkResult{status: :success, records: records} ->
-        expired = Enum.map(records || [], & &1.uid)
-        log_expired(expired)
-        expired
+    expired =
+      case result do
+        %Ash.BulkResult{status: :success, records: records} ->
+          expired = Enum.map(records || [], & &1.uid)
+          log_expired(expired)
+          expired
 
-      %Ash.BulkResult{errors: errors, records: records} ->
-        Logger.warning("EphemeralDeviceExpiry: soft delete failed", errors: inspect(errors))
-        Enum.map(records || [], & &1.uid)
-    end
+        %Ash.BulkResult{errors: errors, records: records} ->
+          Logger.warning("EphemeralDeviceExpiry: soft delete failed", errors: inspect(errors))
+          Enum.map(records || [], & &1.uid)
+      end
+
+    # A bulk update sends no notifications, so readers of current device state are hinted here.
+    NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated(expired) end)
+    expired
   end
 
   defp log_expired([]), do: :ok

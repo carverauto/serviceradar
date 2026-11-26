@@ -170,6 +170,14 @@ deferred by native memory admission retries after 30 s. The lifecycle test and
 the scale harness pin 30 s, because their unhinted replica must converge inside
 their waits and churn window.
 
+Every runtime writer of an indexed column therefore hints the devices it
+changed once its transaction commits: Ash device and alias actions through
+their notifiers, and the bulk and raw-SQL writers (bulk soft delete, ephemeral
+expiry, sweep and mapper restores, address release and seed retirement,
+source-retirement marks, hypervisor addresses, reported source facts) through
+`NotificationQueue.after_commit/1`. The backstop is left with genuine misses
+and with operator remediation run from Mix tasks, which does not hint.
+
 Expose seed readiness, last completed reconciliation, oldest pending work,
 source errors and unavailable facets. Exact counts mean exact for the returned
 published revision, not a claim that the entire fleet was read in one database

@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.DeviceWrites
@@ -52,6 +53,18 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
 
     assert deleted.deleted_at
     assert deleted.deleted_by
+  end
+
+  # The device list's bulk delete is a bulk update, which sends no notifications. The Atlas
+  # index learns of it from the invalidation hint, not from its periodic reconciliation.
+  test "bulk soft delete hints readers of current device state", %{actor: actor} do
+    uid = unique_uid()
+    {:ok, _device} = create_device(actor, uid, unique_ip(uid), unique_mac())
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
+    assert :ok = Device.bulk_soft_delete([uid], "bulk_delete", actor: actor)
+    assert {:ok, [%Device{deleted_reason: "bulk_delete"}]} = read_including_deleted(uid, actor)
+    assert_receive {:devices_invalidated, [^uid]}
   end
 
   test "restore clears tombstone and returns device to default reads", %{actor: actor} do

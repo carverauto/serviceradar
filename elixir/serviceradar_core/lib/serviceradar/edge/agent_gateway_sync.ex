@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.LaunchEnvelopes
   alias ServiceRadar.Credentials.CredentialBrokerGrant
@@ -1072,7 +1073,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor) do
     source_ip = update_attrs.ip
 
-    fn ->
+    take = fn ->
       # A stale release: an anchorless sweep seed that releases its only address
       # is soft-deleted as seed_released in this transaction.
       DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [], [{holder.uid, source_ip}])
@@ -1085,7 +1086,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         {:error, reason} -> Repo.rollback(reason)
       end
     end
-    |> Repo.transaction()
+
+    # The release queues its holder's hint until this transaction commits.
+    fn -> Repo.transaction(take) end
+    |> NotificationQueue.with_queue()
     |> case do
       {:ok, notifications} ->
         Ash.Notifier.notify(notifications)

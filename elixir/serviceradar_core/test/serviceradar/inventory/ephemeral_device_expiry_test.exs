@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.EphemeralDeviceExpiry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -65,11 +66,14 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
     end
 
     test "an address-only device, unseen past the window", %{actor: actor} do
-      device = create_device!(actor)
-      backdate!(device.uid, 31)
+      %Device{uid: uid} = create_device!(actor)
+      backdate!(uid, 31)
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
 
-      assert {:ok, %{expired: 1}} = run(actor, [device.uid])
-      assert %Device{deleted_reason: "stale_ephemeral"} = reload(actor, device.uid)
+      assert {:ok, %{expired: 1}} = run(actor, [uid])
+      assert %Device{deleted_reason: "stale_ephemeral"} = reload(actor, uid)
+      # The bulk soft delete sends no notification; readers of current state are hinted.
+      assert_receive {:devices_invalidated, [^uid]}
     end
 
     test "a pass walks every batch, past devices it keeps", %{actor: actor} do

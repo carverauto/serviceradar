@@ -54,6 +54,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -1993,7 +1994,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
       if invalidated_uids != [] do
         NotificationQueue.after_commit(fn ->
-          ServiceRadar.Inventory.DevicePubSub.broadcast_invalidated(invalidated_uids)
+          DevicePubSub.broadcast_invalidated(invalidated_uids)
         end)
       end
 
@@ -2367,6 +2368,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       %Ash.BulkResult{status: :error, errors: errors} ->
         Logger.warning("SweepResultsIngestor: Restore failed", errors: inspect(errors))
     end
+
+    # A bulk update sends no notifications, and a restored device whose availability did not
+    # change is not among the status rows hinted below.
+    NotificationQueue.after_commit(fn -> DevicePubSub.broadcast_invalidated(eligible_uids) end)
   end
 
   defp restore_eligible?(device) do

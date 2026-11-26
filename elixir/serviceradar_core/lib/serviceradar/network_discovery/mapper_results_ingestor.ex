@@ -16,6 +16,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias Ash.Error.Invalid
   alias Ash.Error.Unknown
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.AliasPolicy
@@ -2168,6 +2169,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> case do
       %Ash.BulkResult{status: :success, records: [restored | _]} ->
         Logger.info("Mapper restored device #{device.uid} deleted by #{device.deleted_by}")
+        # A bulk update sends no notifications; hint readers of current device state.
+        NotificationQueue.after_commit(fn ->
+          DevicePubSub.broadcast_invalidated([restored.uid])
+        end)
+
         {:restored, restored, purged?}
 
       result ->
@@ -2733,24 +2739,27 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp rehydrate_purged_device(entry, device, parent_ips, context, observed_at, actor) do
-    case Repo.transaction(fn ->
-           case restore_polled_device(device, actor) do
-             {:restored, _restored, true} -> :ok
-             _ -> Repo.rollback(:restore_failed)
-           end
+    rehydrate = fn ->
+      case restore_polled_device(device, actor) do
+        {:restored, _restored, true} -> :ok
+        _ -> Repo.rollback(:restore_failed)
+      end
 
-           if strong_entry?(entry), do: stamp_identity_observed([device.uid], observed_at)
+      if strong_entry?(entry), do: stamp_identity_observed([device.uid], observed_at)
 
-           case write_polled_device_rows([entry], parent_ips, context, observed_at) do
-             {:ok, %{remap: remap} = batch} ->
-               if purged_refill_kept?([device.uid], remap),
-                 do: batch,
-                 else: Repo.rollback(:refill_failed)
+      case write_polled_device_rows([entry], parent_ips, context, observed_at) do
+        {:ok, %{remap: remap} = batch} ->
+          if purged_refill_kept?([device.uid], remap),
+            do: batch,
+            else: Repo.rollback(:refill_failed)
 
-             {:error, reason} ->
-               Repo.rollback(reason)
-           end
-         end) do
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end
+
+    # The restore and the device write queue their hints until this transaction commits.
+    case NotificationQueue.with_queue(fn -> Repo.transaction(rehydrate) end) do
       {:ok, batch} ->
         {:ok, batch}
 
@@ -2915,16 +2924,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp take_address_from_stale_holder(%Device{} = device, holder_uid, ip, actor) do
+    # The release queues its holder's hint until this transaction commits.
     result =
-      Repo.transaction(fn ->
-        # A stale release: an anchorless sweep seed that releases its only address is
-        # soft-deleted as seed_released in this transaction.
-        DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [], [{holder_uid, ip}])
+      NotificationQueue.with_queue(fn ->
+        Repo.transaction(fn ->
+          # A stale release: an anchorless sweep seed that releases its only address is
+          # soft-deleted as seed_released in this transaction.
+          DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [], [{holder_uid, ip}])
 
-        case set_device_address(device, ip, actor, return_notifications?: true) do
-          {:ok, _device, notifications} -> notifications
-          {:error, reason} -> Repo.rollback(reason)
-        end
+          case set_device_address(device, ip, actor, return_notifications?: true) do
+            {:ok, _device, notifications} -> notifications
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
       end)
 
     case result do

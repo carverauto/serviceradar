@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.SourceFactReportsTest do
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSourceFact
   alias ServiceRadar.Inventory.SourceFactAuthority
   alias ServiceRadar.Inventory.SourceFactDisagreement
@@ -204,6 +205,21 @@ defmodule ServiceRadar.Inventory.SourceFactReportsTest do
     present = for %{present: true, fact_key: key} <- facts(device), do: key
     assert Enum.sort(present) == ["switch_port_attachment", "vlan_uid"]
     assert canonical(device).vlan_uid == "120"
+  end
+
+  # The canonical VLAN is an Atlas facet, and reconciliation writes it with a raw update that
+  # sends no notification.
+  test "a report and its withdrawal hint readers of current device state", %{device: device} do
+    uid = device.uid
+    actor = caller()
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
+    assert {:ok, _result} = report(actor, device, "vlan_uid", 120)
+    assert canonical(device).vlan_uid == "120"
+    assert_receive {:devices_invalidated, [^uid]}
+
+    assert {:ok, _result} = retract(actor, device, "vlan_uid")
+    assert_receive {:devices_invalidated, [^uid]}
   end
 
   test "an unreadable value is refused and nothing is written", %{device: device} do

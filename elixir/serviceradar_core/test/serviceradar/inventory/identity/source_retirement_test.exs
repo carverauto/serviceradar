@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.Identity.PopulationGauges
@@ -590,6 +591,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
           }
         ])
 
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
+
       assert {:ok, _counts} =
                SourceRetirement.retire_legacy_proxmox_identifiers(
                  partition: partition,
@@ -598,6 +601,10 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
 
       assert %Device{source_retired_at: %DateTime{}} = device!(ctx, orphan)
       assert %Device{source_retired_at: nil} = device!(ctx, held)
+
+      # The mark is a raw update that leaves active inventory; readers of current state are hinted.
+      orphan_uid = orphan.uid
+      assert_receive {:devices_invalidated, [^orphan_uid]}
     end
   end
 
