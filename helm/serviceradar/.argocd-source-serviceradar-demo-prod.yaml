@@ -10,7 +10,7 @@ helm:
     value: sha256:6222f2ab415eaf51dbe6e272f117bc36aef5faa728f5445ade1283700c647297
     forcestring: true
   - name: image.digests.webNg
-    value: sha256:4fbc261aee49022a00ade09cd2eba4167252fba07abe8efa3f513a2c9f12f600
+    value: sha256:38aaefc18d293d518a47fda3b27047d2280ba0ccafccd33591ba62de2360abb6
     forcestring: true
   - name: image.digests.nvr
     value: sha256:c773b0adea4b6f0bbf764e6ec91de387d29ba83ce3023a9cafad4cb21bd1cc80
