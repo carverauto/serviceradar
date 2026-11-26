@@ -246,20 +246,12 @@
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-nvr"))) -}}
 {{- end -}}
-{{- /* The media worker's only egress grant is its own policy (templates/media-worker.yaml).
+{{- /* The Vantage addon's media worker gets its egress only from the addon's own policy.
      This policy grants egress to whatever it selects, so the worker is left out of it
-     whenever the worker is enabled, whatever base selector is configured. */ -}}
-{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+     whenever vantage is enabled, whatever base selector is configured. */ -}}
+{{- if eq (include "serviceradar.vantageEnabled" .) "true" -}}
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-worker"))) -}}
-{{- end -}}
-{{- $cameraVlmEnabled := eq (include "serviceradar.cameraVlmEnabled" .) "true" -}}
-{{- $cameraVlmPort := include "serviceradar.cameraVlmPort" . | int -}}
-{{- /* The camera VLM server has zero egress; leave it out of the broad namespace
-     egress policy whenever it is enabled, whatever base selector is configured. */ -}}
-{{- if $cameraVlmEnabled -}}
-{{- $podSelector = deepCopy $podSelector -}}
-{{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-camera-vlm"))) -}}
 {{- end -}}
 ---
 apiVersion: networking.k8s.io/v1
@@ -319,16 +311,7 @@ spec:
     []
 {{- end }}
   egress:
-{{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasEgressNamespaces $hasCIDRs $hasKubeAPICIDRs $archiveReader.enabled $nvrIngestEnabled $nvrReadEnabled $cameraVlmEnabled }}
-{{- if $cameraVlmEnabled }}
-    - to:
-        - podSelector:
-            matchLabels:
-              app: serviceradar-camera-vlm
-      ports:
-        - protocol: TCP
-          port: {{ $cameraVlmPort }}
-{{- end }}
+{{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasEgressNamespaces $hasCIDRs $hasKubeAPICIDRs $archiveReader.enabled $nvrIngestEnabled $nvrReadEnabled }}
 {{- if $archiveReader.enabled }}
     - to:
         - podSelector:

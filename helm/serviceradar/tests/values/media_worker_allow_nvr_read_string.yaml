@@ -1,4 +1,0 @@
-# What `--set-string mediaWorker.networkPolicy.allowNvrRead=false` produces.
-mediaWorker:
-  networkPolicy:
-    allowNvrRead: "false"

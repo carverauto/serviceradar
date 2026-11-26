@@ -74,16 +74,11 @@
 {{- if $nvr.enabled -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-nvr'" $selector -}}
 {{- end -}}
-{{- /* Same exclusion as serviceradar-egress, whenever the worker is enabled: this
-     policy grants egress to whatever it selects, and the worker's only egress grant
-     is its own policy. */ -}}
-{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+{{- /* Same exclusion as serviceradar-egress, whenever vantage is enabled: this
+     policy grants egress to whatever it selects, and the addon media worker's only
+     egress grant is the addon's own policy. */ -}}
+{{- if eq (include "serviceradar.vantageEnabled" .) "true" -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-media-worker'" $selector -}}
-{{- end -}}
-{{- $cameraVlmEnabled := eq (include "serviceradar.cameraVlmEnabled" .) "true" -}}
-{{- $cameraVlmPort := include "serviceradar.cameraVlmPort" . | int -}}
-{{- if $cameraVlmEnabled -}}
-{{- $selector = printf "(%s) && app != 'serviceradar-camera-vlm'" $selector -}}
 {{- end -}}
 ---
 apiVersion: projectcalico.org/v3
@@ -129,16 +124,6 @@ spec:
         selector: "app == 'serviceradar-nvr'"
         ports:
           - {{ $nvrReadPort }}
-{{- end }}
-{{- if $cameraVlmEnabled }}
-    - action: Allow
-      protocol: TCP
-      source:
-        selector: "app == 'serviceradar-core' || app == 'serviceradar-web-ng'"
-      destination:
-        selector: "app == 'serviceradar-camera-vlm'"
-        ports:
-          - {{ $cameraVlmPort }}
 {{- end }}
 {{- if $allowDNS }}
     - action: Allow

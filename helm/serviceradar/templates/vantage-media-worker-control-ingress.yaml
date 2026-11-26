@@ -1,0 +1,30 @@
+{{- /* Lets the Vantage addon's media worker reach web-ng's private read-grant endpoint
+     (POST /v1/media/workers/read-grants) on the control-plane port when this chart's
+     network policies are on. The addon ships the worker and its own egress policy. */ -}}
+{{- if and (eq (include "serviceradar.vantageEnabled" .) "true") (default (dict) .Values.networkPolicy).enabled }}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $controlPlaneRuntime := default (dict) $webNg.controlPlaneRuntime -}}
+{{- $controlPlanePort := int (default 4001 $controlPlaneRuntime.port) }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: serviceradar-media-worker-control-ingress
+  labels:
+    app.kubernetes.io/name: serviceradar-media-worker
+    app.kubernetes.io/component: media-worker
+    app.kubernetes.io/part-of: serviceradar-vantage
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-web-ng
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-media-worker
+      ports:
+        - protocol: TCP
+          port: {{ $controlPlanePort }}
+{{- end }}

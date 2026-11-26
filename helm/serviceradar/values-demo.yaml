@@ -593,7 +593,6 @@ webNg:
     # plugins. Only this values file trusts it; its private key is held outside
     # the repository.
     PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=,serviceradar-demo-v1=KVPgZ+sTeTgFjsyNtMqoL3awEf0OcL0NDqsODepLaPM="
-    SERVICERADAR_CAMERA_VLM_MODEL: "Qwen3.5-4B"
   extraEnvValueFrom:
     # Authenticates GitHub API calls for the built-in plugin source and agent
     # release imports, which otherwise share the 60/hour anonymous limit.
@@ -648,9 +647,8 @@ webNg:
     storageClassName: ""
     downloadTtlSeconds: 86400
     jetstreamReplicas: 3
-  # Read-grant listener for the camera semantic search worker (mediaWorker
-  # below). Switched on together with mediaWorker.enabled; the chart refuses a
-  # deploymentRef or generation that differs between the two.
+  # Read-grant listener for the Vantage addon's media worker. Its deploymentRef
+  # and generation must match the addon chart's media worker settings.
   controlPlaneRuntime:
     mediaWorker:
       enabled: true
@@ -708,7 +706,7 @@ nvr:
       tokenSecretName: serviceradar-nvr-read-token
       tlsSecretName: serviceradar-nvr-read-client-tls
   analysisRead:
-    # Dedicated mTLS analysis-read listener for serviceradar-media-worker so
+    # Dedicated mTLS analysis-read listener for the Vantage addon media worker so
     # newly sealed blocks get thumbnails/detections before S3 archive finishes.
     # Operator-owned Secrets: serviceradar-nvr-analysis-read-{config,token,server-tls,client-tls}.
     enabled: true
@@ -782,81 +780,13 @@ archiveReader:
       - "2600:3c0f:18::/48"
     port: 443
 
-# Camera semantic search worker on the arm64 GPU nodes. Operator-owned objects
-# that must exist in the namespace first (never created by Helm): the PVC
-# serviceradar-media-worker-models holding the SigLIP + yolox-x weights and the
-# Secret serviceradar-media-worker-auth (key media-worker-token), which web-ng
-# reads too. Its fixed JetStream streams (512Mi + 2Gi, R1) fit within the 36G
-# NATS JetStream file-store budget configured below.
-mediaWorker:
+# The commercial Vantage addon (deployed by its own chart) runs the media worker;
+# this chart supplies its NATS identities, certificate and NVR read access.
+vantage:
   enabled: true
-  replicas: 2
-  image:
-    repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
-    # Set to the sha-<commit> tag the CUDA publish workflow produced, from a
-    # commit that includes the worker's dedicated NATS inbox support (older
-    # builds are denied their NATS replies). Left empty, the chart refuses to
-    # render the worker.
-    tag: "sha-4f93de323d8483b54a0f8509ee303981e9d082fd"
-    digest: "sha256:e136b90a3a72db7b0597408e72823b398007dba1b928583ede929c9d9a8b7ab2"
-  executionProvider: cuda
-  runtimeClassName: nvidia
-  gpuResourceName: nvidia.com/gpu
-  gpuCount: 1
-  nodeSelector:
-    kubernetes.io/arch: arm64
-  tolerations:
-    - key: nvidia.com/gpu
-      operator: Equal
-      value: present
-      effect: NoSchedule
-  models:
-    existingClaim: serviceradar-media-worker-models
-    detectorPath: "/var/lib/serviceradar-media-worker/models/detector_yolox_x.safetensors"
-    detectorConfigPath: "/var/lib/serviceradar-media-worker/models/detector_config.json"
-    detectorSha256: "46f9962db0da82ca6284ad7cb2e522f9489f73b0f96cc32686d944ce54c1a6be"
-  auth:
-    existingSecret: serviceradar-media-worker-auth
-    tokenKey: media-worker-token
-    deploymentRef: "00000000-0000-4000-8000-000000000001"
-    generation: "1"
-  networkPolicy:
+  mediaWorker:
     allowNvrRead: true
     nvrReadPort: 8445
-
-# Camera VLM inference server (crane-serve pure-Rust Candle CUDA running
-# Qwen/Qwen3.5-4B) on the arm64 GPU nodes. Operator-owned PVC
-# serviceradar-camera-vlm-models must exist in the namespace first (never
-# created by Helm) with the Qwen3.5-4B weights under Qwen3.5-4B/.
-cameraVlm:
-  enabled: true
-  runtime: crane
-  replicas: 2
-  image:
-    repository: registry.carverauto.dev/serviceradar/serviceradar-camera-vlm-cuda
-    tag: "sha-fa7e0a26ee914e424c70e636dca12423ec93511c"
-    digest: "sha256:a20bc1bde11ee219e5121dbe33821ba3bbe93df84436cb6d9bf79175c3e17cc6"
-  runtimeClassName: nvidia
-  gpuResourceName: nvidia.com/gpu
-  gpuCount: 1
-  nodeSelector:
-    kubernetes.io/arch: arm64
-  tolerations:
-    - key: nvidia.com/gpu
-      operator: Equal
-      value: present
-      effect: NoSchedule
-  resources:
-    requests:
-      cpu: "1"
-      memory: "8Gi"
-    limits:
-      cpu: "4"
-      memory: "20Gi"
-  models:
-    existingClaim: serviceradar-camera-vlm-models
-    mountPath: "/var/lib/serviceradar-camera-vlm/models"
-    modelSubPath: "Qwen3.5-4B"
 
 faker:
   enabled: true
@@ -1020,7 +950,6 @@ core:
     SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION: "true"
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
-    SERVICERADAR_CAMERA_VLM_MODEL: "Qwen3.5-4B"
 
 # Keep mutable AWX callbacks disabled until a ServiceRadar-initiated live
 # preflight canary has passed and its redacted evidence is retained. The
@@ -1361,7 +1290,7 @@ nats:
   jetstream:
     maxMemoryStore: 1G
     # Matches the small JetStream profile (36G / 36Gi) with headroom for
-    # media-worker's CAMERA_MEDIA_JOBS (512Mi) and CAMERA_MEDIA_RESULTS (2Gi).
+    # the Vantage addon media worker's CAMERA_MEDIA_JOBS (512Mi) and CAMERA_MEDIA_RESULTS (2Gi).
     maxFileStore: 36G
     profile: small
   persistence:

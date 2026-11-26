@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The runtime certificate generator issues the media worker's NATS identity.
+"""The runtime certificate generator issues the Vantage addon media worker's NATS identity.
 
 The broker maps a client certificate's subject to a static NATS user
 (verify_and_map), and core adopts the chart's identities from the subject list
@@ -30,8 +30,8 @@ import yaml
 from chart_render import render_document
 
 NAMESPACE = "sr-cert-test"
-ENABLED = {"mediaWorker.enabled": True}
-DISABLED = {"mediaWorker.enabled": False}
+ENABLED = {"vantage.enabled": True}
+DISABLED = {"vantage.enabled": False}
 WORKER_CERT = "media-worker.pem"
 
 
