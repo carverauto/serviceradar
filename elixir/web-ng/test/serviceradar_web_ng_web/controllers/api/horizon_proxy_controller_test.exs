@@ -192,20 +192,31 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       refute_received {:upstream_request, _}
     end
 
-    test "does not route or allowlist PUT and PATCH requests" do
-      for method <- ["PUT", "PATCH"] do
-        error =
-          assert_raise NoRouteError, fn ->
-            method
-            |> Plug.Test.conn("/api/horizon/v1/bgp/watchlist")
-            |> Router.call(Router.init([]))
-          end
+    test "does not route PUT and rejects unallowlisted PATCH requests with 404", %{admin_scope: admin_scope} do
+      error =
+        assert_raise NoRouteError, fn ->
+          "PUT"
+          |> Plug.Test.conn("/api/horizon/v1/bgp/watchlist")
+          |> Router.call(Router.init([]))
+        end
 
-        assert Plug.Exception.status(error) == 404
+      assert Plug.Exception.status(error) == 404
 
-        assert {:error, :not_found} =
-                 HorizonProxy.resolve_route(method, "v1", ["bgp", "watchlist"], "/api/horizon/v1/bgp/watchlist")
+      assert {:error, :not_found} =
+               HorizonProxy.resolve_route("PUT", "v1", ["bgp", "watchlist"], "/api/horizon/v1/bgp/watchlist")
+
+      for path <- [
+            "/api/horizon/v1/feeds/status",
+            "/api/horizon/v1/bgp/watchlist",
+            "/api/horizon/v1/alerts/rules/..%2f..%2finternal"
+          ] do
+        conn = dispatch_router(:patch, path, admin_scope, %{})
+        assert json_response(conn, 404) == %{"errors" => %{"detail" => "Not Found"}}
+        refute_received {:upstream_request, _}
       end
+
+      assert {:error, :not_found} =
+               HorizonProxy.resolve_route("PATCH", "v1", ["bgp", "watchlist"], "/api/horizon/v1/bgp/watchlist")
     end
 
     test "rejects token query parameter with 400", %{admin_scope: admin_scope} do
@@ -466,6 +477,53 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert delete_req[:retry] == false
     end
 
+    test "proxies PATCH /api/horizon/v1/alerts/rules/:id with JSON body, RBAC, and retry: false", %{
+      admin_scope: admin_scope
+    } do
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           headers: %{"content-type" => ["application/json"]},
+           body: Jason.encode!(%{"id" => "rule-1", "enabled" => false})
+         }}
+      end)
+
+      viewer_conn =
+        dispatch_router(:patch, "/api/horizon/v1/alerts/rules/rule-1", scope_for_role(:viewer), %{"enabled" => false})
+
+      assert viewer_conn.status == 403
+      refute_received {:upstream_request, _}
+
+      operator_conn =
+        dispatch_router(:patch, "/api/horizon/v1/alerts/rules/rule-1", scope_for_role(:operator), %{
+          "enabled" => false
+        })
+
+      assert json_response(operator_conn, 200) == %{"id" => "rule-1", "enabled" => false}
+      assert_receive {:upstream_request, req_opts}
+      assert req_opts[:method] == :patch
+      assert req_opts[:url] == "#{@upstream_base}/api/v1/alerts/rules/rule-1"
+      assert {"content-type", "application/json"} in req_opts[:headers]
+      assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
+      assert Jason.decode!(req_opts[:body]) == %{"enabled" => false}
+      assert req_opts[:retry] == false
+
+      admin_conn = dispatch_router(:patch, "/api/horizon/v1/alerts/rules/rule-1", admin_scope, %{"enabled" => true})
+      assert json_response(admin_conn, 200) == %{"id" => "rule-1", "enabled" => false}
+      assert_receive {:upstream_request, admin_req}
+      assert admin_req[:method] == :patch
+      assert Jason.decode!(admin_req[:body]) == %{"enabled" => true}
+
+      empty_conn = call_proxy(:patch, "/api/horizon/v1/alerts/rules/rule-1", admin_scope)
+      assert json_response(empty_conn, 200) == %{"id" => "rule-1", "enabled" => false}
+      assert_receive {:upstream_request, empty_req}
+      assert empty_req[:body] == "{}"
+      assert {"content-type", "application/json"} in empty_req[:headers]
+    end
+
     test "defaults non-JSON response content-type and normalizes nil body", %{admin_scope: admin_scope} do
       stub_http_client(fn _req_opts ->
         {:ok, %Req.Response{status: 200, headers: %{"content-type" => ["text/plain"]}, body: nil}}
@@ -580,6 +638,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
 
       for {method, path, body} <- [
             {:post, "/api/horizon/v1/intel/lookup", %{}},
+            {:patch, "/api/horizon/v1/intel/lookup", %{}},
             {:delete, "/api/horizon/v1/intel/lookup", nil},
             {:get, "/api/horizon/v2/intel/lookup?asn=64496", nil},
             {:get, "/api/horizon/v1/intel/lookup/extra", nil},
@@ -590,16 +649,16 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
         refute_received {:upstream_request, _}
       end
 
+      error =
+        assert_raise NoRouteError, fn ->
+          "PUT"
+          |> Plug.Test.conn("/api/horizon/v1/intel/lookup")
+          |> Router.call(Router.init([]))
+        end
+
+      assert Plug.Exception.status(error) == 404
+
       for method <- ["PUT", "PATCH"] do
-        error =
-          assert_raise NoRouteError, fn ->
-            method
-            |> Plug.Test.conn("/api/horizon/v1/intel/lookup")
-            |> Router.call(Router.init([]))
-          end
-
-        assert Plug.Exception.status(error) == 404
-
         assert {:error, :not_found} =
                  HorizonProxy.resolve_route(method, "v1", ["intel", "lookup"], "/api/horizon/v1/intel/lookup")
       end
@@ -743,7 +802,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       end
     end
 
-    test "never retries POST or DELETE mutations even on closed, econnreset, or HTTP/2 unprocessed errors", %{
+    test "never retries POST, PATCH, or DELETE mutations even on closed, econnreset, or HTTP/2 unprocessed errors", %{
       admin_scope: admin_scope
     } do
       for stale_error <- [
@@ -763,6 +822,19 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
 
         assert json_response(post_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
         assert :counters.get(post_attempts, 1) == 1
+
+        patch_attempts = :counters.new(1, [])
+
+        stub_req_adapter(fn req ->
+          :counters.add(patch_attempts, 1, 1)
+          {req, stale_error}
+        end)
+
+        patch_conn =
+          call_proxy(:patch, "/api/horizon/v1/alerts/rules/rule-1", admin_scope, %{"enabled" => false})
+
+        assert json_response(patch_conn, 502) == %{"error" => "horizon_upstream_unavailable"}
+        assert :counters.get(patch_attempts, 1) == 1
 
         delete_attempts = :counters.new(1, [])
 
@@ -898,12 +970,14 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
 
       for {method, path, body} <- [
             {:post, "/api/horizon/v1/vendor-status", %{}},
+            {:patch, "/api/horizon/v1/vendor-status", %{}},
             {:delete, "/api/horizon/v1/vendor-status", nil},
             {:get, "/api/horizon/v2/vendor-status", nil},
             {:get, "/api/horizon/v1/vendor-status/extra", nil},
             {:get, "/api/horizon/v1/vendor-status/../feeds/status", nil},
             {:get, "/api/horizon/v1/vendor-status/..%2f..%2finternal", nil},
             {:post, "/api/horizon/v1/statuspages", %{}},
+            {:patch, "/api/horizon/v1/statuspages", %{}},
             {:delete, "/api/horizon/v1/statuspages", nil},
             {:get, "/api/horizon/v2/statuspages", nil},
             {:get, "/api/horizon/v1/statuspages/extra", nil},
@@ -915,18 +989,19 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
         refute_received {:upstream_request, _}
       end
 
-      for segment <- ["vendor-status", "statuspages"], method <- ["PUT", "PATCH"] do
+      for segment <- ["vendor-status", "statuspages"] do
         path = "/api/horizon/v1/#{segment}"
 
         error =
           assert_raise NoRouteError, fn ->
-            method
+            "PUT"
             |> Plug.Test.conn(path)
             |> Router.call(Router.init([]))
           end
 
         assert Plug.Exception.status(error) == 404
-        assert {:error, :not_found} = HorizonProxy.resolve_route(method, "v1", [segment], path)
+        assert {:error, :not_found} = HorizonProxy.resolve_route("PUT", "v1", [segment], path)
+        assert {:error, :not_found} = HorizonProxy.resolve_route("PATCH", "v1", [segment], path)
       end
 
       assert {:error, :not_found} =
@@ -944,6 +1019,386 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
         conn = dispatch_router(:get, "#{path}?#{bad_query}", events_only_scope)
         assert json_response(conn, 400) == %{"error" => "invalid_query"}
         refute_received {:upstream_request, _}
+      end
+    end
+  end
+
+  describe "Arrow IPC and non-JSON Accept / Content-Type pass-through" do
+    setup do
+      stub_upstream({:ok, %{base_url: @upstream_base, api_key: @secret_api_key}})
+      %{viewer_scope: scope_for_role(:viewer), operator_scope: scope_for_role(:operator)}
+    end
+
+    test "forwards Arrow IPC Accept header through the router and preserves arbitrary binary bytes", %{
+      viewer_scope: viewer_scope
+    } do
+      arrow_bytes = <<0xFF, 0xFF, 0xFF, 0xFF, 0x10, 0x00, 0x00, 0x00, "ARROW1", 0x00, 0x01, 0xFE, 0x80>>
+
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           headers: %{"content-type" => ["application/vnd.apache.arrow.stream"]},
+           body: arrow_bytes
+         }}
+      end)
+
+      for path <- ["/api/horizon/v1/outages", "/api/horizon/v1/weathermap"] do
+        conn =
+          dispatch_router(
+            :get,
+            "#{path}?format=arrow",
+            viewer_scope,
+            nil,
+            "application/vnd.apache.arrow.stream"
+          )
+
+        assert conn.status == 200
+        assert get_resp_header(conn, "content-type") == ["application/vnd.apache.arrow.stream"]
+        assert get_resp_header(conn, "cache-control") == ["no-store"]
+        assert conn.resp_body == arrow_bytes
+
+        assert_receive {:upstream_request, req_opts}
+        assert {"accept", "application/vnd.apache.arrow.stream"} in req_opts[:headers]
+      end
+    end
+
+    test "passes through arrow.file, octet-stream, gzip, csv, and ndjson media types intact", %{
+      viewer_scope: viewer_scope,
+      operator_scope: operator_scope
+    } do
+      gzip_bytes = <<0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xFF, 0xAB, 0xCD>>
+      arrow_file_bytes = <<"ARROW1", 0x00, 0x00, 0xFF, 0xFE>>
+      octet_bytes = <<0x00, 0x01, 0x02, 0xFE, 0xFF>>
+      csv_body = "asn,loss_pct\n64496,0.25\n"
+      ndjson_body = ~s({"id":"1"}\n{"id":"2"}\n)
+
+      cases = [
+        {"/api/horizon/v1/paths/dag", "application/vnd.apache.arrow.file", "application/vnd.apache.arrow.file",
+         arrow_file_bytes},
+        {"/api/horizon/v1/topology/snapshot", "application/octet-stream", "application/octet-stream", octet_bytes},
+        {"/api/horizon/v1/feeds/reference/asns.ndjson.gz", "application/gzip", "application/gzip", gzip_bytes},
+        {"/api/horizon/v1/public/reports/rep-99?format=csv", "text/csv", "text/csv; charset=utf-8", csv_body},
+        {"/api/horizon/v1/outages", "application/x-ndjson", "application/x-ndjson", ndjson_body},
+        {"/api/horizon/v1/outages", "application/ndjson", "application/ndjson", ndjson_body},
+        {"/api/horizon/v1/outages", "application/problem+json", "application/problem+json", ~s({"title":"degraded"})},
+        {"/api/horizon/v1/outages", "application/vnd.api+json", "application/vnd.api+json", ~s({"data":[]})},
+        {"/api/horizon/v1/outages", "application/ld+json", "application/ld+json", ~s({"@context":{}})}
+      ]
+
+      for {path, req_accept, resp_ct, resp_body} <- cases do
+        stub_http_client(fn req_opts ->
+          send(self(), {:upstream_request, req_opts})
+          {:ok, %Req.Response{status: 200, headers: %{"content-type" => [resp_ct]}, body: resp_body}}
+        end)
+
+        conn = dispatch_router(:get, path, viewer_scope, nil, req_accept)
+
+        assert conn.status == 200
+        assert get_resp_header(conn, "content-type") == [resp_ct]
+        assert get_resp_header(conn, "cache-control") == ["no-store"]
+        assert conn.resp_body == resp_body
+
+        assert_receive {:upstream_request, req_opts}
+        assert {"accept", req_accept} in req_opts[:headers]
+      end
+
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+        {:ok, %Req.Response{status: 204, headers: %{}, body: ""}}
+      end)
+
+      delete_conn =
+        dispatch_router(
+          :delete,
+          "/api/horizon/v2/targets/tgt-1",
+          operator_scope,
+          nil,
+          "application/vnd.apache.arrow.stream"
+        )
+
+      assert response(delete_conn, 204) == ""
+      assert_receive {:upstream_request, delete_req}
+      assert {"accept", "application/vnd.apache.arrow.stream"} in delete_req[:headers]
+    end
+
+    test "sanitizes unsafe response Content-Type and malformed client Accept headers", %{
+      viewer_scope: viewer_scope
+    } do
+      for unsafe_ct <- [
+            "text/html",
+            "text/html; charset=utf-8",
+            "image/svg+xml",
+            "text/html+json",
+            "application/xhtml+json",
+            "application/javascript+json",
+            "application/ecmascript+json",
+            "application/json+evil",
+            "application/text-html-json",
+            "text/plain",
+            "application/vnd.apache.arrow.stream\r\nX-Injected: 1"
+          ] do
+        stub_http_client(fn req_opts ->
+          send(self(), {:upstream_request, req_opts})
+          {:ok, %Req.Response{status: 200, headers: %{"content-type" => [unsafe_ct]}, body: "<svg/>"}}
+        end)
+
+        conn = dispatch_router(:get, "/api/horizon/v1/outages", viewer_scope)
+
+        assert conn.status == 200
+        assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
+        assert_receive {:upstream_request, _req_opts}
+      end
+
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+        {:ok, %Req.Response{status: 200, headers: %{"content-type" => ["application/json"]}, body: "{}"}}
+      end)
+
+      for bad_accept <- [
+            nil,
+            "",
+            "   ",
+            "application/json\r\nX-Injected: 1",
+            "application/vnd.apache.arrow.stream\0",
+            "not-a-media-type",
+            "application/json; param=<script>"
+          ] do
+        conn = dispatch_router(:get, "/api/horizon/v1/outages", viewer_scope, nil, bad_accept)
+        assert json_response(conn, 200) == %{}
+        assert_receive {:upstream_request, req_opts}
+        assert {"accept", "application/json"} in req_opts[:headers]
+      end
+    end
+
+    test "renders JSON 401, 403, and 404 fallbacks when Arrow Accept header is sent", %{
+      viewer_scope: viewer_scope
+    } do
+      unauth_conn =
+        build_conn()
+        |> put_req_header("accept", "application/vnd.apache.arrow.stream")
+        |> get("/api/horizon/v1/outages")
+
+      assert json_response(unauth_conn, 401) == %{"error" => "authentication_required"}
+
+      forbidden_conn =
+        dispatch_router(
+          :get,
+          "/api/horizon/v1/pops/map",
+          viewer_scope,
+          nil,
+          "application/vnd.apache.arrow.stream"
+        )
+
+      assert json_response(forbidden_conn, 403) == %{"errors" => %{"detail" => "Forbidden"}}
+
+      not_found_conn =
+        dispatch_router(
+          :get,
+          "/api/horizon/v1/internal/operator/keys",
+          viewer_scope,
+          nil,
+          "application/vnd.apache.arrow.stream"
+        )
+
+      assert json_response(not_found_conn, 404) == %{"errors" => %{"detail" => "Not Found"}}
+
+      no_accept_404 = dispatch_router(:get, "/api/horizon/v1/internal/operator/keys", viewer_scope, nil, nil)
+      assert json_response(no_accept_404, 404) == %{"errors" => %{"detail" => "Not Found"}}
+    end
+  end
+
+  describe "Waves 1-4 allowlist and RBAC matrix" do
+    setup do
+      stub_upstream({:ok, %{base_url: @upstream_base, api_key: @secret_api_key}})
+
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           headers: %{"content-type" => ["application/json"]},
+           body: "{}"
+         }}
+      end)
+
+      %{viewer_scope: scope_for_role(:viewer), operator_scope: scope_for_role(:operator)}
+    end
+
+    test "allows viewer read routes across Waves 1-4 and rejects mutating methods on GET-only routes", %{
+      viewer_scope: viewer_scope,
+      operator_scope: operator_scope
+    } do
+      read_routes = [
+        {"/api/horizon/v1/outages", "/api/v1/outages", true},
+        {"/api/horizon/v1/outages/search?q=example", "/api/v1/outages/search?q=example", true},
+        {"/api/horizon/v1/providers/health", "/api/v1/providers/health", true},
+        {"/api/horizon/v1/weathermap", "/api/v1/weathermap", true},
+        {"/api/horizon/v1/topology/snapshot?ttl_secs=300", "/api/v1/topology/snapshot?ttl_secs=300", true},
+        {"/api/horizon/v1/bgp/anomalies", "/api/v1/bgp/anomalies", true},
+        {"/api/horizon/v1/feeds/sav", "/api/v1/feeds/sav", true},
+        {"/api/horizon/v1/sav/findings", "/api/v1/sav/findings", false},
+        {"/api/horizon/v1/sav/regressions", "/api/v1/sav/regressions", true},
+        {"/api/horizon/v1/feeds/reference/manifest", "/api/v1/feeds/reference/manifest", true},
+        {"/api/horizon/v1/feeds/reference/asns.ndjson.gz", "/api/v1/feeds/reference/asns.ndjson.gz", true},
+        {"/api/horizon/v1/feeds/reference/prefixes.ndjson.gz", "/api/v1/feeds/reference/prefixes.ndjson.gz", true},
+        {"/api/horizon/v1/public/bgp/zombies?asn=64496", "/api/v1/public/bgp/zombies?asn=64496", true},
+        {"/api/horizon/v1/snapshots/shared/tok-abc-123", "/api/v1/snapshots/shared/tok-abc-123", true},
+        {"/api/horizon/v1/public/reports/rep-abc-123", "/api/v1/public/reports/rep-abc-123", true},
+        {"/api/horizon/v2/targets", "/api/v2/targets", false},
+        {"/api/horizon/v2/targets/tgt-1/telemetry", "/api/v2/targets/tgt-1/telemetry", true},
+        {"/api/horizon/v2/branch-allowlists", "/api/v2/branch-allowlists", false},
+        {"/api/horizon/v1/alerts/rules", "/api/v1/alerts/rules", false},
+        {"/api/horizon/v1/alerts/rules/rule-1", "/api/v1/alerts/rules/rule-1", false},
+        {"/api/horizon/v1/alerts/events", "/api/v1/alerts/events", true},
+        {"/api/horizon/v1/slos", "/api/v1/slos", false},
+        {"/api/horizon/v1/slos/slo-1", "/api/v1/slos/slo-1", false},
+        {"/api/horizon/v1/slos/slo-1/rollups", "/api/v1/slos/slo-1/rollups", true},
+        {"/api/horizon/v1/slos/slo-1/burn-rate", "/api/v1/slos/slo-1/burn-rate", true},
+        {"/api/horizon/v1/fusion/outages", "/api/v1/fusion/outages", true},
+        {"/api/horizon/v1/fusion/bgp/anomalies", "/api/v1/fusion/bgp/anomalies", true}
+      ]
+
+      for {proxy_path, expected_upstream, get_only?} <- read_routes do
+        conn = dispatch_router(:get, proxy_path, viewer_scope)
+        assert conn.status == 200, "expected 200 for GET #{proxy_path}, got #{conn.status}"
+        assert_receive {:upstream_request, req_opts}
+        assert req_opts[:method] == :get
+        assert req_opts[:url] == "#{@upstream_base}#{expected_upstream}"
+
+        if get_only? do
+          post_conn = dispatch_router(:post, proxy_path, operator_scope, %{})
+          assert post_conn.status == 404, "expected 404 for POST #{proxy_path}"
+          refute_received {:upstream_request, _}
+
+          del_conn = dispatch_router(:delete, proxy_path, operator_scope)
+          assert del_conn.status == 404, "expected 404 for DELETE #{proxy_path}"
+          refute_received {:upstream_request, _}
+        end
+      end
+    end
+
+    test "enforces observability.traces.view on feeds/paths", %{viewer_scope: viewer_scope} do
+      conn = dispatch_router(:get, "/api/horizon/v1/feeds/paths", viewer_scope)
+      assert conn.status == 200
+      assert_receive {:upstream_request, req_opts}
+      assert req_opts[:url] == "#{@upstream_base}/api/v1/feeds/paths"
+
+      events_only = scope_with_permissions(:viewer, MapSet.new(["observability.events.view"]))
+      forbidden = dispatch_router(:get, "/api/horizon/v1/feeds/paths", events_only)
+      assert forbidden.status == 403
+      refute_received {:upstream_request, _}
+    end
+
+    test "enforces operator/write RBAC permissions on Waves 1-4 operator and mutating routes", %{
+      viewer_scope: viewer_scope,
+      operator_scope: operator_scope
+    } do
+      operator_routes = [
+        {:get, "/api/horizon/v1/pops/map", "/api/v1/pops/map", nil},
+        {:post, "/api/horizon/v1/sav/findings", "/api/v1/sav/findings", %{"pop_id" => "pop-1"}},
+        {:post, "/api/horizon/v2/targets", "/api/v2/targets", %{"host" => "198.51.100.10"}},
+        {:post, "/api/horizon/v2/targets/verify-ownership", "/api/v2/targets/verify-ownership",
+         %{"host_or_domain" => "example.com"}},
+        {:delete, "/api/horizon/v2/targets/tgt-1", "/api/v2/targets/tgt-1", nil},
+        {:post, "/api/horizon/v2/branch-allowlists", "/api/v2/branch-allowlists", %{"cidr" => "198.51.100.0/24"}},
+        {:delete, "/api/horizon/v2/branch-allowlists?cidr=198.51.100.0%2F24",
+         "/api/v2/branch-allowlists?cidr=198.51.100.0%2F24", nil},
+        {:post, "/api/horizon/v2/pops/provision", "/api/v2/pops/provision", %{"pop_id" => "pop-1"}},
+        {:post, "/api/horizon/v1/alerts/rules", "/api/v1/alerts/rules", %{"name" => "bgp-flap"}},
+        {:patch, "/api/horizon/v1/alerts/rules/rule-1", "/api/v1/alerts/rules/rule-1", %{"enabled" => false}},
+        {:delete, "/api/horizon/v1/alerts/rules/rule-1", "/api/v1/alerts/rules/rule-1", nil},
+        {:post, "/api/horizon/v1/slos", "/api/v1/slos", %{"name" => "edge-slo"}},
+        {:delete, "/api/horizon/v1/slos/slo-1", "/api/v1/slos/slo-1", nil},
+        {:get, "/api/horizon/v1/webhooks", "/api/v1/webhooks", nil},
+        {:get, "/api/horizon/v1/webhooks/wh-1/deliveries", "/api/v1/webhooks/wh-1/deliveries", nil},
+        {:post, "/api/horizon/v1/webhooks", "/api/v1/webhooks", %{"url" => "https://hooks.example.com/1"}},
+        {:delete, "/api/horizon/v1/webhooks/wh-1", "/api/v1/webhooks/wh-1", nil},
+        {:post, "/api/horizon/v1/webhooks/wh-1/rebind", "/api/v1/webhooks/wh-1/rebind", %{"url" => "https://a.test"}},
+        {:post, "/api/horizon/v1/webhooks/subscriptions", "/api/v1/webhooks/subscriptions",
+         %{"target_url" => "https://hooks.example.com/sub"}},
+        {:delete, "/api/horizon/v1/webhooks/subscriptions/sub-1", "/api/v1/webhooks/subscriptions/sub-1", nil},
+        {:post, "/api/horizon/v1/fusion/impact-reports", "/api/v1/fusion/impact-reports", %{"summary" => "test"}}
+      ]
+
+      for {method, proxy_path, expected_upstream, body} <- operator_routes do
+        denied = dispatch_router(method, proxy_path, viewer_scope, body)
+        assert denied.status == 403, "expected 403 for viewer #{method} #{proxy_path}, got #{denied.status}"
+        refute_received {:upstream_request, _}
+
+        allowed = dispatch_router(method, proxy_path, operator_scope, body)
+        assert allowed.status == 200, "expected 200 for operator #{method} #{proxy_path}, got #{allowed.status}"
+        assert_receive {:upstream_request, req_opts}
+        assert req_opts[:method] == method
+        assert req_opts[:url] == "#{@upstream_base}#{expected_upstream}"
+      end
+
+      admin_scope = scope_for_role(:admin)
+
+      for {method, proxy_path, expected_upstream, body} <- [
+            {:get, "/api/horizon/v1/webhooks/wh-1/deliveries", "/api/v1/webhooks/wh-1/deliveries", nil},
+            {:patch, "/api/horizon/v1/alerts/rules/rule-1", "/api/v1/alerts/rules/rule-1", %{"enabled" => false}}
+          ] do
+        admin_conn = dispatch_router(method, proxy_path, admin_scope, body)
+        assert admin_conn.status == 200
+        assert_receive {:upstream_request, req_opts}
+        assert req_opts[:method] == method
+        assert req_opts[:url] == "#{@upstream_base}#{expected_upstream}"
+      end
+    end
+
+    test "prevents static segment shadowing and keeps internal/provisioning/stream/mcp routes unallowlisted", %{
+      operator_scope: operator_scope
+    } do
+      blocked_routes = [
+        {:delete, "/api/horizon/v2/targets/verify-ownership", nil},
+        {:get, "/api/horizon/v2/targets/verify-ownership/telemetry", nil},
+        {:get, "/api/horizon/v1/snapshots/shared", nil},
+        {:delete, "/api/horizon/v1/snapshots/shared", nil},
+        {:delete, "/api/horizon/v1/snapshots/shared/share", nil},
+        {:delete, "/api/horizon/v1/webhooks/subscriptions", nil},
+        {:post, "/api/horizon/v1/webhooks/subscriptions/rebind", %{}},
+        {:get, "/api/horizon/v1/webhooks/subscriptions/deliveries", nil},
+        {:post, "/api/horizon/v1/internal/operator/keys", %{}},
+        {:post, "/api/horizon/v1/provisioning/accounts", %{}},
+        {:post, "/api/horizon/v1/provisioning/accounts/acc-1/keys", %{}},
+        {:delete, "/api/horizon/v1/provisioning/keys/key-1", nil},
+        {:post, "/api/horizon/v1/retention", %{}},
+        {:post, "/api/horizon/v1/agents/enroll", %{}},
+        {:post, "/api/horizon/v1/feeds/checkpoints/ack", %{}},
+        {:get, "/api/horizon/v2/stream/events", nil},
+        {:get, "/api/horizon/v2/stream/ws", nil},
+        {:post, "/api/horizon/v1/mcp", %{}}
+      ]
+
+      for {method, path, body} <- blocked_routes do
+        conn = dispatch_router(method, path, operator_scope, body)
+        assert conn.status == 404, "expected 404 for #{method} #{path}, got #{conn.status}"
+        refute_received {:upstream_request, _}
+      end
+    end
+
+    test "every HorizonProxy route permission exists in RBAC Catalog" do
+      catalog_keys = MapSet.new(Catalog.permission_keys())
+
+      sample_routes = [
+        {"GET", "v1", ["outages"]},
+        {"GET", "v1", ["feeds", "paths"]},
+        {"GET", "v1", ["pops", "map"]},
+        {"GET", "v1", ["alerts", "rules"]},
+        {"POST", "v1", ["alerts", "rules"]},
+        {"PATCH", "v1", ["alerts", "rules", "rule-1"]},
+        {"DELETE", "v1", ["alerts", "rules", "rule-1"]}
+      ]
+
+      for {method, ver, segs} <- sample_routes do
+        assert {:ok, %{required_permission: perm}} =
+                 HorizonProxy.resolve_route(method, ver, segs, "/api/horizon/#{ver}/" <> Enum.join(segs, "/"))
+
+        assert MapSet.member?(catalog_keys, perm), "expected #{perm} to exist in Catalog"
       end
     end
   end
@@ -1082,14 +1537,14 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
     end)
   end
 
-  defp dispatch_router(method, full_path, scope, body_params \\ nil) do
+  defp dispatch_router(method, full_path, scope, body_params \\ nil, accept \\ "application/json") do
     conn =
       build_conn()
-      |> put_req_header("accept", "application/json")
+      |> maybe_put_accept_header(accept)
       |> assign(:current_scope, scope)
 
     conn =
-      if method in [:post, :delete] do
+      if method in [:post, :patch, :delete] do
         put_req_header(conn, "authorization", "Bearer test-router-dispatch")
       else
         conn
@@ -1098,9 +1553,13 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
     case method do
       :get -> get(conn, full_path)
       :post -> post(conn, full_path, body_params || %{})
+      :patch -> patch(conn, full_path, body_params || %{})
       :delete -> delete(conn, full_path)
     end
   end
+
+  defp maybe_put_accept_header(conn, nil), do: conn
+  defp maybe_put_accept_header(conn, accept), do: put_req_header(conn, "accept", accept)
 
   defp call_proxy(method, full_path, scope, body_params \\ nil) do
     uri = URI.parse(full_path)

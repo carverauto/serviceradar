@@ -18,14 +18,39 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   @read_permission "observability.events.view"
   @traces_read_permission "observability.traces.view"
+  @rules_read_permission "observability.rules.view"
+  @rules_create_permission "observability.rules.create"
+  @rules_update_permission "observability.rules.update"
+  @rules_delete_permission "observability.rules.delete"
   @write_permission "settings.integrations.manage"
+
+  @default_accept_header "application/json"
+  @max_accept_header_bytes 512
+  @default_response_content_type "application/json; charset=utf-8"
+  @control_chars_regex ~r/[\x00-\x1F\x7F]/
+  @accept_header_regex ~r/\A[A-Za-z0-9!#$%&'*+.^_`|~\/,;=\- "]+\z/
+  @allowed_non_json_media_types MapSet.new([
+                                  "application/vnd.apache.arrow.stream",
+                                  "application/vnd.apache.arrow.file",
+                                  "application/octet-stream",
+                                  "application/gzip",
+                                  "text/csv"
+                                ])
+  @allowed_json_media_types MapSet.new([
+                              "application/json",
+                              "application/problem+json",
+                              "application/x-ndjson",
+                              "application/ndjson",
+                              "application/vnd.api+json",
+                              "application/ld+json"
+                            ])
 
   @id_regex ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z/
 
   @type route_match :: %{
           upstream_path: String.t(),
           required_permission: String.t(),
-          method: :get | :post | :delete
+          method: :get | :post | :patch | :delete
         }
 
   @type upstream_config :: Upstream.config()
@@ -94,11 +119,12 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   def forward(route, upstream, opts \\ []) do
     query_string = Keyword.get(opts, :query_string, "")
     body = Keyword.get(opts, :body)
+    accept = opts |> Keyword.get(:accept) |> sanitize_accept_header()
     url = build_upstream_url(upstream.base_url, route.upstream_path, query_string)
 
     headers =
       maybe_put_content_type(
-        [{"authorization", "Bearer #{upstream.api_key}"}, {"accept", "application/json"}],
+        [{"authorization", "Bearer #{upstream.api_key}"}, {"accept", accept}],
         route.method,
         body
       )
@@ -124,7 +150,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
         {:ok,
          %{
            status: status,
-           content_type: extract_json_content_type(resp_headers),
+           content_type: extract_response_content_type(resp_headers),
            body: normalize_response_body(resp_body)
          }}
 
@@ -140,7 +166,43 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   # --- Allowlist Matching ---
 
+  defp match_allowlisted_route(:get, "v1", ["outages"]), do: {:ok, "/api/v1/outages", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["outages", "search"]), do: {:ok, "/api/v1/outages/search", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["providers", "health"]),
+    do: {:ok, "/api/v1/providers/health", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["weathermap"]), do: {:ok, "/api/v1/weathermap", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["weathermap", "timeline"]),
+    do: {:ok, "/api/v1/weathermap/timeline", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["pops", "map"]), do: {:ok, "/api/v1/pops/map", @write_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["topology", "snapshot"]),
+    do: {:ok, "/api/v1/topology/snapshot", @read_permission}
+
   defp match_allowlisted_route(:get, "v1", ["feeds", "status"]), do: {:ok, "/api/v1/feeds/status", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["feeds", "paths"]), do: {:ok, "/api/v1/feeds/paths", @traces_read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["feeds", "sav"]), do: {:ok, "/api/v1/feeds/sav", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["feeds", "reference", "manifest"]),
+    do: {:ok, "/api/v1/feeds/reference/manifest", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["feeds", "reference", "asns.ndjson.gz"]),
+    do: {:ok, "/api/v1/feeds/reference/asns.ndjson.gz", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["feeds", "reference", "prefixes.ndjson.gz"]),
+    do: {:ok, "/api/v1/feeds/reference/prefixes.ndjson.gz", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["sav", "findings"]), do: {:ok, "/api/v1/sav/findings", @read_permission}
+
+  defp match_allowlisted_route(:post, "v1", ["sav", "findings"]), do: {:ok, "/api/v1/sav/findings", @write_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["sav", "regressions"]), do: {:ok, "/api/v1/sav/regressions", @read_permission}
 
   defp match_allowlisted_route(:get, "v1", ["vendor-status"]), do: {:ok, "/api/v1/vendor-status", @read_permission}
 
@@ -148,16 +210,24 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   defp match_allowlisted_route(:get, "v1", ["intel", "lookup"]), do: {:ok, "/api/v1/intel/lookup", @read_permission}
 
-  defp match_allowlisted_route(:get, "v1", ["weathermap", "timeline"]),
-    do: {:ok, "/api/v1/weathermap/timeline", @read_permission}
-
   defp match_allowlisted_route(:get, "v1", ["paths", "dag"]), do: {:ok, "/api/v1/paths/dag", @traces_read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["bgp", "anomalies"]), do: {:ok, "/api/v1/bgp/anomalies", @read_permission}
 
   defp match_allowlisted_route(:get, "v1", ["bgp", "sankey"]), do: {:ok, "/api/v1/bgp/sankey", @read_permission}
 
   defp match_allowlisted_route(:get, "v1", ["bgp", "zombies"]), do: {:ok, "/api/v1/bgp/zombies", @read_permission}
 
   defp match_allowlisted_route(:get, "v2", ["bgp", "zombies"]), do: {:ok, "/api/v2/bgp/zombies", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["public", "bgp", "zombies"]),
+    do: {:ok, "/api/v1/public/bgp/zombies", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["public", "reports", token]) do
+    if valid_id?(token),
+      do: {:ok, "/api/v1/public/reports/#{token}", @read_permission},
+      else: {:error, :not_found}
+  end
 
   defp match_allowlisted_route(:get, ver, ["bgp", "watchlist"]) when ver in ["v1", "v2"],
     do: {:ok, "/api/v2/bgp/watchlist", @read_permission}
@@ -178,19 +248,25 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   defp match_allowlisted_route(:post, "v1", ["snapshots"]), do: {:ok, "/api/v1/snapshots", @write_permission}
 
-  defp match_allowlisted_route(:get, "v1", ["snapshots", id]) do
+  defp match_allowlisted_route(:get, "v1", ["snapshots", "shared", token]) do
+    if valid_id?(token),
+      do: {:ok, "/api/v1/snapshots/shared/#{token}", @read_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v1", ["snapshots", id]) when id != "shared" do
     if valid_id?(id),
       do: {:ok, "/api/v1/snapshots/#{id}", @read_permission},
       else: {:error, :not_found}
   end
 
-  defp match_allowlisted_route(:delete, "v1", ["snapshots", id]) do
+  defp match_allowlisted_route(:delete, "v1", ["snapshots", id]) when id != "shared" do
     if valid_id?(id),
       do: {:ok, "/api/v1/snapshots/#{id}", @write_permission},
       else: {:error, :not_found}
   end
 
-  defp match_allowlisted_route(:delete, "v1", ["snapshots", id, "share"]) do
+  defp match_allowlisted_route(:delete, "v1", ["snapshots", id, "share"]) when id != "shared" do
     if valid_id?(id),
       do: {:ok, "/api/v1/snapshots/#{id}/share", @write_permission},
       else: {:error, :not_found}
@@ -220,6 +296,128 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   defp match_allowlisted_route(:post, "v2", ["agents", "enrollment-tokens"]),
     do: {:ok, "/api/v2/agents/enrollment-tokens", @write_permission}
 
+  defp match_allowlisted_route(:get, "v2", ["targets"]), do: {:ok, "/api/v2/targets", @read_permission}
+
+  defp match_allowlisted_route(:post, "v2", ["targets"]), do: {:ok, "/api/v2/targets", @write_permission}
+
+  defp match_allowlisted_route(:post, "v2", ["targets", "verify-ownership"]),
+    do: {:ok, "/api/v2/targets/verify-ownership", @write_permission}
+
+  defp match_allowlisted_route(:delete, "v2", ["targets", id]) when id != "verify-ownership" do
+    if valid_id?(id),
+      do: {:ok, "/api/v2/targets/#{id}", @write_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v2", ["targets", id, "telemetry"]) when id != "verify-ownership" do
+    if valid_id?(id),
+      do: {:ok, "/api/v2/targets/#{id}/telemetry", @read_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v2", ["branch-allowlists"]),
+    do: {:ok, "/api/v2/branch-allowlists", @read_permission}
+
+  defp match_allowlisted_route(:post, "v2", ["branch-allowlists"]),
+    do: {:ok, "/api/v2/branch-allowlists", @write_permission}
+
+  defp match_allowlisted_route(:delete, "v2", ["branch-allowlists"]),
+    do: {:ok, "/api/v2/branch-allowlists", @write_permission}
+
+  defp match_allowlisted_route(:post, "v2", ["pops", "provision"]), do: {:ok, "/api/v2/pops/provision", @write_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["alerts", "rules"]), do: {:ok, "/api/v1/alerts/rules", @rules_read_permission}
+
+  defp match_allowlisted_route(:post, "v1", ["alerts", "rules"]),
+    do: {:ok, "/api/v1/alerts/rules", @rules_create_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["alerts", "rules", id]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/alerts/rules/#{id}", @rules_read_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:patch, "v1", ["alerts", "rules", id]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/alerts/rules/#{id}", @rules_update_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:delete, "v1", ["alerts", "rules", id]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/alerts/rules/#{id}", @rules_delete_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v1", ["alerts", "events"]), do: {:ok, "/api/v1/alerts/events", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["slos"]), do: {:ok, "/api/v1/slos", @read_permission}
+
+  defp match_allowlisted_route(:post, "v1", ["slos"]), do: {:ok, "/api/v1/slos", @write_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["slos", id]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/slos/#{id}", @read_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:delete, "v1", ["slos", id]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/slos/#{id}", @write_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v1", ["slos", id, "rollups"]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/slos/#{id}/rollups", @read_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v1", ["slos", id, "burn-rate"]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/slos/#{id}/burn-rate", @read_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v1", ["webhooks"]), do: {:ok, "/api/v1/webhooks", @write_permission}
+
+  defp match_allowlisted_route(:post, "v1", ["webhooks"]), do: {:ok, "/api/v1/webhooks", @write_permission}
+
+  defp match_allowlisted_route(:post, "v1", ["webhooks", "subscriptions"]),
+    do: {:ok, "/api/v1/webhooks/subscriptions", @write_permission}
+
+  defp match_allowlisted_route(:delete, "v1", ["webhooks", "subscriptions", id]) do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/webhooks/subscriptions/#{id}", @write_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:delete, "v1", ["webhooks", id]) when id != "subscriptions" do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/webhooks/#{id}", @write_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:post, "v1", ["webhooks", id, "rebind"]) when id != "subscriptions" do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/webhooks/#{id}/rebind", @write_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v1", ["webhooks", id, "deliveries"]) when id != "subscriptions" do
+    if valid_id?(id),
+      do: {:ok, "/api/v1/webhooks/#{id}/deliveries", @write_permission},
+      else: {:error, :not_found}
+  end
+
+  defp match_allowlisted_route(:get, "v1", ["fusion", "outages"]), do: {:ok, "/api/v1/fusion/outages", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["fusion", "bgp", "anomalies"]),
+    do: {:ok, "/api/v1/fusion/bgp/anomalies", @read_permission}
+
+  defp match_allowlisted_route(:post, "v1", ["fusion", "impact-reports"]),
+    do: {:ok, "/api/v1/fusion/impact-reports", @write_permission}
+
   defp match_allowlisted_route(_method, _version, _segments), do: {:error, :not_found}
 
   defp validate_raw_request_path(raw_path) do
@@ -236,6 +434,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
     case String.upcase(method) do
       "GET" -> {:ok, :get}
       "POST" -> {:ok, :post}
+      "PATCH" -> {:ok, :patch}
       "DELETE" -> {:ok, :delete}
       _ -> {:error, :unsupported_method}
     end
@@ -280,13 +479,13 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   defp build_upstream_url(base_url, upstream_path, ""), do: base_url <> upstream_path
   defp build_upstream_url(base_url, upstream_path, qs), do: base_url <> upstream_path <> "?" <> qs
 
-  defp maybe_put_content_type(headers, :post, body) when is_binary(body) do
+  defp maybe_put_content_type(headers, method, body) when method in [:post, :patch] and is_binary(body) do
     [{"content-type", "application/json"} | headers]
   end
 
   defp maybe_put_content_type(headers, _method, _body), do: headers
 
-  defp maybe_put_body(opts, :post, body) when is_binary(body) do
+  defp maybe_put_body(opts, method, body) when method in [:post, :patch] and is_binary(body) do
     Keyword.put(opts, :body, body)
   end
 
@@ -313,24 +512,65 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   defp get_retry_delay(_retry_count), do: @get_retry_delay_ms
 
-  defp extract_json_content_type(headers) when is_map(headers) do
+  defp sanitize_accept_header(accept) when is_binary(accept) do
+    if Regex.match?(@control_chars_regex, accept) do
+      @default_accept_header
+    else
+      trimmed = String.trim(accept)
+
+      if trimmed != "" and byte_size(trimmed) <= @max_accept_header_bytes and
+           String.contains?(trimmed, "/") and Regex.match?(@accept_header_regex, trimmed) do
+        trimmed
+      else
+        @default_accept_header
+      end
+    end
+  end
+
+  defp sanitize_accept_header(_), do: @default_accept_header
+
+  defp extract_response_content_type(headers) when is_map(headers) do
     ct =
       Enum.find_value(headers, fn
         {k, [v | _]} when is_binary(v) ->
+          if String.downcase(to_string(k)) == "content-type", do: v
+
+        {k, v} when is_binary(v) ->
           if String.downcase(to_string(k)) == "content-type", do: v
 
         _ ->
           nil
       end)
 
-    if is_binary(ct) and String.contains?(String.downcase(ct), "json") do
-      ct
+    if allowed_response_content_type?(ct) do
+      String.trim(ct)
     else
-      "application/json; charset=utf-8"
+      @default_response_content_type
     end
   end
 
-  defp extract_json_content_type(_), do: "application/json; charset=utf-8"
+  defp extract_response_content_type(_), do: @default_response_content_type
+
+  defp allowed_response_content_type?(ct) when is_binary(ct) do
+    if Regex.match?(@control_chars_regex, ct) do
+      false
+    else
+      media_type =
+        ct
+        |> String.split(";", parts: 2)
+        |> hd()
+        |> String.trim()
+        |> String.downcase()
+
+      MapSet.member?(@allowed_non_json_media_types, media_type) or json_media_type?(media_type)
+    end
+  end
+
+  defp allowed_response_content_type?(_), do: false
+
+  defp json_media_type?(media_type) do
+    MapSet.member?(@allowed_json_media_types, media_type)
+  end
 
   defp normalize_response_body(body) when is_binary(body), do: body
   defp normalize_response_body(_), do: ""

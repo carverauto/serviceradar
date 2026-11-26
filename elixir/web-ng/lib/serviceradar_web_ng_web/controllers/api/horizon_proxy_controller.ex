@@ -14,9 +14,13 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyController do
   alias ServiceRadarWebNG.HorizonProxy
   alias ServiceRadarWebNG.RBAC
 
+  plug(:put_json_format)
+
   action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   def proxy(conn, %{"version" => version, "path" => path_segments}) do
+    accept = extract_accept_header(conn)
+
     with :ok <- require_authenticated(conn),
          {:ok, route} <-
            HorizonProxy.resolve_route(conn.method, version, path_segments, conn.request_path),
@@ -24,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyController do
          {:ok, query_string} <- HorizonProxy.validate_query_string(conn.query_string),
          {:ok, upstream} <- HorizonProxy.resolve_upstream(),
          {:ok, body} <- encode_request_body(conn, route.method) do
-      case HorizonProxy.forward(route, upstream, query_string: query_string, body: body) do
+      case HorizonProxy.forward(route, upstream, query_string: query_string, body: body, accept: accept) do
         {:ok, %{status: 204}} ->
           send_resp(conn, 204, "")
 
@@ -70,7 +74,16 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyController do
     end
   end
 
-  defp encode_request_body(conn, :post) do
+  defp put_json_format(conn, _opts), do: put_format(conn, "json")
+
+  defp extract_accept_header(conn) do
+    case get_req_header(conn, "accept") do
+      [] -> nil
+      values -> Enum.join(values, ", ")
+    end
+  end
+
+  defp encode_request_body(conn, method) when method in [:post, :patch] do
     case conn.body_params do
       %Plug.Conn.Unfetched{} ->
         {:ok, "{}"}
