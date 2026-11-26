@@ -299,6 +299,7 @@ from this inventory even if the Secret still holds its certificate.
 - {file: "k8s-inventory.pem", cn: "serviceradar-k8s-inventory"}
 {{- if eq (include "serviceradar.vantageEnabled" .) "true" }}
 - {file: "media-worker.pem", cn: "serviceradar-media-worker"}
+- {file: "vantage.pem", cn: "serviceradar-vantage"}
 {{- end }}
 {{- end -}}
 
