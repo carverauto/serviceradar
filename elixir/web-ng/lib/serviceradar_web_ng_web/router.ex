@@ -169,6 +169,18 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:require_authenticated_user_api)
   end
 
+  # HorizonProxy forwards client Accept headers (JSON, Arrow IPC, CSV, gzip)
+  # to horizon-server rather than rejecting non-JSON Accept headers with 406.
+  pipeline :horizon_proxy_api do
+    plug(SecurityHeaders)
+    plug(:fetch_session)
+    plug(:skip_csrf_protection_for_bearer_auth)
+    plug(:protect_from_forgery)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
+    plug(:require_authenticated_user_api)
+  end
+
   pipeline :archive_media_api do
     plug(:accepts, ["mp4", "jpg", "jpeg", "json"])
     plug(SecurityHeaders)
@@ -705,6 +717,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/spatial/room-artifacts", SpatialController, :room_artifacts)
     get("/spatial/room-artifacts/:id/download", SpatialController, :download_room_artifact)
     get("/spatial/field-surveys/:session_id/export", SpatialController, :field_survey_export)
+  end
+
+  scope "/api", ServiceRadarWebNGWeb.Api do
+    pipe_through([:horizon_proxy_api, :rate_limit_api_default])
 
     get("/horizon/:version/*path", HorizonProxyController, :proxy)
     post("/horizon/:version/*path", HorizonProxyController, :proxy)
