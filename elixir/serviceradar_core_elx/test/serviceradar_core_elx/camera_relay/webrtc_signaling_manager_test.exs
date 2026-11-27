@@ -485,6 +485,50 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManagerTest do
              WebRTCSignalingManager.get_session(relay_session_id, Ecto.UUID.generate(), server: server_name)
   end
 
+  test "broadcasts trickled server ICE candidates and gathering completion via RelayPubSub" do
+    relay_session_id = Ecto.UUID.generate()
+    :ok = RelayPubSub.subscribe(relay_session_id)
+    server_name = unique_server_name()
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name,
+       session_tracker: SessionTrackerStub,
+       pipeline_manager: SinkPeerPipelineManagerStub,
+       session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id, ice_gathering_state: "gathering"}} =
+             WebRTCSignalingManager.create_session(relay_session_id, server: server_name)
+
+    assert_receive {:sink_peer, sink}
+
+    host = %{"candidate" => "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", "sdpMid" => "0"}
+    end_of_candidates = %{"candidate" => "", "sdpMid" => "0"}
+
+    send(sink, {:trickle, [host, end_of_candidates]})
+    assert_receive :trickled
+
+    assert_receive {:camera_relay_webrtc_candidate,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      viewer_session_id: ^viewer_session_id,
+                      candidate: ^host,
+                      ice_gathering_state: "gathering"
+                    }}
+
+    assert_receive {:camera_relay_webrtc_candidate,
+                    %{
+                      relay_session_id: ^relay_session_id,
+                      viewer_session_id: ^viewer_session_id,
+                      candidate: nil,
+                      ice_gathering_state: "complete"
+                    }}
+
+    assert {:ok, %{remote_ice_candidates: [^host], ice_gathering_state: "complete"}} =
+             WebRTCSignalingManager.get_session(relay_session_id, viewer_session_id, server: server_name)
+  end
+
   test "releases a viewer whose sink crashed inside the relay pipeline" do
     relay_session_id = Ecto.UUID.generate()
     :ok = RelayPubSub.subscribe(relay_session_id)

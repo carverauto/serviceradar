@@ -110,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayTilesTest do
 
   for index <- [DashboardIndex, CameraIndex, CameraShow],
       event <- [
+        :camera_relay_webrtc_candidate,
         :camera_relay_webrtc_closed,
         :camera_relay_chunk,
         :camera_relay_viewer_chunk,

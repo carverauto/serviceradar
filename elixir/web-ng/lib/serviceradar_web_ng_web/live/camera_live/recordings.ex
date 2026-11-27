@@ -1339,6 +1339,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   def handle_info({:camera_relay_state, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:camera_relay_webrtc_candidate, _payload}, socket), do: {:noreply, socket}
   def handle_info({:camera_relay_webrtc_closed, _payload}, socket), do: {:noreply, socket}
   def handle_info({:camera_relay_chunk, _payload}, socket), do: {:noreply, socket}
   def handle_info({:camera_relay_viewer_chunk, _payload}, socket), do: {:noreply, socket}

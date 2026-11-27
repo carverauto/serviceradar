@@ -130,7 +130,7 @@ afterEach(() => {
 })
 
 
-async function mountWebRtcViewer({fetchImpl} = {}) {
+async function mountWebRtcViewer({fetchImpl, socketOpen = true} = {}) {
   vi.useFakeTimers()
   const element = buildHookElement()
   element.dataset.webrtcPlaybackTransport = "membrane_webrtc"
@@ -157,16 +157,36 @@ async function mountWebRtcViewer({fetchImpl} = {}) {
   }
 
   const MockWebSocket = createMockWebSocketClass()
-  globalThis.WebSocket = MockWebSocket
-  globalThis.window = Object.assign(new EventTarget(), {
-    location: new URL("https://example.com/devices/test"),
-    RTCPeerConnection: PeerConnection,
-    WebSocket: MockWebSocket,
-    VideoDecoder: function VideoDecoder() {},
-    MediaStream: class MediaStream {
-      constructor(tracks) { this.tracks = tracks }
-    },
-  })
+  if (!socketOpen) {
+    const BaseMockWebSocket = MockWebSocket
+    const ClosedByDefaultWebSocket = class extends BaseMockWebSocket {
+      constructor(url) {
+        super(url)
+        this.readyState = 0
+      }
+    }
+    globalThis.WebSocket = ClosedByDefaultWebSocket
+    globalThis.window = Object.assign(new EventTarget(), {
+      location: new URL("https://example.com/devices/test"),
+      RTCPeerConnection: PeerConnection,
+      WebSocket: ClosedByDefaultWebSocket,
+      VideoDecoder: function VideoDecoder() {},
+      MediaStream: class MediaStream {
+        constructor(tracks) { this.tracks = tracks }
+      },
+    })
+  } else {
+    globalThis.WebSocket = MockWebSocket
+    globalThis.window = Object.assign(new EventTarget(), {
+      location: new URL("https://example.com/devices/test"),
+      RTCPeerConnection: PeerConnection,
+      WebSocket: MockWebSocket,
+      VideoDecoder: function VideoDecoder() {},
+      MediaStream: class MediaStream {
+        constructor(tracks) { this.tracks = tracks }
+      },
+    })
+  }
   globalThis.document = {querySelector: () => null}
   globalThis.fetch = vi.fn(fetchImpl || (async (_url, options) => ({
     ok: true,
@@ -313,11 +333,12 @@ describe("CameraRelayStatusStream", () => {
   // A relay-only server peer is unreachable until the browser installs a TURN
   // permission for its relay candidate, and it only does that for candidates
   // it was given. core-elx trickles them after the offer.
-  it("adds every server ICE candidate from the answer and from polling until connected", async () => {
+  it("adds every server ICE candidate from the answer and from polling until connected when statusSocket is not open", async () => {
     const host = {candidate: "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", sdpMid: "0"}
     const relay = {candidate: "candidate:2 1 UDP 16777215 198.51.100.30 49200 typ relay", sdpMid: "0"}
     const pollUrl = "/api/camera-relay-sessions/test/webrtc/session/viewer-ice-test"
     const {peer} = await mountWebRtcViewer({
+      socketOpen: false,
       fetchImpl: async (url, options) => {
         let data = {signaling_state: "answer_applied"}
         if (options.method === "POST" && !options.body) {
@@ -332,7 +353,7 @@ describe("CameraRelayStatusStream", () => {
     })
     const polls = () => globalThis.fetch.mock.calls.filter(([url, options]) => url === pollUrl && options.method === "GET")
 
-    // First poll fires immediately (0ms) after POST /answer completes.
+    // First poll fires immediately (0ms) after POST /answer completes when WS is not open.
     expect(polls()).toHaveLength(1)
     expect(peer.addedCandidates).toEqual([host, relay])
 
@@ -347,10 +368,11 @@ describe("CameraRelayStatusStream", () => {
     expect(polls()).toHaveLength(pollsWhenConnected)
   })
 
-  it("backs off remote ICE candidate polling from 50ms to 100ms to 250ms and stops when gathering completes", async () => {
+  it("backs off remote ICE candidate polling from 50ms to 100ms to 250ms and stops when gathering completes when statusSocket is not open", async () => {
     const pollUrl = "/api/camera-relay-sessions/test/webrtc/session/viewer-ice-test"
     let pollResponses = 0
     await mountWebRtcViewer({
+      socketOpen: false,
       fetchImpl: async (url, options) => {
         let data = {signaling_state: "answer_applied"}
         if (options.method === "POST" && !options.body) {
@@ -390,6 +412,105 @@ describe("CameraRelayStatusStream", () => {
     // Poll #22 reported ice_gathering_state: "complete", so polling stops.
     await vi.advanceTimersByTimeAsync(2000)
     expect(polls()).toHaveLength(22)
+  })
+
+  it("applies server ICE candidates pushed over statusSocket immediately, deduplicates them, and stops backup polling on gathering complete", async () => {
+    const host = {candidate: "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", sdpMid: "0"}
+    const relay = {candidate: "candidate:2 1 UDP 16777215 198.51.100.30 49200 typ relay", sdpMid: "0"}
+    const otherViewer = {candidate: "candidate:9 1 UDP 2122252543 192.0.2.99 40009 typ host", sdpMid: "0"}
+    const pollUrl = "/api/camera-relay-sessions/test/webrtc/session/viewer-ice-test"
+
+    const {peer, sockets} = await mountWebRtcViewer({
+      fetchImpl: async (url, options) => {
+        let data = {signaling_state: "answer_applied"}
+        if (options.method === "POST" && !options.body) {
+          data = {viewer_session_id: "viewer-ice-test", offer_sdp: "v=0\r\nm=video", remote_ice_candidates: []}
+        } else if (url.endsWith("/answer")) {
+          data = {signaling_state: "answer_applied", remote_ice_candidates: []}
+        } else if (url === pollUrl && options.method === "GET") {
+          data = {signaling_state: "answer_applied", remote_ice_candidates: [host, relay], ice_gathering_state: "gathering"}
+        }
+        return {ok: true, json: async () => ({data})}
+      },
+    })
+    const statusSocket = sockets[0]
+    const polls = () => globalThis.fetch.mock.calls.filter(([url, options]) => url === pollUrl && options.method === "GET")
+
+    // While statusSocket is open, no immediate HTTP poll fires.
+    expect(polls()).toHaveLength(0)
+
+    // Candidate for a different viewer session is ignored.
+    statusSocket.emit("message", {
+      data: JSON.stringify({
+        type: "webrtc_ice_candidate",
+        viewer_session_id: "other-viewer",
+        candidate: otherViewer,
+        ice_gathering_state: "gathering",
+      }),
+    })
+    expect(peer.addedCandidates).toEqual([])
+
+    // Matching candidate is applied immediately without any HTTP poll.
+    statusSocket.emit("message", {
+      data: JSON.stringify({
+        type: "webrtc_ice_candidate",
+        viewer_session_id: "viewer-ice-test",
+        candidate: host,
+        ice_gathering_state: "gathering",
+      }),
+    })
+    expect(peer.addedCandidates).toEqual([host])
+    expect(polls()).toHaveLength(0)
+
+    // Backup poll fires at 500ms and deduplicates `host` while adding `relay`.
+    await vi.advanceTimersByTimeAsync(499)
+    expect(polls()).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(polls()).toHaveLength(1)
+    expect(peer.addedCandidates).toEqual([host, relay])
+
+    // Duplicate WS push of `relay` is ignored, and `complete` cancels future backup polls.
+    statusSocket.emit("message", {
+      data: JSON.stringify({
+        type: "webrtc_ice_candidate",
+        viewer_session_id: "viewer-ice-test",
+        candidate: relay,
+        ice_gathering_state: "complete",
+      }),
+    })
+    expect(peer.addedCandidates).toEqual([host, relay])
+
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(polls()).toHaveLength(1)
+  })
+
+  it("cancels the initial 500ms backup poll when statusSocket reports ice_gathering_state complete before it fires", async () => {
+    const host = {candidate: "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", sdpMid: "0"}
+    const pollUrl = "/api/camera-relay-sessions/test/webrtc/session/viewer-ice-test"
+    const {peer, sockets} = await mountWebRtcViewer()
+    const statusSocket = sockets[0]
+    const polls = () => globalThis.fetch.mock.calls.filter(([url, options]) => url === pollUrl && options.method === "GET")
+
+    statusSocket.emit("message", {
+      data: JSON.stringify({
+        type: "webrtc_ice_candidate",
+        viewer_session_id: "viewer-ice-test",
+        candidate: host,
+        ice_gathering_state: "gathering",
+      }),
+    })
+    statusSocket.emit("message", {
+      data: JSON.stringify({
+        type: "webrtc_ice_candidate",
+        viewer_session_id: "viewer-ice-test",
+        candidate: null,
+        ice_gathering_state: "complete",
+      }),
+    })
+
+    expect(peer.addedCandidates).toEqual([host])
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(polls()).toHaveLength(0)
   })
 
   it("wakes WebRTC session creation immediately when statusSocket reports active/ready", async () => {

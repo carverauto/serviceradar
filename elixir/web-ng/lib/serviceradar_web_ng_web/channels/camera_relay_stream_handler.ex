@@ -136,6 +136,22 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandler do
     end
   end
 
+  def handle_info({:camera_relay_webrtc_candidate, payload}, state) when is_map(payload) do
+    if Map.get(payload, :relay_session_id) == state.relay_session_id do
+      message = %{
+        type: "webrtc_ice_candidate",
+        relay_session_id: state.relay_session_id,
+        viewer_session_id: Map.get(payload, :viewer_session_id),
+        candidate: Map.get(payload, :candidate),
+        ice_gathering_state: Map.get(payload, :ice_gathering_state)
+      }
+
+      {:push, {:text, Jason.encode!(message)}, state}
+    else
+      {:ok, state}
+    end
+  end
+
   def handle_info({:camera_relay_webrtc_closed, payload}, state) when is_map(payload) do
     if Map.get(payload, :relay_session_id) == state.relay_session_id do
       message = %{
