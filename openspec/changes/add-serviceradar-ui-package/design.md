@@ -5,7 +5,7 @@
 - **web-ng stack.** Phoenix 1.8.15 and LiveView 1.2.12. Tailwind v4 is built through `@tailwindcss/cli`, and esbuild runs through bun scripts. Under Bazel, assets are built by `//elixir/web-ng/assets` (`aspect_rules_js` with a pnpm lockfile). Heroicons are vendored. daisyUI is removed.
 - **Reusable code in web-ng today:**
   - `ui_components.ex` (854 lines). It is coupled only through `CoreComponents.icon/1` and long app-specific `phx-value-*` include lists.
-  - The token block in `assets/css/app.css` (about lines 30–150 and 440–540).
+  - The token block in `assets/css/app.css` (about lines 30-150 and 440-540).
   - About 127 `.sr-ui-*` rules.
   - The generic chart hooks `FlowSparkline.js`, `TimeseriesChart.js` and `utils/chart_axis_grid.js` / `utils/chart_hover_geometry.js`. `TimeseriesChart.js` depends on the `user_time` helpers.
   - `OperationsTrafficMap.js`, which uses d3-geo with `world-atlas/countries-110m.json` and no tiles, but is shaped around NetFlow and MTR links.
