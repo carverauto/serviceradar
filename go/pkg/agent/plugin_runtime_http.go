@@ -285,27 +285,9 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrDenied
 	}
 
-	reqBytes, ok := readMemory(mod, reqPtr, reqLen)
-	if !ok {
-		return pluginErrInvalid
-	}
-	if len(reqBytes) > pluginMaxPayloadBytes {
-		return pluginErrTooLarge
-	}
-
-	var payload httpRequestPayload
-	if err := json.Unmarshal(reqBytes, &payload); err != nil {
-		return pluginErrInvalid
-	}
-
-	reqURL, err := url.Parse(strings.TrimSpace(payload.URL))
-	if err != nil || reqURL.Host == "" {
-		return pluginErrInvalid
-	}
-
-	method := strings.ToUpper(strings.TrimSpace(payload.Method))
-	if method == "" {
-		method = http.MethodGet
+	payload, reqURL, method, errCode := decodePluginHTTPRequest(mod, reqPtr, reqLen)
+	if errCode != 0 {
+		return errCode
 	}
 
 	pluginBody, err := decodeBody(payload)
@@ -368,41 +350,19 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		timeout = time.Duration(payload.TimeoutMS) * time.Millisecond
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL.String(), bytes.NewReader(authorizedBody))
-	if err != nil {
-		return pluginErrInvalid
-	}
-
-	for key, value := range payload.Headers {
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-		httpReq.Header.Set(key, value)
-	}
-	enforceCredentialBrokerContentType(httpReq, authorizedContentType)
-	hostCredentialBound, err := e.applyAWXInventoryHostCredential(
-		httpReq,
-		payload.InsecureSkipVerify,
-	)
-	if err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
-		return pluginErrDenied
-	}
-	if err := e.applyProxmoxHostAuthorityCredential(ctx, httpReq, proxmoxBinding); err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
-		return pluginErrDenied
-	}
-	hostCredentialBound = hostCredentialBound || proxmoxBinding != nil
-
-	if err := e.applyCredentialBrokerInjectionWithinBudget(
+	httpReq, hostCredentialBound, errCode := e.buildPluginHTTPRequest(
 		ctx,
-		httpReq,
+		payload,
+		reqURL,
+		method,
+		authorizedBody,
+		authorizedContentType,
+		proxmoxBinding,
 		grant,
-		payload.InsecureSkipVerify,
 		timeout,
-	); err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
-		return pluginErrDenied
+	)
+	if errCode != 0 {
+		return errCode
 	}
 
 	envelopeMode := strings.EqualFold(strings.TrimSpace(payload.ResponseMode), "envelope")
@@ -433,15 +393,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		trace.markStart()
 	}
 
-	var conditionalETagURL string
-	if payload.ConditionalETag && method == http.MethodGet &&
-		strings.TrimSpace(httpReq.Header.Get("If-None-Match")) == "" &&
-		e.manager != nil && e.assignment != nil && e.assignment.AssignmentID != "" {
-		conditionalETagURL = canonicalHTTPETagURL(reqURL)
-		if cachedETag, ok := e.manager.httpETags.get(e.assignment.AssignmentID, conditionalETagURL); ok {
-			httpReq.Header.Set("If-None-Match", cachedETag)
-		}
-	}
+	conditionalETagURL := e.applyPluginHTTPConditionalETag(httpReq, payload, reqURL, method)
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
@@ -456,25 +408,125 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		_ = resp.Body.Close()
 	}()
 	e.invalidateRejectedOAuth2Token(httpReq, grant, resp.StatusCode)
-
-	if conditionalETagURL != "" {
-		switch {
-		case resp.StatusCode == http.StatusNotModified:
-			if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
-				e.manager.httpETags.put(e.assignment.AssignmentID, conditionalETagURL, etag)
-			}
-		case resp.StatusCode >= 200 && resp.StatusCode < 300:
-			if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
-				e.manager.httpETags.put(e.assignment.AssignmentID, conditionalETagURL, etag)
-			} else {
-				e.manager.httpETags.delete(e.assignment.AssignmentID, conditionalETagURL)
-			}
-		case resp.StatusCode >= 400:
-			e.manager.httpETags.delete(e.assignment.AssignmentID, conditionalETagURL)
-		}
-	}
+	e.updatePluginHTTPConditionalETag(conditionalETagURL, resp)
 
 	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL, trace)
+}
+
+func decodePluginHTTPRequest(mod api.Module, reqPtr, reqLen uint32) (httpRequestPayload, *url.URL, string, int32) {
+	reqBytes, ok := readMemory(mod, reqPtr, reqLen)
+	if !ok {
+		return httpRequestPayload{}, nil, "", pluginErrInvalid
+	}
+	if len(reqBytes) > pluginMaxPayloadBytes {
+		return httpRequestPayload{}, nil, "", pluginErrTooLarge
+	}
+
+	var payload httpRequestPayload
+	if err := json.Unmarshal(reqBytes, &payload); err != nil {
+		return httpRequestPayload{}, nil, "", pluginErrInvalid
+	}
+
+	reqURL, err := url.Parse(strings.TrimSpace(payload.URL))
+	if err != nil || reqURL.Host == "" {
+		return httpRequestPayload{}, nil, "", pluginErrInvalid
+	}
+
+	method := strings.ToUpper(strings.TrimSpace(payload.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	return payload, reqURL, method, 0
+}
+
+func (e *pluginExecution) buildPluginHTTPRequest(
+	ctx context.Context,
+	payload httpRequestPayload,
+	reqURL *url.URL,
+	method string,
+	authorizedBody []byte,
+	authorizedContentType string,
+	proxmoxBinding *pluginHostAuthorityBinding,
+	grant *credentialBrokerGrant,
+	timeout time.Duration,
+) (*http.Request, bool, int32) {
+	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL.String(), bytes.NewReader(authorizedBody))
+	if err != nil {
+		return nil, false, pluginErrInvalid
+	}
+
+	for key, value := range payload.Headers {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		httpReq.Header.Set(key, value)
+	}
+	enforceCredentialBrokerContentType(httpReq, authorizedContentType)
+	hostCredentialBound, err := e.applyAWXInventoryHostCredential(
+		httpReq,
+		payload.InsecureSkipVerify,
+	)
+	if err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
+		return nil, false, pluginErrDenied
+	}
+	if err := e.applyProxmoxHostAuthorityCredential(ctx, httpReq, proxmoxBinding); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
+		return nil, false, pluginErrDenied
+	}
+	hostCredentialBound = hostCredentialBound || proxmoxBinding != nil
+
+	if err := e.applyCredentialBrokerInjectionWithinBudget(
+		ctx,
+		httpReq,
+		grant,
+		payload.InsecureSkipVerify,
+		timeout,
+	); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
+		return nil, false, pluginErrDenied
+	}
+
+	return httpReq, hostCredentialBound, 0
+}
+
+func (e *pluginExecution) applyPluginHTTPConditionalETag(
+	httpReq *http.Request,
+	payload httpRequestPayload,
+	reqURL *url.URL,
+	method string,
+) string {
+	if !payload.ConditionalETag || method != http.MethodGet ||
+		strings.TrimSpace(httpReq.Header.Get("If-None-Match")) != "" ||
+		e.manager == nil || e.assignment == nil || e.assignment.AssignmentID == "" {
+		return ""
+	}
+	conditionalETagURL := canonicalHTTPETagURL(reqURL)
+	if cachedETag, ok := e.manager.httpETags.get(e.assignment.AssignmentID, conditionalETagURL); ok {
+		httpReq.Header.Set("If-None-Match", cachedETag)
+	}
+	return conditionalETagURL
+}
+
+func (e *pluginExecution) updatePluginHTTPConditionalETag(conditionalETagURL string, resp *http.Response) {
+	if conditionalETagURL == "" {
+		return
+	}
+	switch {
+	case resp.StatusCode == http.StatusNotModified:
+		if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
+			e.manager.httpETags.put(e.assignment.AssignmentID, conditionalETagURL, etag)
+		}
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
+			e.manager.httpETags.put(e.assignment.AssignmentID, conditionalETagURL, etag)
+		} else {
+			e.manager.httpETags.delete(e.assignment.AssignmentID, conditionalETagURL)
+		}
+	case resp.StatusCode >= 400:
+		e.manager.httpETags.delete(e.assignment.AssignmentID, conditionalETagURL)
+	}
 }
 
 // applyPluginHTTPRedirectPolicy layers the per-request redirect rules on top

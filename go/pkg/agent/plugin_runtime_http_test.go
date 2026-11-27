@@ -800,10 +800,11 @@ func newSizedPluginHTTPHostTestExecution(
 		}
 	}
 
-	wasm := []byte{
+	wasm := make([]byte, 0, 12+len(pageLEB)+12)
+	wasm = append(wasm,
 		0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-		0x05, byte(2 + len(pageLEB)), 0x01, 0x00,
-	}
+		0x05, byte(2+len(pageLEB)), 0x01, 0x00,
+	)
 	wasm = append(wasm, pageLEB...)
 	wasm = append(wasm, 0x07, 0x0a, 0x01, 0x06, 'm', 'e', 'm', 'o', 'r', 'y', 0x02, 0x00)
 
