@@ -77,6 +77,10 @@ defmodule ServiceRadarWebNGWeb.McpTopologyGraphProtocolTest do
          "edges" => []
        }}
     end
+
+    @impl true
+    def egress_topology(_opts),
+      do: {:ok, %{"max_hops" => 4, "truncated" => false, "egress_devices" => [], "external_nodes" => [], "edges" => []}}
   end
 
   defmodule McpGraphTestPlug do

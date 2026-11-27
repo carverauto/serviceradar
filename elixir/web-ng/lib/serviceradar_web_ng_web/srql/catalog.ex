@@ -2851,9 +2851,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "favorited",
         "metrics_enabled",
         "threshold_enabled",
+        "internet_egress",
+        "egress_upstream_asn",
+        "egress_vantage_id",
+        "egress_port_speed_mbps",
         "tags"
       ],
-      boolean_fields: ["favorited", "metrics_enabled", "threshold_enabled"],
+      boolean_fields: ["favorited", "metrics_enabled", "threshold_enabled", "internet_egress"],
       downsample: false
     }
   ]

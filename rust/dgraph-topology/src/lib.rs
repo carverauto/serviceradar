@@ -48,13 +48,14 @@ pub use crate::external_writes::{
 };
 pub use crate::reads::{MAX_MTR_PATHS, MtrPath};
 pub use crate::schema::{
-    HORIZON_INGESTOR, PRED_CHANGE_ID, PRED_DEVICE_ID, PRED_EXT_ID, PRED_LINK_KEY,
-    PRED_PREFIX_CIDR, PREDICATES, SCHEMA, TYPES, schema_spec,
+    EGRESS_STITCH_INGESTOR, HORIZON_INGESTOR, PRED_CHANGE_ID, PRED_DEVICE_ID, PRED_EXT_ID,
+    PRED_LINK_KEY, PRED_PREFIX_CIDR, PREDICATES, SCHEMA, TYPES, schema_spec,
 };
 pub use crate::types::{
     BlastRadiusResult, CanonicalDevice, CanonicalEdge, CanonicalGraph, ChangeWrite,
-    CustomerConeResult, DeviceWrite, EdgeKind, EdgeWrite, ExternalEdgeKind, ExternalEdgeRef,
-    ExternalEdgeWrite, ExternalNodeKind, ExternalNodeRef, ExternalNodeWrite, ExternalSnapshotWrite,
+    CustomerConeResult, DeviceWrite, EdgeKind, EdgeWrite, EgressDeviceRef, EgressTopologyResult,
+    ExternalEdgeKind, ExternalEdgeRef, ExternalEdgeWrite, ExternalEgressTargetsResult,
+    ExternalNodeKind, ExternalNodeRef, ExternalNodeWrite, ExternalSnapshotWrite,
     ExternalStatusPatch, ExternalUpsertStats, HopWrite, InterfaceWrite, MtrMetrics,
     MultiHopTraceResult, NeighbourhoodEdge, PrefixWrite, SharedFateSpof, TopologyView,
     clamp_max_hops, clamp_query_limit, link_key,

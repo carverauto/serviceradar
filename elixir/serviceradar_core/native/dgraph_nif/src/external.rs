@@ -10,8 +10,7 @@ use rustler::{Env, Term};
 
 use crate::abi::{CountResult, JsonResult};
 use crate::external_abi::{
-    ExternalUpsertResult, NifExternalSnapshotWrite, NifExternalStatusPatch,
-    NifExternalUpsertStats,
+    ExternalUpsertResult, NifExternalSnapshotWrite, NifExternalStatusPatch, NifExternalUpsertStats,
 };
 use crate::runtime::Pool;
 use crate::{dgraph_call, rejected, write_call};
@@ -57,12 +56,7 @@ fn upsert_external_status(
 }
 
 #[rustler::nif]
-fn prune_stale_external(
-    env: Env<'_>,
-    url: String,
-    cutoff: String,
-    deadline_ms: u64,
-) -> Term<'_> {
+fn prune_stale_external(env: Env<'_>, url: String, cutoff: String, deadline_ms: u64) -> Term<'_> {
     dgraph_call(
         env,
         url,
@@ -78,19 +72,12 @@ fn prune_stale_external(
 
 macro_rules! json_call {
     ($env:expr, $url:expr, $pool:expr, $deadline_ms:expr, $op:expr) => {
-        dgraph_call(
-            $env,
-            $url,
-            $pool,
-            $deadline_ms,
-            $op,
-            |result| match result
-                .and_then(|value| serde_json::to_string(&value).map_err(|err| err.to_string()))
-            {
-                Ok(json) => JsonResult::Ok(json),
-                Err(reason) => JsonResult::Error(reason),
-            },
-        )
+        dgraph_call($env, $url, $pool, $deadline_ms, $op, |result| match result
+            .and_then(|value| serde_json::to_string(&value).map_err(|err| err.to_string()))
+        {
+            Ok(json) => JsonResult::Ok(json),
+            Err(reason) => JsonResult::Error(reason),
+        })
     };
 }
 
@@ -107,9 +94,13 @@ fn query_blast_radius(
         return rejected(env, "seed_id must not be empty".to_string());
     }
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    json_call!(env, url, Pool::Item, deadline_ms, move |client| async move {
-        client.query_blast_radius(&seed_id, max_hops, limit).await
-    })
+    json_call!(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move { client.query_blast_radius(&seed_id, max_hops, limit).await }
+    )
 }
 
 #[rustler::nif]
@@ -122,9 +113,13 @@ fn query_shared_fate_spofs(
 ) -> Term<'_> {
     let min_targets = usize::try_from(min_targets).unwrap_or(1);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    json_call!(env, url, Pool::Bulk, deadline_ms, move |client| async move {
-        client.query_shared_fate_spofs(min_targets, limit).await
-    })
+    json_call!(
+        env,
+        url,
+        Pool::Bulk,
+        deadline_ms,
+        move |client| async move { client.query_shared_fate_spofs(min_targets, limit).await }
+    )
 }
 
 #[rustler::nif]
@@ -140,9 +135,13 @@ fn query_customer_cone(
         return rejected(env, "asn_id must not be empty".to_string());
     }
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    json_call!(env, url, Pool::Item, deadline_ms, move |client| async move {
-        client.query_customer_cone(&asn_id, max_hops, limit).await
-    })
+    json_call!(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move { client.query_customer_cone(&asn_id, max_hops, limit).await }
+    )
 }
 
 #[rustler::nif]
@@ -159,9 +158,75 @@ fn query_multi_hop_trace(
         return rejected(env, "src_id must not be empty".to_string());
     }
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    json_call!(env, url, Pool::Item, deadline_ms, move |client| async move {
-        client
-            .query_multi_hop_trace(&src_id, dst_id.as_deref(), max_hops, limit)
-            .await
-    })
+    json_call!(
+        env,
+        url,
+        Pool::Item,
+        deadline_ms,
+        move |client| async move {
+            client
+                .query_multi_hop_trace(&src_id, dst_id.as_deref(), max_hops, limit)
+                .await
+        }
+    )
+}
+
+#[rustler::nif]
+fn query_egress_topology(
+    env: Env<'_>,
+    url: String,
+    max_hops: u8,
+    limit: u64,
+    deadline_ms: u64,
+) -> Term<'_> {
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    json_call!(
+        env,
+        url,
+        Pool::Bulk,
+        deadline_ms,
+        move |client| async move { client.query_egress_topology(max_hops, limit).await }
+    )
+}
+
+#[rustler::nif]
+fn query_external_egress_targets(
+    env: Env<'_>,
+    url: String,
+    limit: u64,
+    deadline_ms: u64,
+) -> Term<'_> {
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    json_call!(
+        env,
+        url,
+        Pool::Bulk,
+        deadline_ms,
+        move |client| async move { client.query_external_egress_targets(limit).await }
+    )
+}
+
+#[rustler::nif]
+fn reconcile_egress_edges(
+    env: Env<'_>,
+    url: String,
+    device_ids: Vec<String>,
+    keep_link_keys: Vec<String>,
+    deadline_ms: u64,
+) -> Term<'_> {
+    dgraph_call(
+        env,
+        url,
+        Pool::Bulk,
+        deadline_ms,
+        move |client| async move {
+            client
+                .reconcile_egress_edges(&device_ids, &keep_link_keys)
+                .await
+        },
+        |result| match result {
+            Ok(count) => CountResult::Ok(count as u64),
+            Err(reason) => CountResult::Error(reason),
+        },
+    )
 }

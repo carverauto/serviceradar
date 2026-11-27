@@ -59,8 +59,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Interfaces do
          if_descr: Utils.link_value(interface, :if_descr),
          if_alias: Utils.link_value(interface, :if_alias),
          if_phys_address: Utils.link_value(interface, :if_phys_address),
-         ip_addresses: Utils.link_value(interface, :ip_addresses)
+         ip_addresses: Utils.link_value(interface, :ip_addresses),
+         ip_cidrs: extract_ip_cidrs(interface)
        }}
     end
+  end
+
+  defp extract_ip_cidrs(interface) do
+    Utils.link_value(interface, :ip_cidrs) ||
+      case Utils.link_value(interface, :metadata) do
+        %{} = meta -> Map.get(meta, "ip_cidrs") || Map.get(meta, :ip_cidrs)
+        _ -> nil
+      end
   end
 end

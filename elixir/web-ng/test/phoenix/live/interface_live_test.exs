@@ -114,6 +114,51 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
       html = render(view)
       assert html =~ "Collecting" or html =~ "Enabled"
     end
+
+    test "allows saving manual Internet egress designation and enforces viewer RBAC", %{
+      conn: conn,
+      scope: scope,
+      device_uid: device_uid,
+      interface_uid: interface_uid
+    } do
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
+
+      assert has_element?(view, "#interface-egress-form")
+
+      html =
+        view
+        |> form("#interface-egress-form", %{
+          "egress" => %{
+            "internet_egress" => "true",
+            "egress_upstream_asn" => "174",
+            "egress_vantage_id" => "vantage-1b3a6111",
+            "egress_port_speed_mbps" => "10000"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Internet Egress"
+      assert html =~ "AS174"
+      assert html =~ "10 Gbps"
+
+      {:ok, saved} =
+        ServiceRadar.Inventory.InterfaceSettings.get_by_interface(device_uid, interface_uid, scope: scope)
+
+      assert saved.internet_egress == true
+      assert saved.egress_upstream_asn == 174
+      assert saved.egress_vantage_id == "vantage-1b3a6111"
+      assert saved.egress_port_speed_mbps == 10_000
+
+      viewer = AshTestHelpers.viewer_user_fixture()
+      viewer_conn = log_in_user(build_conn(), viewer)
+
+      {:ok, viewer_view, viewer_html} =
+        live(viewer_conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
+
+      refute has_element?(viewer_view, "#interface-egress-form")
+      assert viewer_html =~ "Internet Egress"
+      assert viewer_html =~ "AS174"
+    end
   end
 
   describe "interface threshold configuration" do

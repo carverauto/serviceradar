@@ -17,7 +17,7 @@
 //! Chunked, idempotent Dgraph writes and TTL pruning for Horizon external
 //! topology snapshots and status patches.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use dgraph_client::Mutation;
@@ -27,7 +27,7 @@ use serde_json::{Value, json};
 use crate::canonical_read::next_uid;
 use crate::client::{TopologyClient, dql_string};
 use crate::errors::TopologyError;
-use crate::schema::HORIZON_INGESTOR;
+use crate::schema::{EGRESS_STITCH_INGESTOR, HORIZON_INGESTOR};
 use crate::types::{
     ExternalEdgeWrite, ExternalNodeKind, ExternalNodeWrite, ExternalSnapshotWrite,
     ExternalStatusPatch, ExternalUpsertStats,
@@ -146,6 +146,123 @@ impl TopologyClient {
             .prune_orphan_external_nodes(&now_iso, &fallback_cutoff)
             .await?;
         Ok(deleted_edges + deleted_nodes)
+    }
+
+    /// Reconcile `egress_stitch_v1` edges by deleting any stored stitch edge
+    /// whose `topo.link_key` is not in `keep_link_keys`. When `device_ids` is
+    /// non-empty, reconciliation is scoped to outgoing `~topo.src` stitch edges
+    /// from those devices; when empty, all `egress_stitch_v1` edges are checked.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TopologyError`] if a Dgraph read or delete mutation fails.
+    pub async fn reconcile_egress_edges(
+        &self,
+        device_ids: &[String],
+        keep_link_keys: &[String],
+    ) -> Result<usize, TopologyError> {
+        let keep: BTreeSet<&str> = keep_link_keys.iter().map(String::as_str).collect();
+        let stale_uids = if device_ids.is_empty() {
+            self.find_stale_egress_uids_global(&keep).await?
+        } else {
+            self.find_stale_egress_uids_for_devices(device_ids, &keep)
+                .await?
+        };
+        if stale_uids.is_empty() {
+            return Ok(0);
+        }
+        let mut deleted = 0usize;
+        for chunk in stale_uids.chunks(UPSERT_CHUNK_SIZE) {
+            let deletes: Vec<Value> = chunk.iter().map(|uid| json!({ "uid": uid })).collect();
+            let payload = serde_json::to_vec(&deletes)
+                .map_err(|err| TopologyError::Serde(err.to_string()))?;
+            let mutation = Mutation::new().delete_json(payload);
+            let mut txn = self.dgraph().new_txn();
+            txn.upsert("", vec![mutation], true)
+                .await
+                .map_err(|err| TopologyError::from_dgraph(&err))?;
+            deleted += chunk.len();
+        }
+        Ok(deleted)
+    }
+
+    async fn find_stale_egress_uids_global(
+        &self,
+        keep: &BTreeSet<&str>,
+    ) -> Result<Vec<String>, TopologyError> {
+        let ingestor_q = dql_string(EGRESS_STITCH_INGESTOR);
+        let mut after = 0u64;
+        let mut stale = Vec::new();
+        let mut txn = self.dgraph().new_read_only_txn();
+        loop {
+            let cursor = if after == 0 {
+                String::new()
+            } else {
+                format!(", after: {after:#x}")
+            };
+            let query = format!(
+                "{{\n  edges(func: type(TopologyEdge), first: {AGE_PAGE_SIZE}{cursor}) \
+                 @filter(eq(topo.ingestor, {ingestor_q})) {{\n    uid\n    topo.link_key\n  }}\n}}"
+            );
+            let resp = txn
+                .query(&query)
+                .await
+                .map_err(|err| TopologyError::from_dgraph(&err))?;
+            let page: EgressEdgesBlock = serde_json::from_slice(resp.json())
+                .map_err(|err| TopologyError::Serde(err.to_string()))?;
+            let count = page.edges.len();
+            for row in page.edges {
+                after = next_uid(&row.uid, after)?;
+                let keep_it = row
+                    .link_key
+                    .as_deref()
+                    .is_some_and(|key| keep.contains(key));
+                if !keep_it && !row.uid.is_empty() {
+                    stale.push(row.uid);
+                }
+            }
+            if count < AGE_PAGE_SIZE {
+                return Ok(stale);
+            }
+        }
+    }
+
+    async fn find_stale_egress_uids_for_devices(
+        &self,
+        device_ids: &[String],
+        keep: &BTreeSet<&str>,
+    ) -> Result<Vec<String>, TopologyError> {
+        let ingestor_q = dql_string(EGRESS_STITCH_INGESTOR);
+        let mut stale = BTreeSet::new();
+        let mut txn = self.dgraph().new_read_only_txn();
+        for chunk in device_ids.chunks(50) {
+            let mut query = String::from("{\n");
+            for (idx, device_id) in chunk.iter().enumerate() {
+                let id_q = dql_string(device_id);
+                query.push_str(&format!(
+                    "  d{idx}(func: eq(device.id, {id_q})) {{ ~topo.src @filter(eq(topo.ingestor, {ingestor_q})) {{ uid topo.link_key }} }}\n"
+                ));
+            }
+            query.push('}');
+            let resp = txn
+                .query(&query)
+                .await
+                .map_err(|err| TopologyError::from_dgraph(&err))?;
+            let map: HashMap<String, Vec<DeviceEgressRow>> = serde_json::from_slice(resp.json())
+                .map_err(|err| TopologyError::Serde(err.to_string()))?;
+            for dev in map.into_values().flatten() {
+                for edge in dev.out_edges {
+                    let keep_it = edge
+                        .link_key
+                        .as_deref()
+                        .is_some_and(|key| keep.contains(key));
+                    if !keep_it && !edge.uid.is_empty() {
+                        stale.insert(edge.uid);
+                    }
+                }
+            }
+        }
+        Ok(stale.into_iter().collect())
     }
 
     async fn upsert_external_node_chunk(
@@ -325,6 +442,26 @@ struct StaleRows {
     stale: Vec<UidOnly>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct EgressEdgeRow {
+    #[serde(default)]
+    uid: String,
+    #[serde(default, rename = "topo.link_key")]
+    link_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct EgressEdgesBlock {
+    #[serde(default)]
+    edges: Vec<EgressEdgeRow>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct DeviceEgressRow {
+    #[serde(default, rename = "~topo.src")]
+    out_edges: Vec<EgressEdgeRow>,
+}
+
 fn ext_mutation(
     condition: &str,
     set: &Value,
@@ -333,7 +470,8 @@ fn ext_mutation(
     let payload = serde_json::to_vec(set).map_err(|err| TopologyError::Serde(err.to_string()))?;
     let mut mutation = Mutation::new().set_json(payload).cond(condition);
     if let Some(delete) = delete {
-        let del = serde_json::to_vec(delete).map_err(|err| TopologyError::Serde(err.to_string()))?;
+        let del =
+            serde_json::to_vec(delete).map_err(|err| TopologyError::Serde(err.to_string()))?;
         mutation = mutation.delete_json(del);
     }
     Ok(mutation)
@@ -341,7 +479,11 @@ fn ext_mutation(
 
 fn external_node_json(node: &ExternalNodeWrite, uid: &str) -> Value {
     if node.kind == ExternalNodeKind::Prefix {
-        let family = if node.id.contains(':') { "ipv6" } else { "ipv4" };
+        let family = if node.id.contains(':') {
+            "ipv6"
+        } else {
+            "ipv4"
+        };
         let mut obj = json!({
             "uid": uid,
             "dgraph.type": "Prefix",
@@ -358,12 +500,19 @@ fn external_node_json(node: &ExternalNodeWrite, uid: &str) -> Value {
         return obj;
     }
 
+    let ingestor = node
+        .ingestor
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(HORIZON_INGESTOR);
+
     let mut obj = json!({
         "uid": uid,
         "dgraph.type": node.kind.as_str(),
         "ext.id": node.id,
         "ext.kind": node.kind.as_str(),
-        "ext.ingestor": HORIZON_INGESTOR,
+        "ext.ingestor": ingestor,
         "ext.stale": false,
         "ext.last_seen": node.last_seen,
     });
@@ -377,11 +526,37 @@ fn external_node_json(node: &ExternalNodeWrite, uid: &str) -> Value {
     set_opt(&mut obj, "ext.iata", node.iata.as_deref());
     set_opt(&mut obj, "ext.country_code", node.country_code.as_deref());
     set_opt(&mut obj, "ext.outage_state", node.outage_state.as_deref());
+    set_opt(
+        &mut obj,
+        "ext.port_speed_mbps",
+        node.port_speed_mbps.filter(|&v| v > 0),
+    );
     set_opt(&mut obj, "ext.expires_at", node.expires_at.as_deref());
     obj
 }
 
 fn external_edge_json(edge: &ExternalEdgeWrite, idx: usize) -> Value {
+    let ingestor = edge
+        .ingestor
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(HORIZON_INGESTOR);
+    let protocol = if ingestor == EGRESS_STITCH_INGESTOR {
+        "egress"
+    } else {
+        "horizon"
+    };
+    let evidence_class = if ingestor == EGRESS_STITCH_INGESTOR {
+        edge.egress_source
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map_or_else(|| "egress".to_string(), |s| format!("egress-{s}"))
+    } else {
+        "external".to_string()
+    };
+
     let mut obj = json!({
         "uid": format!("uid(e{idx})"),
         "dgraph.type": "TopologyEdge",
@@ -389,9 +564,9 @@ fn external_edge_json(edge: &ExternalEdgeWrite, idx: usize) -> Value {
         "topo.src": [{"uid": format!("uid(s{idx})")}],
         "topo.dst": [{"uid": format!("uid(d{idx})")}],
         "topo.kind": edge.kind.as_str(),
-        "topo.protocol": "horizon",
-        "topo.evidence_class": "external",
-        "topo.ingestor": HORIZON_INGESTOR,
+        "topo.protocol": protocol,
+        "topo.evidence_class": evidence_class,
+        "topo.ingestor": ingestor,
         "topo.confidence_tier": "observed",
         "topo.stale": false,
         "topo.last_seen": edge.last_seen,
@@ -404,6 +579,28 @@ fn external_edge_json(edge: &ExternalEdgeWrite, idx: usize) -> Value {
     );
     set_opt(&mut obj, "topo.avg_rtt_us", edge.avg_rtt_us);
     set_opt(&mut obj, "topo.loss_pct", edge.loss_pct);
+    set_opt(
+        &mut obj,
+        "topo.port_speed_mbps",
+        edge.port_speed_mbps.filter(|&v| v > 0),
+    );
+    set_opt(
+        &mut obj,
+        "topo.if_name_ab",
+        edge.if_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    );
+    set_opt(&mut obj, "topo.if_index_ab", edge.if_index);
+    set_opt(
+        &mut obj,
+        "topo.egress_source",
+        edge.egress_source
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    );
     set_opt(&mut obj, "topo.ttl_secs", edge.ttl_secs);
     set_opt(&mut obj, "topo.expires_at", edge.expires_at.as_deref());
     obj
@@ -506,12 +703,12 @@ mod tests {
 
     #[test]
     fn ttl_semantics_expire_short_ttl_at_60s_and_preserve_6h_ttl_at_16m() {
-        let is_stale = |expires_at: Option<&str>, last_seen: &str, now: &str, fallback: &str| {
-            match expires_at {
+        let is_stale =
+            |expires_at: Option<&str>, last_seen: &str, now: &str, fallback: &str| match expires_at
+            {
                 Some(exp) => exp < now,
                 None => last_seen < fallback,
-            }
-        };
+            };
 
         let last_seen = "2026-11-25T00:00:00Z";
         let short_exp = "2026-11-25T00:01:00Z";

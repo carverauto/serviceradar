@@ -22,10 +22,11 @@ mod writes;
 pub use canonical_edge::{CanonicalEdge, NeighbourhoodEdge, link_key};
 pub use canonical_graph::{CanonicalDevice, CanonicalGraph, TopologyView};
 pub use external::{
-    BlastRadiusResult, CustomerConeResult, ExternalEdgeKind, ExternalEdgeRef, ExternalEdgeWrite,
-    ExternalNodeKind, ExternalNodeRef, ExternalNodeWrite, ExternalSnapshotWrite,
-    ExternalStatusPatch, ExternalUpsertStats, MultiHopTraceResult, SharedFateSpof,
-    clamp_max_hops, clamp_query_limit,
+    BlastRadiusResult, CustomerConeResult, DEFAULT_EGRESS_TARGETS_LIMIT, EgressDeviceRef,
+    EgressTopologyResult, ExternalEdgeKind, ExternalEdgeRef, ExternalEdgeWrite,
+    ExternalEgressTargetsResult, ExternalNodeKind, ExternalNodeRef, ExternalNodeWrite,
+    ExternalSnapshotWrite, ExternalStatusPatch, ExternalUpsertStats, MAX_EGRESS_TARGETS_LIMIT,
+    MultiHopTraceResult, SharedFateSpof, clamp_max_hops, clamp_query_limit,
 };
 pub use writes::{
     ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite, HopWrite, InterfaceWrite, MtrMetrics,

@@ -143,6 +143,53 @@ defmodule ServiceRadar.Dgraph.ExternalTopology do
     end
   end
 
+  @spec egress_topology(keyword()) :: {:ok, map()} | {:error, term()}
+  def egress_topology(opts \\ []) when is_list(opts) do
+    max_hops = clamp_hops(Keyword.get(opts, :max_hops, @default_max_hops))
+    limit = clamp_limit(Keyword.get(opts, :limit, @max_limit))
+
+    with {:ok, url} <- Dgraph.url(),
+         {:ok, json} <-
+           call(
+             :query_egress_topology,
+             :bulk,
+             false,
+             &Native.query_egress_topology(url, max_hops, limit, &1)
+           ) do
+      decode_json(json)
+    end
+  end
+
+  @spec external_egress_targets(keyword()) :: {:ok, map()} | {:error, term()}
+  def external_egress_targets(opts \\ []) when is_list(opts) do
+    limit = opts |> Keyword.get(:limit, 1000) |> clamp_positive(1000, 5000)
+
+    with {:ok, url} <- Dgraph.url(),
+         {:ok, json} <-
+           call(
+             :query_external_egress_targets,
+             :bulk,
+             false,
+             &Native.query_external_egress_targets(url, limit, &1)
+           ) do
+      decode_json(json)
+    end
+  end
+
+  @spec reconcile_egress_edges([String.t()], [String.t()]) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def reconcile_egress_edges(device_ids, keep_link_keys)
+      when is_list(device_ids) and is_list(keep_link_keys) do
+    with {:ok, url} <- Dgraph.url() do
+      call(
+        :reconcile_egress_edges,
+        :bulk,
+        false,
+        &Native.reconcile_egress_edges(url, device_ids, keep_link_keys, &1)
+      )
+    end
+  end
+
   defp call(operation, class, retry?, submit) do
     Call.run(operation, submit, [cancel: &Native.cancel/1] ++ Dgraph.call_options(class, retry?))
   end
@@ -185,12 +232,17 @@ defmodule ServiceRadar.Dgraph.ExternalTopology do
       iata: get_str(node, :iata),
       country_code: get_str(node, :country_code),
       outage_state: get_str(node, :outage_state),
+      port_speed_mbps: get_pos_int(node, :port_speed_mbps),
+      ingestor: get_str(node, :ingestor),
       last_seen: get_str(node, :last_seen) || to_string(fallback_seen),
       expires_at: get_str(node, :expires_at)
     }
   end
 
   defp encode_edge(edge, fallback_seen, default_ttl) do
+    ingestor = get_str(edge, :ingestor)
+    ttl_secs = get_int(edge, :ttl_secs)
+
     %{
       src_id: to_string(get_field(edge, :src_id) || ""),
       dst_id: to_string(get_field(edge, :dst_id) || ""),
@@ -199,8 +251,13 @@ defmodule ServiceRadar.Dgraph.ExternalTopology do
       as_boundary_confidence: get_float(edge, :as_boundary_confidence),
       avg_rtt_us: get_int(edge, :avg_rtt_us),
       loss_pct: get_float(edge, :loss_pct),
+      port_speed_mbps: get_pos_int(edge, :port_speed_mbps),
+      if_name: get_str(edge, :if_name),
+      if_index: get_int(edge, :if_index),
+      egress_source: get_str(edge, :egress_source),
+      ingestor: ingestor,
       last_seen: get_str(edge, :last_seen) || to_string(fallback_seen),
-      ttl_secs: get_int(edge, :ttl_secs) || default_ttl,
+      ttl_secs: if(ingestor == "egress_stitch_v1", do: ttl_secs, else: ttl_secs || default_ttl),
       expires_at: get_str(edge, :expires_at)
     }
   end
@@ -256,6 +313,13 @@ defmodule ServiceRadar.Dgraph.ExternalTopology do
   defp get_int(map, key) do
     case get_field(map, key) do
       val when is_integer(val) -> val
+      _ -> nil
+    end
+  end
+
+  defp get_pos_int(map, key) do
+    case get_int(map, key) do
+      val when is_integer(val) and val > 0 -> val
       _ -> nil
     end
   end

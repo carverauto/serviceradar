@@ -64,6 +64,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
     GraphStore.adapter().multi_hop_trace(query, opts)
   end
 
+  @doc "Returns the bounded inside-to-outside Internet egress graph for God View."
+  @spec egress_topology(keyword()) :: {:ok, map()} | {:error, term()}
+  def egress_topology(opts \\ []) when is_list(opts) do
+    GraphStore.adapter().egress_topology(opts)
+  end
+
   @doc """
   Projects one mapper topology report: every link into Dgraph in one batch.
   It prunes nothing; pruning and the canonical rebuild are the graph-wide

@@ -22,7 +22,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjection do
                         "as_rel_provider",
                         "as_rel_peer",
                         "ixp_member",
-                        "anycast_serves"
+                        "anycast_serves",
+                        "egresses_to"
                       ])
 
   @default_ttl_secs 900
@@ -183,6 +184,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjection do
         iata: non_blank(field(raw, :iata)),
         country_code: non_blank(field(raw, :country_code)),
         outage_state: normalize_outage_state(field(raw, :outage_state)),
+        port_speed_mbps: pos_int_or_nil(field(raw, :port_speed_mbps)),
         last_seen: DateTime.to_iso8601(last_seen_dt),
         expires_at: add_ttl(last_seen_dt, ttl_secs)
       }
@@ -212,6 +214,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjection do
         kind: kind,
         border_asn: int_or_nil(field(raw, :border_asn)),
         as_boundary_confidence: float_or_nil(field(raw, :as_boundary_confidence)),
+        port_speed_mbps: pos_int_or_nil(field(raw, :port_speed_mbps)),
         rtt_sum: rtt || 0,
         rtt_count: if(is_nil(rtt), do: 0, else: 1),
         loss_sum: loss || 0.0,
@@ -234,6 +237,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjection do
       prev
       | border_asn: next.border_asn || prev.border_asn,
         as_boundary_confidence: next.as_boundary_confidence || prev.as_boundary_confidence,
+        port_speed_mbps: max_opt(prev.port_speed_mbps, next.port_speed_mbps),
         rtt_sum: prev.rtt_sum + next.rtt_sum,
         rtt_count: prev.rtt_count + next.rtt_count,
         loss_sum: prev.loss_sum + next.loss_sum,
@@ -250,6 +254,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjection do
       kind: entry.kind,
       border_asn: entry.border_asn,
       as_boundary_confidence: entry.as_boundary_confidence,
+      port_speed_mbps: entry.port_speed_mbps,
       avg_rtt_us: if(entry.rtt_count > 0, do: div(entry.rtt_sum, entry.rtt_count)),
       loss_pct: if(entry.loss_count > 0, do: Float.round(entry.loss_sum / entry.loss_count, 4)),
       last_seen: entry.last_seen,
@@ -386,6 +391,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjection do
   end
 
   defp int_or_nil(_), do: nil
+
+  defp pos_int_or_nil(val) do
+    case int_or_nil(val) do
+      n when is_integer(n) and n > 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp max_opt(nil, b), do: b
+  defp max_opt(a, nil), do: a
+  defp max_opt(a, b), do: max(a, b)
 
   defp float_or_nil(val) when is_float(val), do: val
   defp float_or_nil(val) when is_integer(val), do: val / 1.0

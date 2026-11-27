@@ -27,6 +27,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStore do
   @callback customer_cone_impact(pos_integer() | String.t(), keyword()) ::
               {:ok, map()} | {:error, term()}
   @callback multi_hop_trace(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback egress_topology(keyword()) :: {:ok, map()} | {:error, term()}
 
   @doc """
   Returns the configured `GraphStore` adapter module, defaulting to

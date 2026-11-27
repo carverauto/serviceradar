@@ -535,8 +535,20 @@
             "type": "array",
             "uniqueItems": true
           },
+          "egress_port_speed_mbps": {
+            "$ref": "#/components/schemas/interface_setting-filter-egress_port_speed_mbps"
+          },
+          "egress_upstream_asn": {
+            "$ref": "#/components/schemas/interface_setting-filter-egress_upstream_asn"
+          },
+          "egress_vantage_id": {
+            "$ref": "#/components/schemas/interface_setting-filter-egress_vantage_id"
+          },
           "id": {
             "$ref": "#/components/schemas/interface_setting-filter-id"
+          },
+          "internet_egress": {
+            "$ref": "#/components/schemas/interface_setting-filter-internet_egress"
           },
           "not": {
             "$ref": "#/components/schemas/interface_setting-filter"
@@ -6626,6 +6638,46 @@
         },
         "type": "object"
       },
+      "interface_setting-filter-internet_egress": {
+        "additionalProperties": false,
+        "description": "Whether this interface is manually designated as an Internet egress",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "otel_trace-filter-trace_state": {
         "additionalProperties": false,
         "description": "W3C trace state (NULL when empty)",
@@ -9341,7 +9393,51 @@
           "attributes": {
             "additionalProperties": false,
             "description": "An attributes object for a interface_setting",
-            "properties": {},
+            "properties": {
+              "egress_port_speed_mbps": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional link speed override in Mbps for this Internet egress. Field included by default."
+              },
+              "egress_upstream_asn": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional upstream ISP ASN bound to this Internet egress interface. Field included by default."
+              },
+              "egress_vantage_id": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional Horizon vantage ID associated with this Internet egress. Field included by default."
+              },
+              "internet_egress": {
+                "description": "Whether this interface is manually designated as an Internet egress. Field included by default.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "internet_egress"
+            ],
             "type": "object"
           },
           "id": {
@@ -10836,6 +10932,46 @@
       "service-check-filter-critical_threshold_ms": {
         "additionalProperties": false,
         "description": "Response time critical threshold (milliseconds)",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "interface_setting-filter-egress_port_speed_mbps": {
+        "additionalProperties": false,
+        "description": "Optional link speed override in Mbps for this Internet egress",
         "properties": {
           "eq": {
             "type": "integer"
@@ -15636,6 +15772,61 @@
           "less_than": {},
           "less_than_or_equal": {},
           "not_eq": {}
+        },
+        "type": "object"
+      },
+      "interface_setting-filter-egress_vantage_id": {
+        "additionalProperties": false,
+        "description": "Optional Horizon vantage ID associated with this Internet egress",
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
         },
         "type": "object"
       },
@@ -27658,6 +27849,46 @@
         },
         "type": "object"
       },
+      "interface_setting-filter-egress_upstream_asn": {
+        "additionalProperties": false,
+        "description": "Optional upstream ISP ASN bound to this Internet egress interface",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "otel_trace-filter-service_instance": {
         "additionalProperties": false,
         "description": "Service instance ID",
@@ -38568,12 +38799,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "interface_setting": "id"
+                "interface_setting": "id,internet_egress,egress_upstream_asn,egress_vantage_id,egress_port_speed_mbps"
               },
               "properties": {
                 "interface_setting": {
                   "description": "Comma separated field names for interface_setting",
-                  "example": "id",
+                  "example": "id,internet_egress,egress_upstream_asn,egress_vantage_id,egress_port_speed_mbps",
                   "type": "string"
                 }
               },
@@ -38594,6 +38825,39 @@
                       "attributes": {
                         "additionalProperties": false,
                         "properties": {
+                          "egress_port_speed_mbps": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional link speed override in Mbps for this Internet egress"
+                          },
+                          "egress_upstream_asn": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional upstream ISP ASN bound to this Internet egress interface"
+                          },
+                          "egress_vantage_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional Horizon vantage ID associated with this Internet egress"
+                          },
                           "favorited": {
                             "anyOf": [
                               {
@@ -38604,6 +38868,17 @@
                               }
                             ],
                             "description": "Whether this interface is marked as a favorite"
+                          },
+                          "internet_egress": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Whether this interface is manually designated as an Internet egress"
                           },
                           "metric_groups": {
                             "anyOf": [
@@ -45509,7 +45784,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id)(,(id|-id|\\+\\+id|--id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|internet_egress|-internet_egress|\\+\\+internet_egress|--internet_egress|egress_upstream_asn|-egress_upstream_asn|\\+\\+egress_upstream_asn|--egress_upstream_asn|egress_vantage_id|-egress_vantage_id|\\+\\+egress_vantage_id|--egress_vantage_id|egress_port_speed_mbps|-egress_port_speed_mbps|\\+\\+egress_port_speed_mbps|--egress_port_speed_mbps)(,(id|-id|\\+\\+id|--id|internet_egress|-internet_egress|\\+\\+internet_egress|--internet_egress|egress_upstream_asn|-egress_upstream_asn|\\+\\+egress_upstream_asn|--egress_upstream_asn|egress_vantage_id|-egress_vantage_id|\\+\\+egress_vantage_id|--egress_vantage_id|egress_port_speed_mbps|-egress_port_speed_mbps|\\+\\+egress_port_speed_mbps|--egress_port_speed_mbps))*$",
               "type": "string"
             },
             "style": "form"
@@ -45567,12 +45842,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "interface_setting": "id"
+                "interface_setting": "id,internet_egress,egress_upstream_asn,egress_vantage_id,egress_port_speed_mbps"
               },
               "properties": {
                 "interface_setting": {
                   "description": "Comma separated field names for interface_setting",
-                  "example": "id",
+                  "example": "id,internet_egress,egress_upstream_asn,egress_vantage_id,egress_port_speed_mbps",
                   "type": "string"
                 }
               },
@@ -45647,12 +45922,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "interface_setting": "id"
+                "interface_setting": "id,internet_egress,egress_upstream_asn,egress_vantage_id,egress_port_speed_mbps"
               },
               "properties": {
                 "interface_setting": {
                   "description": "Comma separated field names for interface_setting",
-                  "example": "id",
+                  "example": "id,internet_egress,egress_upstream_asn,egress_vantage_id,egress_port_speed_mbps",
                   "type": "string"
                 }
               },
@@ -45676,6 +45951,39 @@
                           "device_id": {
                             "type": "string"
                           },
+                          "egress_port_speed_mbps": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional link speed override in Mbps for this Internet egress"
+                          },
+                          "egress_upstream_asn": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional upstream ISP ASN bound to this Internet egress interface"
+                          },
+                          "egress_vantage_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional Horizon vantage ID associated with this Internet egress"
+                          },
                           "favorited": {
                             "anyOf": [
                               {
@@ -45689,6 +45997,17 @@
                           },
                           "interface_uid": {
                             "type": "string"
+                          },
+                          "internet_egress": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Whether this interface is manually designated as an Internet egress"
                           },
                           "metric_groups": {
                             "anyOf": [
@@ -47303,12 +47622,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "interface_setting": "id"
+                "interface_setting": "id,internet_egress,egress_upstream_asn,egress_vantage_id,egress_port_speed_mbps"
               },
               "properties": {
                 "interface_setting": {
                   "description": "Comma separated field names for interface_setting",
-                  "example": "id",
+                  "example": "id,internet_egress,egress_upstream_asn,egress_vantage_id,egress_port_speed_mbps",
                   "type": "string"
                 }
               },

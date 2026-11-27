@@ -89,6 +89,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStoreTest do
           {:ok, %{"found" => true, "hops" => 2, "nodes" => [], "edges" => []}}
         )
 
+    @impl true
+    def egress_topology(opts),
+      do:
+        notify(
+          :egress_topology,
+          opts,
+          {:ok,
+           %{
+             "max_hops" => 4,
+             "truncated" => false,
+             "egress_devices" => [],
+             "external_nodes" => [],
+             "edges" => []
+           }}
+        )
+
     defp notify(op, payload, result) do
       send(self(), {:graph_store_call, op, payload})
       result
@@ -155,6 +171,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStoreTest do
 
     assert_receive {:graph_store_call, :multi_hop_trace,
                     {%{from: "sr:edge-01", to: "saas:api.example"}, [max_hops: 5]}}
+
+    assert {:ok, %{"egress_devices" => []}} =
+             TopologyGraph.egress_topology(max_hops: 3, limit: 25)
+
+    assert_receive {:graph_store_call, :egress_topology, [max_hops: 3, limit: 25]}
 
     config_facts = %{device_uid: "sr:edge-01", interfaces: [], prefixes: []}
     assert :ok = TopologyGraph.project_config_facts(config_facts)

@@ -116,6 +116,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
           |> Map.put("threshold_comparison", setting.threshold_comparison)
           |> Map.put("threshold_metric", setting.threshold_metric)
           |> Map.put("threshold_severity", setting.threshold_severity)
+          |> Map.put("internet_egress", setting.internet_egress == true)
+          |> Map.put("egress_upstream_asn", setting.egress_upstream_asn)
+          |> Map.put("egress_vantage_id", setting.egress_vantage_id)
+          |> Map.put("egress_port_speed_mbps", setting.egress_port_speed_mbps)
       end
     end)
   end
@@ -267,6 +271,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       merged_tags = Enum.uniq(existing_tags ++ tags)
 
       case upsert_interface_setting(scope, device_uid, uid, %{tags: merged_tags}) do
+        {:ok, _} -> :ok
+        {:error, _} -> :error
+      end
+    end)
+    |> Enum.count(&(&1 == :ok))
+  end
+
+  def bulk_update_internet_egress(scope, device_uid, selected_uids, internet_egress) when is_boolean(internet_egress) do
+    selected_uids
+    |> MapSet.to_list()
+    |> Enum.map(fn uid ->
+      case upsert_interface_setting(
+             scope,
+             device_uid,
+             uid,
+             %{internet_egress: internet_egress},
+             skip_snmp_config_invalidation: true
+           ) do
         {:ok, _} -> :ok
         {:error, _} -> :error
       end

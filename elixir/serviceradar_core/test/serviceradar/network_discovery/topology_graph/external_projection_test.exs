@@ -29,6 +29,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjectionTest do
           "rpki_status" => "valid",
           "rtbh_active" => false
         },
+        %{
+          "id" => "ixp:501",
+          "kind" => "IXP",
+          "label" => "Demo IX",
+          "port_speed_mbps" => 100_000
+        },
         %{"id" => "bad-kind", "kind" => "UnknownType"}
       ],
       "edges" => [
@@ -38,6 +44,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjectionTest do
           "kind" => "border_handoff",
           "border_asn" => 64_513,
           "as_boundary_confidence" => 0.92,
+          "port_speed_mbps" => 10_000,
           "avg_rtt_us" => 10_000,
           "loss_pct" => 0.0
         },
@@ -45,8 +52,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjectionTest do
           "src_id" => "transit:192.0.2.1",
           "dst_id" => "asn:64513",
           "kind" => "border_handoff",
+          "port_speed_mbps" => 100_000,
           "avg_rtt_us" => 20_000,
           "loss_pct" => 1.0
+        },
+        %{
+          "src_id" => "sr:gw-01",
+          "dst_id" => "asn:64513",
+          "kind" => "egresses_to",
+          "port_speed_mbps" => 25_000
         },
         %{
           "src_id" => "transit:192.0.2.1",
@@ -58,7 +72,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjectionTest do
     }
 
     assert {:ok, normalized} = ExternalProjection.normalize_snapshot(payload)
-    assert length(normalized.nodes) == 2
+    assert length(normalized.nodes) == 3
 
     transit = Enum.find(normalized.nodes, &(&1.id == "transit:192.0.2.1"))
     assert transit.kind == "TransitRouter"
@@ -66,12 +80,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjectionTest do
     assert transit.asn == 64_512
     assert transit.expires_at == "2026-11-25T00:10:00Z"
 
-    assert length(normalized.edges) == 1
-    [edge] = normalized.edges
-    assert edge.kind == "border_handoff"
-    assert edge.avg_rtt_us == 15_000
-    assert edge.loss_pct == 0.5
-    assert edge.border_asn == 64_513
+    ixp = Enum.find(normalized.nodes, &(&1.id == "ixp:501"))
+    assert ixp.port_speed_mbps == 100_000
+
+    assert length(normalized.edges) == 2
+    border = Enum.find(normalized.edges, &(&1.kind == "border_handoff"))
+    assert border.avg_rtt_us == 15_000
+    assert border.loss_pct == 0.5
+    assert border.border_asn == 64_513
+    assert border.port_speed_mbps == 100_000
+
+    egress = Enum.find(normalized.edges, &(&1.kind == "egresses_to"))
+    assert egress.port_speed_mbps == 25_000
   end
 
   test "rejects raw per-round hop payloads including probes-only and round_id with nodes" do

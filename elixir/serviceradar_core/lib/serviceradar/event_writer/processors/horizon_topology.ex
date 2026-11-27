@@ -7,6 +7,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonTopology do
 
   alias ServiceRadar.Dgraph.TransientError
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjection
 
   require Logger
@@ -101,7 +102,8 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonTopology do
       :ok ->
         :ok
 
-      {:ok, _stats} ->
+      {:ok, stats} ->
+        maybe_reconcile_egress(subject, stats, opts)
         :ok
 
       {:error, %TransientError{} = err} ->
@@ -137,4 +139,16 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonTopology do
       _ -> fn arg, call_opts -> apply(TopologyGraph, key, [arg, call_opts]) end
     end
   end
+
+  defp maybe_reconcile_egress(@snapshot_subject, %{nodes_upserted: count}, opts)
+       when is_integer(count) and count > 0 do
+    case Keyword.get(opts, :reconcile_egress_fun) do
+      fun when is_function(fun, 0) -> fun.()
+      _ -> EgressStitch.maybe_reconcile_all_async()
+    end
+
+    :ok
+  end
+
+  defp maybe_reconcile_egress(_subject, _stats, _opts), do: :ok
 end

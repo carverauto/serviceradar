@@ -194,6 +194,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             class={ui_field_class(size: "sm", class: "h-20 py-2")}
             phx-debounce="300"
           >{@device_form[:tags].value}</textarea>
+          <span class="text-[11px] text-sr-muted">
+            For routers or firewalls without discovered interfaces, designate Internet egress via tags: <code class="font-mono">internet_egress=true</code>, <code class="font-mono">egress_upstream_asn=174</code>, <code class="font-mono">egress_vantage_id=vantage-...</code>, <code class="font-mono">egress_port_speed_mbps=1000</code>.
+          </span>
         </div>
       </.form>
 

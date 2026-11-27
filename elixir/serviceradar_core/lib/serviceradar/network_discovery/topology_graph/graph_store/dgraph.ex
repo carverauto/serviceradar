@@ -111,4 +111,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.GraphStore.Dgraph do
         {:error, :graph_store_unavailable}
     end
   end
+
+  @impl true
+  def egress_topology(opts \\ []) when is_list(opts) do
+    if writable?() do
+      ExternalTopology.egress_topology(opts)
+    else
+      {:error, :graph_store_unavailable}
+    end
+  end
 end

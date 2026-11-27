@@ -1,7 +1,10 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
   @moduledoc false
 
+  import Bitwise
+
   alias ServiceRadar.Dgraph
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Store
 
@@ -32,7 +35,196 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
         )
       end)
 
-    persist(fn -> upsert_device_graphs(devices, interfaces) end)
+    persist(fn ->
+      with :ok <- upsert_device_graphs(devices, interfaces) do
+        upsert_interface_prefixes(payloads)
+      end
+    end)
+  end
+
+  @doc false
+  @spec extract_interface_prefixes([map()]) :: %{
+          prefixes: [%{cidr: String.t(), family: String.t()}],
+          attachments: [{String.t(), String.t()}]
+        }
+  def extract_interface_prefixes(payloads) when is_list(payloads) do
+    {prefixes_rev, _prefix_seen, attachments_rev, _attach_seen} =
+      Enum.reduce(payloads, {[], MapSet.new(), [], MapSet.new()}, fn payload, acc ->
+        interface_id = payload[:interface_id] || payload["interface_id"]
+
+        if is_binary(interface_id) and interface_id != "" do
+          payload
+          |> raw_ip_candidates()
+          |> Enum.reduce(acc, fn raw, {p_acc, p_seen, a_acc, a_seen} ->
+            case normalize_routable_cidr(raw) do
+              {:ok, %{cidr: cidr} = prefix} ->
+                {p_acc, p_seen} =
+                  if MapSet.member?(p_seen, cidr) do
+                    {p_acc, p_seen}
+                  else
+                    {[prefix | p_acc], MapSet.put(p_seen, cidr)}
+                  end
+
+                pair = {interface_id, cidr}
+
+                {a_acc, a_seen} =
+                  if MapSet.member?(a_seen, pair) do
+                    {a_acc, a_seen}
+                  else
+                    {[pair | a_acc], MapSet.put(a_seen, pair)}
+                  end
+
+                {p_acc, p_seen, a_acc, a_seen}
+
+              :skip ->
+                {p_acc, p_seen, a_acc, a_seen}
+            end
+          end)
+        else
+          acc
+        end
+      end)
+
+    %{
+      prefixes: Enum.reverse(prefixes_rev),
+      attachments: Enum.reverse(attachments_rev)
+    }
+  end
+
+  @doc false
+  @spec normalize_routable_cidr(term()) ::
+          {:ok, %{cidr: String.t(), family: String.t()}} | :skip
+  def normalize_routable_cidr(raw) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    if trimmed == "" do
+      :skip
+    else
+      {ip_part, prefix_len} = split_ip_and_len(trimmed)
+      clean_ip = ip_part |> String.split("%", parts: 2) |> hd() |> String.trim()
+
+      with true <- Address.classify(clean_ip) in [:global, :private, :unique_local],
+           {:ok, parsed} <- :inet.parse_address(String.to_charlist(clean_ip)),
+           {:ok, family, normalized_ip, effective_len} <-
+             canonical_ip_and_len(parsed, prefix_len) do
+        {:ok, %{cidr: mask_cidr(normalized_ip, family, effective_len), family: family}}
+      else
+        _ -> :skip
+      end
+    end
+  end
+
+  def normalize_routable_cidr(_), do: :skip
+
+  defp upsert_interface_prefixes(payloads) do
+    %{prefixes: prefixes, attachments: attachments} = extract_interface_prefixes(payloads)
+
+    if prefixes == [] do
+      :ok
+    else
+      with :ok <- upsert_prefixes_batch(prefixes) do
+        attach_prefixes_batch(attachments)
+      end
+    end
+  end
+
+  defp upsert_prefixes_batch(prefixes) do
+    Enum.reduce_while(prefixes, :ok, fn prefix, :ok ->
+      case Dgraph.upsert_prefix(prefix) do
+        :ok -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp attach_prefixes_batch(attachments) do
+    Enum.reduce_while(attachments, :ok, fn {interface_id, cidr}, :ok ->
+      case Dgraph.attach_prefix(interface_id, cidr) do
+        :ok -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp raw_ip_candidates(payload) do
+    ips =
+      case payload[:ip_addresses] || payload["ip_addresses"] do
+        list when is_list(list) -> list
+        _ -> []
+      end
+
+    cidrs =
+      case payload[:ip_cidrs] || payload["ip_cidrs"] do
+        list when is_list(list) -> list
+        str when is_binary(str) -> String.split(str, ",", trim: true)
+        _ -> []
+      end
+
+    ips ++ cidrs
+  end
+
+  defp split_ip_and_len(value) do
+    case String.split(value, "/", parts: 2) do
+      [ip] -> {ip, nil}
+      [ip, len_str] -> {ip, parse_prefix_len(len_str)}
+    end
+  end
+
+  defp parse_prefix_len(len_str) do
+    case Integer.parse(String.trim(len_str)) do
+      {n, ""} -> n
+      _ -> :invalid
+    end
+  end
+
+  defp canonical_ip_and_len({0, 0, 0, 0, 0, 0xFFFF, gh, ij}, len) do
+    v4 = {gh >>> 8, gh &&& 0xFF, ij >>> 8, ij &&& 0xFF}
+    canonical_ip_and_len(v4, len)
+  end
+
+  defp canonical_ip_and_len({_a, _b, _c, _d} = v4, nil), do: {:ok, "ipv4", v4, 32}
+
+  defp canonical_ip_and_len({_a, _b, _c, _d} = v4, len)
+       when is_integer(len) and len >= 1 and len <= 32,
+       do: {:ok, "ipv4", v4, len}
+
+  defp canonical_ip_and_len(v6, nil) when tuple_size(v6) == 8, do: {:ok, "ipv6", v6, 128}
+
+  defp canonical_ip_and_len(v6, len)
+       when tuple_size(v6) == 8 and is_integer(len) and len >= 1 and len <= 128,
+       do: {:ok, "ipv6", v6, len}
+
+  defp canonical_ip_and_len(_ip, _len), do: :error
+
+  defp mask_cidr({a, b, c, d}, "ipv4", len) do
+    int32 = a <<< 24 ||| b <<< 16 ||| c <<< 8 ||| d
+    mask = bnot((1 <<< (32 - len)) - 1) &&& 0xFFFF_FFFF
+    net = int32 &&& mask
+
+    masked =
+      {net >>> 24 &&& 0xFF, net >>> 16 &&& 0xFF, net >>> 8 &&& 0xFF, net &&& 0xFF}
+
+    "#{:inet.ntoa(masked)}/#{len}"
+  end
+
+  defp mask_cidr(v6, "ipv6", len) do
+    int128 =
+      v6
+      |> Tuple.to_list()
+      |> Enum.reduce(0, fn word, acc -> acc <<< 16 ||| word end)
+
+    all_ones = (1 <<< 128) - 1
+    mask = bnot((1 <<< (128 - len)) - 1) &&& all_ones
+    net = int128 &&& mask
+
+    for_result =
+      for shift <- [112, 96, 80, 64, 48, 32, 16, 0] do
+        net >>> shift &&& 0xFFFF
+      end
+
+    masked = List.to_tuple(for_result)
+
+    "#{:inet.ntoa(masked)}/#{len}"
   end
 
   @doc """
