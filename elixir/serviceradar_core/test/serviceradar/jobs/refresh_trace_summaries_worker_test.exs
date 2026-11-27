@@ -150,10 +150,10 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerTest do
       assert sql =~ "'2026-01-15 10:05:01.000000'\nFROM aggregated a"
     end
 
-    test "spans older than a day before the window, or outside retention, never enter a summary" do
+    test "spans older than four hours before the window, or outside retention, never enter a summary" do
       sql = TraceSummaries.upsert_sql(@from, @to, 30, @now)
 
-      assert sql =~ "t.`timestamp` >= '2026-01-14 10:05:00.250000'"
+      assert sql =~ "t.`timestamp` >= '2026-01-15 06:05:00.250000'"
       assert sql =~ "t.`timestamp` >= '2025-12-16 10:05:01.000000'"
     end
 
@@ -172,7 +172,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerTest do
 
       assert_received {:sql, sql}
       assert sql =~ "LIMIT 1"
-      assert sql =~ "`timestamp` >= '2026-01-14 10:05:00.250000'"
+      assert sql =~ "`timestamp` >= '2026-01-15 06:05:00.250000'"
 
       assert {:ok, false} =
                TraceSummaries.any_ingested?(@from, @to, query: capture({:ok, %{rows: []}}))
@@ -194,8 +194,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerTest do
 
       assert_received {:sql, sql}
       assert sql =~ "created_at > '2026-01-10 00:00:00.000000'"
-      assert sql =~ "`timestamp` >= '2026-01-14 10:05:00.250000'"
-      refute sql =~ "'2026-01-09 00:00:00.000000'"
+      assert sql =~ "`timestamp` >= '2026-01-15 06:05:00.250000'"
+      refute sql =~ "'2026-01-09 20:00:00.000000'"
     end
 
     test "the newest ingest time comes back as UTC, and an empty window as nil" do

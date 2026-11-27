@@ -11,19 +11,21 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
 
   `upsert/4` is the CNPG worker's `upsert_sql` in StarRocks SQL, with the same
   meaning: the traces with a span ingested in the window, each summarized over
-  all of its spans from the last day and inside retention; the root is the
-  true root span (NULL parent) when there is one, otherwise the earliest span;
-  `timestamp` is the newest span's; `service_set` is the sorted distinct
+  all of its spans from the last four hours and inside retention; the root is
+  the true root span (NULL parent) when there is one, otherwise the earliest
+  span; `timestamp` is the newest span's; `service_set` is the sorted distinct
   service names, leaving out one wider than its 1024-byte element
   (`priv/starrocks/0022`) rather than cutting it; `error_count` counts `status_code = 2`. The table's primary
   key is `trace_id`, so a re-run upserts. Unlike CNPG it rewrites every
   summary it computes, not only the changed ones, so its count is the rows
   written.
 
-  Every span read carries a `timestamp` floor, which is what lets StarRocks
-  skip old day partitions: a span older than a day before the window's end can
-  never enter a summary (the CNPG worker applies the same floor to its
-  candidates), so leaving it out of the probes changes nothing.
+  Every span read carries a 4-hour `timestamp` floor, which lets StarRocks
+  prune old day partitions (staying inside a single daily partition for 20 of
+  24 hours instead of always crossing midnight into two) while remaining
+  comfortably above the measured ~2h30m max ingest lag. A span older than four
+  hours before the window's end never enters a summary, so leaving it out of
+  the probes changes nothing.
 
   StarRocks evaluates `NOW()` in the Frontend's time zone while the tables hold
   UTC, so every instant is passed in as a UTC literal.
@@ -35,7 +37,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
 
-  @candidate_floor_seconds 86_400
+  @candidate_floor_seconds 14_400
   @max_service_set_name_bytes 1024
 
   @doc "Whether any span with a trace id was ingested in `(from, to]`."
@@ -45,7 +47,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
     sql = """
     SELECT 1 FROM #{spans()}
     WHERE created_at > #{literal(from)} AND created_at <= #{literal(to)}
-      AND `timestamp` >= #{literal(day_floor(to))}
+      AND `timestamp` >= #{literal(candidate_floor(to))}
     LIMIT 1
     """
 
@@ -58,14 +60,14 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   The floor is anchored to `to` (the run's window end), the same anchor
   `any_ingested?/3` and `max_ingested_at/3` use to decide whether the
   watermark can advance, so this probe cannot disagree with them about a span
-  that sits right at the day-old floor.
+  that sits right at the candidate floor.
   """
   @spec ingested_after?(DateTime.t(), DateTime.t(), keyword()) ::
           {:ok, boolean()} | {:error, term()}
   def ingested_after?(watermark, to, opts \\ []) do
     sql = """
     SELECT 1 FROM #{spans()}
-    WHERE created_at > #{literal(watermark)} AND `timestamp` >= #{literal(day_floor(to))}
+    WHERE created_at > #{literal(watermark)} AND `timestamp` >= #{literal(candidate_floor(to))}
     LIMIT 1
     """
 
@@ -79,7 +81,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
     sql = """
     SELECT MAX(created_at) FROM #{spans()}
     WHERE created_at > #{literal(from)} AND created_at <= #{literal(to)}
-      AND `timestamp` >= #{literal(day_floor(to))}
+      AND `timestamp` >= #{literal(candidate_floor(to))}
     """
 
     with {:ok, %{rows: rows}} <- run(sql, opts), do: {:ok, rows |> single() |> to_datetime()}
@@ -112,7 +114,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   @doc false
   @spec upsert_sql(DateTime.t(), DateTime.t(), pos_integer(), DateTime.t()) :: String.t()
   def upsert_sql(from, to, retention_days, now) do
-    candidate_floor = day_floor(to)
+    candidate_floor = candidate_floor(to)
     retention_floor = DateTime.shift(now, day: -retention_days)
 
     """
@@ -176,7 +178,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   defp spans, do: Env.table("otel_traces")
   defp summaries, do: Env.table("otel_trace_summaries")
 
-  defp day_floor(%DateTime{} = instant),
+  defp candidate_floor(%DateTime{} = instant),
     do: DateTime.shift(instant, second: -@candidate_floor_seconds)
 
   # A naive UTC DATETIME literal with microseconds.
