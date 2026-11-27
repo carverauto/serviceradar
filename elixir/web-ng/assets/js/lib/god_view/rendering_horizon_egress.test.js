@@ -5,7 +5,9 @@ import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {
   buildHorizonEgressGraphLayout,
+  formatLossPct,
   formatPortSpeedMbps,
+  formatRttUs,
   horizonEntityBadges,
   horizonInspectUrl,
 } from "./horizon_egress_shared"
@@ -14,6 +16,7 @@ import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 import {godViewRenderingSelectionMethods} from "./rendering_selection_methods"
 import {godViewRenderingTooltipMethods} from "./rendering_tooltip_methods"
 import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
+import {godViewLifecycleBootstrapEventLayerMethods} from "./lifecycle_bootstrap_event_layer_methods"
 import {visualForTheme} from "./lifecycle_bootstrap_state_defaults_methods"
 import WorldMapRenderer from "./WorldMapRenderer"
 import {decodeWorldTile} from "./world_tile_decode"
@@ -78,8 +81,8 @@ function sampleEgressPayload() {
         loss_pct: 0.0,
       },
       {
-        src_id: "198.51.100.0/24",
-        dst_id: "asn:64512",
+        src_id: "asn:64512",
+        dst_id: "198.51.100.0/24",
         kind: "ORIGIN_PREFIX",
         border_asn: 64512,
         port_speed_mbps: 100000,
@@ -132,6 +135,42 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(
       horizonInspectUrl({id: "ixp:iad-01", kind: "IXP"}),
     ).toBe("/dashboards/horizon#tab=weather_map")
+
+    // Null/empty/zero ASNs on preceding connected nodes must not shadow valid positive ASNs
+    expect(
+      horizonInspectUrl(
+        {id: "198.51.100.0/24", kind: "Prefix", asn: null},
+        [
+          {id: "saas:cloud-app-east", kind: "SaasTarget", asn: null},
+          {id: "asn:0", kind: "ASN", asn: 0},
+          {id: "asn:64512", kind: "ASN", asn: 64512},
+        ],
+      ),
+    ).toBe("/dashboards/horizon#tab=bgp_sankey&origin_asn=64512&prefix=198.51.100.0%2F24")
+
+    expect(
+      horizonInspectUrl({id: "198.51.100.0/24", kind: "Prefix", asn: ""}, [{id: "asn:64512", asn: 64512}]),
+    ).toBe("/dashboards/horizon#tab=bgp_sankey&origin_asn=64512&prefix=198.51.100.0%2F24")
+
+    expect(
+      horizonInspectUrl({id: "198.51.100.0/24", kind: "Prefix", asn: 0}),
+    ).toBe("/dashboards/horizon#tab=bgp_sankey&prefix=198.51.100.0%2F24")
+  })
+
+  it("does not coerce null/undefined/empty avg_rtt_us or loss_pct to 0us / 0.0%", () => {
+    expect(formatRttUs(null)).toBe("")
+    expect(formatRttUs(undefined)).toBe("")
+    expect(formatRttUs("")).toBe("")
+    expect(formatRttUs("   ")).toBe("")
+    expect(formatRttUs(0)).toBe("0us")
+    expect(formatRttUs(4200)).toBe("4.2ms")
+
+    expect(formatLossPct(null)).toBe("")
+    expect(formatLossPct(undefined)).toBe("")
+    expect(formatLossPct("")).toBe("")
+    expect(formatLossPct("   ")).toBe("")
+    expect(formatLossPct(0)).toBe("0.0%")
+    expect(formatLossPct(4.5)).toBe("4.5%")
   })
 
   it("places external nodes in collision-free tiers outside internal node bounds and builds layers", () => {
@@ -335,11 +374,195 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(renderer.horizonEgressPanel.textContent).toContain("Internet Egress / Horizon")
     expect(renderer.horizonEgressPanel.textContent).toContain("edge-rtr-01")
     expect(renderer.horizonEgressPanel.textContent).toContain("[OUTAGE]")
+    // Healthy saas:cloud-app-east must not inflate the alert count beyond the 2 unhealthy nodes.
+    expect(renderer.horizonEgressPanel.textContent).toContain("2 alerts")
     expect(renderer.horizonEgressPanel.innerHTML).toContain("/dashboards/horizon#tab=bgp_sankey")
 
     const lastCall = renderer.deck.setProps.mock.calls.at(-1)[0]
     expect(lastCall.layers.some((l) => l.id === "world-horizon-egress-edges")).toBe(true)
     expect(lastCall.layers.some((l) => l.id === "world-horizon-egress-nodes")).toBe(true)
     expect(lastCall.layers.some((l) => l.id === "world-horizon-egress-labels")).toBe(true)
+
+    // Unmeasured edges must not display fake RTT 0us or loss 0.0% in World tooltip or selection panel.
+    const unmeasuredEdge = {
+      horizonEntityType: "edge",
+      src_id: "sr:edge-rtr-01",
+      dst_id: "198.51.100.0/24",
+      kind: "EGRESSES_TO",
+      avg_rtt_us: null,
+      loss_pct: null,
+    }
+    const worldEdgeTip = renderer.worldTooltip({
+      layer: {id: "world-horizon-egress-edges"},
+      object: unmeasuredEdge,
+    })
+    expect(worldEdgeTip.text).toBe("EGRESSES_TO: sr:edge-rtr-01 → 198.51.100.0/24")
+
+    renderer.showHorizonEgressSelection(unmeasuredEdge)
+    expect(renderer.panel.hidden).toBe(false)
+    expect(renderer.panel.textContent).not.toContain("0us")
+    expect(renderer.panel.textContent).not.toContain("0.0%")
+
+    // Toggling horizon_egress off must dismiss an active Horizon selection panel.
+    renderer.setSceneControl("god_view:set_topology_layers", {layers: {horizon_egress: false}})
+    expect(renderer.panel.hidden).toBe(true)
+    expect(renderer.horizonEgressPanel.hidden).toBe(true)
+  })
+
+  it("traverses INTERFACE_PREFIX + ORIGIN_PREFIX + multi-hop chains without duplicate edges and preserves healthy 0-alert count", () => {
+    const internalNodes = [
+      {id: "sr:gw-1", position: [100, 300, 0], details: {device_uid: "sr:gw-1"}},
+    ]
+    const payload = {
+      max_hops: 4,
+      truncated: false,
+      egress_devices: [{id: "sr:gw-1", kind: "Device", label: "gw-1", egress_source: "prefix_origin"}],
+      external_nodes: [
+        {id: "198.51.100.0/24", kind: "Prefix", label: "198.51.100.0/24", asn: 64512, outage_state: "healthy"},
+        {id: "asn:64512", kind: "ASN", label: "Origin Transit", asn: 64512, outage_state: "healthy", rpki_state: "valid"},
+        {id: "asn:64513", kind: "ASN", label: "Upstream Provider", asn: 64513, outage_state: "healthy"},
+        {id: "saas:github", kind: "SaasTarget", label: "SaaS Target", outage_state: "healthy"},
+      ],
+      edges: [
+        {src_id: "sr:gw-1", dst_id: "198.51.100.0/24", kind: "INTERFACE_PREFIX", avg_rtt_us: null, loss_pct: null},
+        {src_id: "asn:64512", dst_id: "198.51.100.0/24", kind: "ORIGIN_PREFIX", avg_rtt_us: null, loss_pct: null},
+        // Duplicate ORIGIN_PREFIX edge should be deduplicated
+        {src_id: "asn:64512", dst_id: "198.51.100.0/24", kind: "ORIGIN_PREFIX", avg_rtt_us: null, loss_pct: null},
+        {src_id: "asn:64512", dst_id: "asn:64513", kind: "AS_REL_PROVIDER", avg_rtt_us: null, loss_pct: null},
+        {src_id: "asn:64513", dst_id: "saas:github", kind: "ANYCAST_SERVES", avg_rtt_us: null, loss_pct: null},
+      ],
+    }
+
+    const layout = buildHorizonEgressGraphLayout(payload, internalNodes, {mode: "cartesian"})
+    expect(layout.nodes.map((n) => n.id)).toEqual([
+      "198.51.100.0/24",
+      "asn:64512",
+      "asn:64513",
+      "saas:github",
+    ])
+    expect(layout.nodes.find((n) => n.id === "198.51.100.0/24").hopDepth).toBe(1)
+    expect(layout.nodes.find((n) => n.id === "asn:64512").hopDepth).toBe(2)
+    expect(layout.nodes.find((n) => n.id === "asn:64513").hopDepth).toBe(3)
+    expect(layout.nodes.find((n) => n.id === "saas:github").hopDepth).toBe(4)
+    expect(layout.edges).toHaveLength(4)
+
+    // Reverse/forward ORIGIN_PREFIX direction also continues to work
+    const forwardOriginLayout = buildHorizonEgressGraphLayout(
+      {
+        ...payload,
+        edges: [
+          {src_id: "sr:gw-1", dst_id: "198.51.100.0/24", kind: "INTERFACE_PREFIX"},
+          {src_id: "198.51.100.0/24", dst_id: "asn:64512", kind: "ORIGIN_PREFIX"},
+          {src_id: "asn:64512", dst_id: "saas:github", kind: "ANYCAST_SERVES"},
+        ],
+      },
+      internalNodes,
+    )
+    expect(forwardOriginLayout.nodes.map((n) => n.id)).toEqual([
+      "198.51.100.0/24",
+      "asn:64512",
+      "saas:github",
+    ])
+
+    // Healthy external nodes produce 0 alerts in WorldMapRenderer panel
+    const el = document.createElement("div")
+    const renderer = new WorldMapRenderer(el, vi.fn(), vi.fn())
+    renderer.horizonEgressPanel = document.createElement("section")
+    renderer.panel = document.createElement("div")
+    renderer.setSceneControl("god_view:set_topology_layers", {layers: {horizon_egress: true}})
+    renderer.setSceneControl("god_view:horizon_egress_data", payload)
+    expect(renderer.horizonEgressPanel.textContent).not.toContain("alerts")
+    expect(renderer.horizonEgressPanel.textContent).toContain("1 egress · 4 external · 5 links")
+  })
+
+  it("omits null avg_rtt_us/loss_pct from selection/tooltip and clears Horizon selection when horizon_egress toggles off", () => {
+    const details = {
+      className: "hidden",
+      innerHTML: "",
+      textContent: "",
+      style: {},
+      classList: {
+        add(name) {
+          if (!details.className.split(" ").includes(name)) details.className = `${details.className} ${name}`.trim()
+        },
+        remove(name) {
+          details.className = details.className.split(" ").filter((t) => t && t !== name).join(" ")
+        },
+        contains(name) {
+          return details.className.split(" ").includes(name)
+        },
+      },
+    }
+    const handlers = {}
+    const state = {
+      details,
+      el: {dataset: {timezone: "Etc/UTC"}},
+      deck: {setProps: vi.fn()},
+      lastGraph: {nodes: [], edges: []},
+      selectedNodeIndex: null,
+      selectedEdgeKey: null,
+      selectedHorizonEntity: null,
+      hoveredEdgeKey: null,
+      hoveredHorizonKey: null,
+      topologyLayers: {backbone: true, inferred: false, endpoints: false, mtr_paths: true, horizon_egress: true},
+      horizonEgressData: sampleEgressPayload(),
+      visual: visualForTheme("dark"),
+      handleEvent(name, fn) {
+        handlers[name] = fn
+      },
+    }
+    const ctx = createStateBackedContext(state, {
+      ensureDeck: vi.fn(),
+      reshapeGraph: (g) => ({...g, shape: "local"}),
+      renderGraph: (g) => ctx.renderGraph(g),
+    })
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewLifecycleBootstrapEventLayerMethods),
+      bindApi(ctx, godViewRenderingHorizonEgressMethods),
+      bindApi(ctx, godViewRenderingGraphCoreMethods),
+      bindApi(ctx, godViewRenderingSelectionMethods),
+      bindApi(ctx, godViewRenderingTooltipMethods),
+      bindApi(ctx, godViewLifecycleDomSetupMethods),
+      {
+        autoFitViewState: vi.fn(),
+        buildVisibleGraphData: () => ({
+          edgeData: [],
+          edgeLabelData: [],
+          nodeData: [],
+          rootPulseNodes: [],
+          selectedVisibleNode: null,
+          nodeFrame: {records: [], selectedNodeIndex: null},
+        }),
+        buildGraphLayers: () => [],
+      },
+    )
+
+    const unmeasuredEdge = {
+      horizonEntityType: "edge",
+      src_id: "sr:edge-rtr-01",
+      dst_id: "198.51.100.0/24",
+      kind: "EGRESSES_TO",
+      avg_rtt_us: null,
+      loss_pct: null,
+    }
+    const edgeTooltip = ctx.getHorizonEgressEdgeTooltip(unmeasuredEdge)
+    expect(edgeTooltip.html).not.toContain("Avg RTT:")
+    expect(edgeTooltip.html).not.toContain("Loss:")
+
+    ctx.renderHorizonSelectionDetails(unmeasuredEdge)
+    expect(details.innerHTML).not.toContain("Avg RTT:")
+    expect(details.innerHTML).not.toContain("Loss:")
+    expect(details.classList.contains("hidden")).toBe(false)
+
+    ctx.registerLayerEvents()
+    state.selectedHorizonEntity = unmeasuredEdge
+    state.hoveredHorizonKey = "horizon-edge:sr%3Aedge-rtr-01:198.51.100.0%2F24:EGRESSES_TO"
+
+    handlers["god_view:set_topology_layers"]({layers: {horizon_egress: false}})
+    expect(state.topologyLayers.horizon_egress).toBe(false)
+    expect(state.selectedHorizonEntity).toBeNull()
+    expect(state.hoveredHorizonKey).toBeNull()
+    expect(details.classList.contains("hidden")).toBe(true)
   })
 })

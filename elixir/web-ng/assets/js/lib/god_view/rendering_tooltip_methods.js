@@ -1,5 +1,6 @@
 import {detectThemeMode} from "./lifecycle_bootstrap_state_defaults_methods"
 import {
+  formatLossPct,
   formatPortSpeedMbps,
   formatRttUs,
   horizonEntityBadges,
@@ -217,8 +218,7 @@ export const godViewRenderingTooltipMethods = {
     if (!object) return null
     const speed = formatPortSpeedMbps(object.port_speed_mbps)
     const rtt = formatRttUs(object.avg_rtt_us)
-    const lossVal = Number(object.loss_pct)
-    const hasLoss = Number.isFinite(lossVal)
+    const loss = formatLossPct(object.loss_pct)
     return {
       html: [
         `<div class="font-semibold">${this.escapeHtml(object.kind || "EGRESSES_TO")}</div>`,
@@ -227,7 +227,7 @@ export const godViewRenderingTooltipMethods = {
         object.if_name ? `<div>Interface: ${this.escapeHtml(object.if_name)}</div>` : "",
         speed ? `<div>Port Speed: ${this.escapeHtml(speed)}</div>` : "",
         rtt ? `<div>Avg RTT: ${this.escapeHtml(rtt)}</div>` : "",
-        hasLoss ? `<div>Loss: ${this.escapeHtml(lossVal.toFixed(1))}%</div>` : "",
+        loss ? `<div>Loss: ${this.escapeHtml(loss)}</div>` : "",
       ].filter(Boolean).join(""),
       style: tooltipStyle(),
     }

@@ -87,9 +87,10 @@ export const godViewRenderingGraphCoreMethods = {
     frame.edgeLabelData = this.selectEdgeLabels(frame.edgeData, effective.shape)
     const selected = this.state.selectedNodeIndex
     const record = effective.shape === "local" && Number.isInteger(selected) ? nodeFrame.records[selected] : null
+    const horizonEgressEnabled = this.state.topologyLayers?.horizon_egress === true
     if (record?.visible) {
       this.renderSelectionDetails(record)
-    } else if (this.state.selectedHorizonEntity && typeof this.renderHorizonSelectionDetails === "function") {
+    } else if (horizonEgressEnabled && this.state.selectedHorizonEntity && typeof this.renderHorizonSelectionDetails === "function") {
       this.renderHorizonSelectionDetails(this.state.selectedHorizonEntity)
     } else {
       this.renderSelectionDetails(null)
@@ -105,9 +106,10 @@ export const godViewRenderingGraphCoreMethods = {
 
     const {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode, nodeFrame} =
       this.buildVisibleGraphData(effective)
+    const horizonEgressEnabled = this.state.topologyLayers?.horizon_egress === true
     if (selectedVisibleNode) {
       this.renderSelectionDetails(selectedVisibleNode)
-    } else if (this.state.selectedHorizonEntity && typeof this.renderHorizonSelectionDetails === "function") {
+    } else if (horizonEgressEnabled && this.state.selectedHorizonEntity && typeof this.renderHorizonSelectionDetails === "function") {
       this.renderHorizonSelectionDetails(this.state.selectedHorizonEntity)
     } else {
       this.renderSelectionDetails(null)

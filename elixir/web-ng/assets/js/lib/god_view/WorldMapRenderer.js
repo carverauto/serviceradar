@@ -17,12 +17,14 @@ import {readBoundedBody, topologyTarget, worldExchange, worldJson, worldJsonPara
 import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
 import {
   buildHorizonEgressGraphLayout,
+  formatLossPct,
   formatPortSpeedMbps,
   formatRttUs,
   horizonEdgeColor,
   horizonEntityBadges,
   horizonInspectUrl,
   horizonNodeDisplayLabel,
+  horizonSeverity,
   horizonSeverityColor,
   normalizeHorizonEgressData,
 } from "./horizon_egress_shared"
@@ -76,6 +78,7 @@ export default class WorldMapRenderer {
     this.inferred = false
     this.horizonEgressEnabled = false
     this.horizonEgressData = null
+    this.horizonPanelSelectionActive = false
     this.zoomMode = "auto"
     this.filters = {}
     this.destroyed = false
@@ -283,6 +286,9 @@ export default class WorldMapRenderer {
     if (name === "god_view:set_topology_layers") {
       this.inferred = payload.layers?.inferred === true
       this.horizonEgressEnabled = payload.layers?.horizon_egress === true
+      if (!this.horizonEgressEnabled && this.horizonPanelSelectionActive && this.panel && !this.panel.hidden) {
+        this.dismissPanel()
+      }
       this.updateHorizonEgressPanel()
       this.render()
     } else if (name === "god_view:horizon_egress_data") {
@@ -375,11 +381,13 @@ export default class WorldMapRenderer {
     this.selection?.abort()
     this.searchRequest?.abort()
     if (!this.detailRenderer) this.sceneRequest?.abort()
+    this.horizonPanelSelectionActive = false
     this.panel.hidden = true
     if (focusMap) this.canvas.focus({preventScroll: true})
   }
 
   openPanel(...content) {
+    this.horizonPanelSelectionActive = false
     const close = element("button", `${MAP_BUTTON_CLASS} float-right ml-2`, "Close")
     close.type = "button"
     close.setAttribute("aria-label", "Close map popup")
@@ -768,7 +776,8 @@ export default class WorldMapRenderer {
         if (speed) parts.push(speed)
         const rtt = formatRttUs(object.avg_rtt_us)
         if (rtt) parts.push(`RTT ${rtt}`)
-        if (Number.isFinite(Number(object.loss_pct))) parts.push(`loss ${Number(object.loss_pct).toFixed(1)}%`)
+        const loss = formatLossPct(object.loss_pct)
+        if (loss) parts.push(`loss ${loss}`)
         return {text: parts.join(" · ")}
       }
       const badges = horizonEntityBadges(object)
@@ -794,7 +803,10 @@ export default class WorldMapRenderer {
     header.append(openLink)
 
     const nodes = [header]
-    const outages = data.external_nodes.filter(node => node.outage_state || node.rtbh_active || node.rpki_state === "invalid").length
+    const outages = data.external_nodes.filter((node) => {
+      const sev = horizonSeverity(node)
+      return sev === "outage" || sev === "degraded"
+    }).length
     const summaryText = `${data.egress_devices.length} egress · ${data.external_nodes.length} external · ${data.edges.length} links${outages > 0 ? ` · ${outages} alerts` : ""}`
     nodes.push(element("div", "mt-1.5 text-[11px] text-sr-muted", summaryText))
 
@@ -865,13 +877,15 @@ export default class WorldMapRenderer {
     if (speed) meta.push(speed)
     const rtt = formatRttUs(object?.avg_rtt_us)
     if (rtt) meta.push(`RTT ${rtt}`)
-    if (Number.isFinite(Number(object?.loss_pct))) meta.push(`loss ${Number(object.loss_pct).toFixed(1)}%`)
+    const loss = formatLossPct(object?.loss_pct)
+    if (loss) meta.push(`loss ${loss}`)
     if (meta.length > 0) content.push(element("p", "mt-1 text-xs text-sr-muted", meta.join(" · ")))
 
     const link = element("a", "btn btn-sm mt-3", "Inspect in Horizon")
     link.href = horizonInspectUrl(object, object?.connectedNodes || [])
     content.push(link)
     this.openPanel(...content)
+    this.horizonPanelSelectionActive = true
   }
 
   render() {

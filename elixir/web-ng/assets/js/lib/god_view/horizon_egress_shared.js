@@ -42,13 +42,31 @@ export function formatPortSpeedMbps(rawMbps) {
   return `${Math.round(mbps)}M`
 }
 
+function parseOptionalNumber(raw) {
+  if (raw === null || raw === undefined || typeof raw === "boolean") return null
+  if (typeof raw === "string" && raw.trim() === "") return null
+  const num = Number(raw)
+  return Number.isFinite(num) ? num : null
+}
+
+function validPositiveAsn(rawAsn) {
+  const asn = parseOptionalNumber(rawAsn)
+  return asn !== null && asn > 0 ? asn : null
+}
+
 export function formatRttUs(rawUs) {
-  const us = Number(rawUs)
-  if (!Number.isFinite(us) || us < 0) return ""
+  const us = parseOptionalNumber(rawUs)
+  if (us === null || us < 0) return ""
   const ms = us / 1000
   if (ms < 1) return `${Math.round(us)}us`
   if (ms < 100) return `${ms.toFixed(1)}ms`
   return `${Math.round(ms)}ms`
+}
+
+export function formatLossPct(rawLoss) {
+  const loss = parseOptionalNumber(rawLoss)
+  if (loss === null || loss < 0) return ""
+  return `${loss.toFixed(1)}%`
 }
 
 export function horizonSeverity(entity) {
@@ -56,10 +74,10 @@ export function horizonSeverity(entity) {
   const outage = String(entity.outage_state || "").trim().toLowerCase()
   const rpki = String(entity.rpki_state || "").trim().toLowerCase()
   const rtbh = entity.rtbh_active === true
-  const loss = Number(entity.loss_pct)
+  const loss = parseOptionalNumber(entity.loss_pct)
 
   if (OUTAGE_STATES.has(outage) || rtbh) return "outage"
-  if (DEGRADED_STATES.has(outage) || rpki === "invalid" || (Number.isFinite(loss) && loss > 2)) {
+  if (DEGRADED_STATES.has(outage) || rpki === "invalid" || (loss !== null && loss > 2)) {
     return "degraded"
   }
   if (rpki === "valid" || HEALTHY_STATES.has(outage)) return "healthy"
@@ -137,12 +155,15 @@ export function horizonInspectUrl(entity, connectedNodes = []) {
   }
 
   if (kind === "asn" || kind === "prefix") {
-    const connectedAsnNode = (connectedNodes || []).find((node) => Number.isFinite(Number(node?.asn)))
-    const asn = entity.asn ?? entity.border_asn ?? connectedAsnNode?.asn
+    const connectedAsnNode = (connectedNodes || []).find((node) => validPositiveAsn(node?.asn) !== null)
+    const asn =
+      validPositiveAsn(entity.asn) ??
+      validPositiveAsn(entity.border_asn) ??
+      validPositiveAsn(connectedAsnNode?.asn)
     const prefix = entity.prefix || (kind === "prefix" ? entity.id : "")
     const params = ["tab=bgp_sankey"]
-    if (asn !== null && asn !== undefined && String(asn).trim() !== "") {
-      params.push(`origin_asn=${encodeURIComponent(String(asn).trim())}`)
+    if (asn !== null) {
+      params.push(`origin_asn=${encodeURIComponent(String(asn))}`)
     }
     if (typeof prefix === "string" && prefix.trim() !== "") {
       params.push(`prefix=${encodeURIComponent(prefix.trim())}`)
@@ -158,13 +179,13 @@ export function horizonInspectUrl(entity, connectedNodes = []) {
       const targetId = stripHorizonTargetId(String(saasNode.target_id || saasNode.id || ""))
       if (targetId) return `${base}#tab=multipath_dag&target_id=${encodeURIComponent(targetId)}`
     }
-    const asnNode = endpoints.find((node) => Number.isFinite(Number(node.asn)) && Number(node.asn) > 0)
+    const asnNode = endpoints.find((node) => validPositiveAsn(node?.asn) !== null)
     const prefixNode = endpoints.find((node) => String(node.kind || "").trim().toLowerCase() === "prefix")
-    const asn = entity.border_asn ?? asnNode?.asn
+    const asn = validPositiveAsn(entity.border_asn) ?? validPositiveAsn(asnNode?.asn)
     const prefix = prefixNode?.id || ""
     const params = ["tab=bgp_sankey"]
-    if (asn !== null && asn !== undefined && String(asn).trim() !== "") {
-      params.push(`origin_asn=${encodeURIComponent(String(asn).trim())}`)
+    if (asn !== null) {
+      params.push(`origin_asn=${encodeURIComponent(String(asn))}`)
     }
     if (typeof prefix === "string" && prefix.trim() !== "") {
       params.push(`prefix=${encodeURIComponent(prefix.trim())}`)
@@ -275,13 +296,23 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
     if (id) externalNodeById.set(id, extNode)
   }
 
-  const outgoingById = new Map()
+  const neighborsById = new Map()
+  const addNeighbor = (fromId, toId) => {
+    if (!neighborsById.has(fromId)) neighborsById.set(fromId, [])
+    const list = neighborsById.get(fromId)
+    if (!list.includes(toId)) list.push(toId)
+  }
   for (const edge of data.edges) {
     const src = typeof edge?.src_id === "string" ? edge.src_id.trim() : ""
     const dst = typeof edge?.dst_id === "string" ? edge.dst_id.trim() : ""
     if (!src || !dst) continue
-    if (!outgoingById.has(src)) outgoingById.set(src, [])
-    outgoingById.get(src).push(edge)
+    addNeighbor(src, dst)
+    // external_reads.rs emits ORIGIN_PREFIX as asn -> prefix, and non-anchor external
+    // edges may connect bidirectionally; traverse reverse edges without crossing anchors.
+    const kind = String(edge?.kind || "").trim().toUpperCase()
+    if (kind === "ORIGIN_PREFIX" || !matchedAnchors.has(src)) {
+      addNeighbor(dst, src)
+    }
   }
 
   // BFS from matched egress devices to find reachable external nodes and hop depth.
@@ -299,22 +330,25 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
   while (head < queue.length) {
     const currentId = queue[head++]
     const currentDepth = hopDepthById.get(currentId) ?? 0
-    const edges = outgoingById.get(currentId) || []
+    const neighbors = neighborsById.get(currentId) || []
 
-    for (const edge of edges) {
-      const nextId = typeof edge?.dst_id === "string" ? edge.dst_id.trim() : ""
-      if (!nextId || matchedAnchors.has(nextId)) continue
+    for (const nextId of neighbors) {
+      if (!nextId || matchedAnchors.has(nextId) || !externalNodeById.has(nextId)) continue
 
       const nextDepth = currentDepth + 1
-      if (!parentAnchorsById.has(nextId)) parentAnchorsById.set(nextId, [])
-      const anchors = parentAnchorsById.get(currentId) || []
-      for (const anchorPos of anchors) {
-        parentAnchorsById.get(nextId).push(anchorPos)
-      }
+      const existingDepth = hopDepthById.get(nextId)
+      if (existingDepth !== undefined && nextDepth > existingDepth) continue
 
-      if (!hopDepthById.has(nextId) || nextDepth < hopDepthById.get(nextId)) {
+      const anchors = parentAnchorsById.get(currentId) || []
+      if (existingDepth === undefined || nextDepth < existingDepth) {
         hopDepthById.set(nextId, nextDepth)
+        parentAnchorsById.set(nextId, [...anchors])
         queue.push(nextId)
+      } else {
+        const existingAnchors = parentAnchorsById.get(nextId) || []
+        for (const anchorPos of anchors) {
+          if (!existingAnchors.includes(anchorPos)) existingAnchors.push(anchorPos)
+        }
       }
     }
   }
@@ -395,11 +429,13 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
 
   // Link connectedNodes on each external node and build edge list
   const renderedEdges = []
+  const seenEdgeKeys = new Set()
   const connectedByExtId = new Map()
   const addConnected = (extId, otherNode) => {
     if (!extId || !otherNode) return
     if (!connectedByExtId.has(extId)) connectedByExtId.set(extId, [])
-    connectedByExtId.get(extId).push(otherNode)
+    const list = connectedByExtId.get(extId)
+    if (!list.includes(otherNode)) list.push(otherNode)
   }
 
   for (const [devId, anchor] of matchedAnchors.entries()) {
@@ -434,6 +470,15 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
     if (!srcPos || !dstPos) continue
 
     const kind = String(edge.kind || "EGRESSES_TO").toUpperCase()
+    const interactionKey = [
+      "horizon-edge",
+      encodeURIComponent(srcId),
+      encodeURIComponent(dstId),
+      encodeURIComponent(kind),
+    ].join(":")
+    if (seenEdgeKeys.has(interactionKey)) continue
+    seenEdgeKeys.add(interactionKey)
+
     const edgeSeverity = pickWorstSeverity(
       horizonSeverity(edge),
       srcExt?.severity || "neutral",
@@ -452,12 +497,7 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
       srcNode: srcExt || srcAnchor?.device || null,
       dstNode: dstExt || dstAnchor?.device || null,
       horizonEntityType: "edge",
-      interactionKey: [
-        "horizon-edge",
-        encodeURIComponent(srcId),
-        encodeURIComponent(dstId),
-        encodeURIComponent(kind),
-      ].join(":"),
+      interactionKey,
     }
     renderedEdges.push(edgeRecord)
 

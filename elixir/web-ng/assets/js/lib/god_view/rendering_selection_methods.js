@@ -1,5 +1,6 @@
 import {dashboardUserTimeHtml} from "../../utils/dashboard_user_time"
 import {
+  formatLossPct,
   formatPortSpeedMbps,
   formatRttUs,
   horizonEntityBadges,
@@ -93,8 +94,7 @@ export const godViewRenderingSelectionMethods = {
     const inspectUrl = horizonInspectUrl(entity, entity.connectedNodes || [])
     const speed = formatPortSpeedMbps(entity.port_speed_mbps)
     const rtt = formatRttUs(entity.avg_rtt_us)
-    const lossVal = Number(entity.loss_pct)
-    const hasLoss = Number.isFinite(lossVal)
+    const loss = formatLossPct(entity.loss_pct)
     const location = [entity.metro, entity.iata, entity.country_code].filter(Boolean).join(" · ")
 
     const lines = [
@@ -121,7 +121,7 @@ export const godViewRenderingSelectionMethods = {
       entity.region ? `<div>Region: ${this.escapeHtml(entity.region)}</div>` : "",
       location ? `<div>Location: ${this.escapeHtml(location)}</div>` : "",
       rtt ? `<div>Avg RTT: ${this.escapeHtml(rtt)}</div>` : "",
-      hasLoss ? `<div>Loss: ${this.escapeHtml(lossVal.toFixed(1))}%</div>` : "",
+      loss ? `<div>Loss: ${this.escapeHtml(loss)}</div>` : "",
       entity.last_seen ? `<div>Last Seen: ${this.escapeHtml(entity.last_seen)}</div>` : "",
       `<div class="pt-2"><a class="link link-primary underline underline-offset-2 text-xs font-semibold" href="${this.escapeHtml(inspectUrl)}" data-horizon-href="${this.escapeHtml(inspectUrl)}">Inspect in Horizon</a></div>`,
     ].filter(Boolean)
