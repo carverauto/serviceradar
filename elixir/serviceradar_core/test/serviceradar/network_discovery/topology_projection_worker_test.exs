@@ -3,17 +3,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorkerTest do
 
   import ExUnit.CaptureLog
 
+  alias ServiceRadar.Dgraph.TransientError
   alias ServiceRadar.NetworkDiscovery.TopologyProjectionWorker
 
   @transient_abort_reason "dgraph (transient): Transaction Aborted: the server aborted this " <>
                             "transaction (Aborted: Transaction has been aborted. Please retry); " <>
                             "retry in a new transaction"
 
+  @transient_abort_struct %TransientError{
+    operation: :upsert_device_graphs,
+    kind: :transient,
+    reason: @transient_abort_reason
+  }
+
   @non_transient_reason "dgraph: canonical page lacks a consistent transaction timestamp"
 
   describe "transient_abort?/1" do
-    test "matches Dgraph transaction abort messages" do
+    test "matches Dgraph transaction abort messages and TransientError structs" do
       assert TopologyProjectionWorker.transient_abort?(@transient_abort_reason)
+      assert TopologyProjectionWorker.transient_abort?(@transient_abort_struct)
 
       assert TopologyProjectionWorker.transient_abort?(
                "Transaction Aborted: the server aborted this transaction"
@@ -28,6 +36,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorkerTest do
                "dgraph (transient): connect to https://192.0.2.10:8080: connection refused"
              )
 
+      refute TopologyProjectionWorker.transient_abort?(%TransientError{
+               operation: :upsert_device_graphs,
+               kind: :transient,
+               reason:
+                 "dgraph (transient): connect to https://192.0.2.10:8080: connection refused"
+             })
+
       refute TopologyProjectionWorker.transient_abort?(:timeout)
     end
   end
@@ -41,6 +56,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorkerTest do
       on_exit(fn -> Logger.delete_module_level(TopologyProjectionWorker) end)
 
       assert TopologyProjectionWorker.failure_log_level(job, @transient_abort_reason) == :info
+      assert TopologyProjectionWorker.failure_log_level(job, @transient_abort_struct) == :info
 
       warning_log =
         capture_log([level: :warning, metadata: metadata_keys], fn ->

@@ -226,6 +226,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
 
   @doc false
   @spec transient_abort?(term()) :: boolean()
+  def transient_abort?(%ServiceRadar.Dgraph.TransientError{reason: reason}),
+    do: transient_abort?(reason)
+
   def transient_abort?(reason) when is_binary(reason) do
     reason |> String.downcase() |> String.contains?("transaction aborted")
   end
