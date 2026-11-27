@@ -35,6 +35,32 @@ defmodule ServiceRadar.NATS.BrokerErrorLogFilterTest do
                message
   end
 
+  test "downgrades planned User Authentication Expired session grant expiry to info" do
+    error_log =
+      capture_log([level: :error], fn ->
+        :error_logger.error_report(
+          type: :gnat_error_from_broker,
+          message: "User Authentication Expired"
+        )
+      end)
+
+    refute error_log =~ "User Authentication Expired"
+    refute error_log =~ "NATS session grant expired"
+
+    info_log =
+      capture_log([level: :info], fn ->
+        :error_logger.error_report(
+          type: :gnat_error_from_broker,
+          message: "User Authentication Expired"
+        )
+      end)
+
+    assert info_log =~
+             "NATS session grant expired on connection serviceradar_nats " <>
+               "(nats.example.internal:4222, credentials: tls_cert=/etc/serviceradar/certs/web.pem); " <>
+               "reconnecting to re-authenticate"
+  end
+
   test "leaves other error reports untouched" do
     log =
       capture_log(fn ->

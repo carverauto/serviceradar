@@ -35,22 +35,36 @@ defmodule ServiceRadar.NATS.BrokerErrorLogFilter do
     case broker_error_message(report) do
       {:ok, message} ->
         PublishDenials.note(self(), message)
-
-        text =
-          "NATS broker error on connection #{identity_value(identity, :connection)} " <>
-            "(#{identity_value(identity, :endpoint)}, credentials: #{identity_value(identity, :credentials)}): " <>
-            message
+        connection = identity_value(identity, :connection)
+        endpoint = identity_value(identity, :endpoint)
+        credentials = identity_value(identity, :credentials)
 
         meta =
           event
           |> Map.get(:meta, %{})
           |> Map.merge(%{
-            nats_connection: identity_value(identity, :connection),
-            nats_endpoint: identity_value(identity, :endpoint),
-            nats_credentials: identity_value(identity, :credentials)
+            nats_connection: connection,
+            nats_endpoint: endpoint,
+            nats_credentials: credentials
           })
 
-        %{event | msg: {:string, text}, meta: meta}
+        if session_grant_expired?(message) do
+          # ManagedCertificateAuthorization issues jittered user-JWT grants (12h +/- 20%)
+          # so the broker periodically expires long-lived sessions and Gnat reconnects to
+          # re-authenticate. Treat that planned rotation as info rather than an error.
+          text =
+            "NATS session grant expired on connection #{connection} " <>
+              "(#{endpoint}, credentials: #{credentials}); reconnecting to re-authenticate"
+
+          %{event | level: :info, msg: {:string, text}, meta: meta}
+        else
+          text =
+            "NATS broker error on connection #{connection} " <>
+              "(#{endpoint}, credentials: #{credentials}): " <>
+              message
+
+          %{event | msg: {:string, text}, meta: meta}
+        end
 
       :error ->
         :ignore
@@ -58,6 +72,12 @@ defmodule ServiceRadar.NATS.BrokerErrorLogFilter do
   end
 
   def filter(_event, _identity), do: :ignore
+
+  defp session_grant_expired?(message) when is_binary(message) do
+    String.trim(message) == "User Authentication Expired"
+  end
+
+  defp session_grant_expired?(_message), do: false
 
   defp broker_error_message(%{label: {:error_logger, :error_report}, report: report}),
     do: broker_error_message(report)
