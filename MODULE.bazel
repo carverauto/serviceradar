@@ -2217,17 +2217,17 @@ http_file(
 
 http_file(
     name = "alpine_3_24_zstd_libs_apk",
-    sha256 = "23c6065b0049b2406441564bcf0032515a43f78e80d76fcb85535a3803ef5d4e",
+    sha256 = "69243fd7b0633f20fee47ccf566ecfe2802a7a9d18700f10abc54aa8060774ab",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zstd-libs-1.5.7-r2.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zstd-libs-1.6.0-r1.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_zstd_libs_apk_arm64",
-    sha256 = "2bb5136c89f5b0bbe1554c8915a3b520d5aa63ae2a51d4d821eb81698db5a818",
+    sha256 = "923a9b5fffbc8272ce65b67fa7f768a9e3ea55c395b36030dc11635f29645eae",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/zstd-libs-1.5.7-r2.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/zstd-libs-1.6.0-r1.apk",
     ],
 )
 
