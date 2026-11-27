@@ -183,17 +183,17 @@ defmodule ServiceRadar.PrefixTags.TrieTest do
       # Ephemeral process registers a custom source then exits (old bug: its
       # caller-owned ETS table vanished on exit). With no supervised Registry,
       # aggregate lookup falls back to the persistent registration handle.
-      spawn(fn ->
-        Store.put_rows("ephemeral", [
-          %{prefix: "198.51.100.0/24", tags: ["ephemeral:zone"], source: "ephemeral"}
-        ])
+      {pid, ref} =
+        spawn_monitor(fn ->
+          Store.put_rows("ephemeral", [
+            %{prefix: "198.51.100.0/24", tags: ["ephemeral:zone"], source: "ephemeral"}
+          ])
 
-        send(parent, :registered)
-      end)
+          send(parent, :registered)
+        end)
 
-      assert_receive :registered, 2_000
-      # Give the owner process time to fully exit.
-      Process.sleep(50)
+      assert_receive :registered, 10_000
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 10_000
 
       assert "ephemeral" in Store.sources()
       assert Store.lookup("198.51.100.10") != []
