@@ -17,6 +17,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   @srql_limit 20
   # Padding applied around the trace's own start/end when querying logs.
   @log_window_pad_seconds 300
+  # Padding applied around the summary's time bounds when querying spans so
+  # StarRocks can prune daily partitions on `otel_traces`.
+  @span_window_pad_seconds 12 * 3600
   @nanos_per_second 1_000_000_000
 
   @trace_id_pattern ~r/^[0-9a-f]{32}$/
@@ -75,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
      |> assign(:highlight_idx, nil)
      |> assign(:span_truncated?, false)
      |> assign(:span_limit_display, @span_limit)
-     |> assign(:state, :not_found)
+     |> assign(:state, :loading)
      |> assign(:logs, [])
      |> assign(:logs_query, nil)
      |> assign(:logs_error, nil)
@@ -89,14 +92,21 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   def handle_params(%{"trace_id" => raw} = params, _uri, socket) do
     case normalize_trace_id(raw) do
       {:ok, trace_id} ->
-        {:noreply,
-         socket
-         |> assign(:trace_id, trace_id)
-         |> assign(:page_title, "Trace #{String.slice(trace_id, 0, 8)}")
-         |> assign(:expanded_idx, nil)
-         |> assign(:highlight_idx, nil)
-         |> load_trace(srql_module(), trace_id)
-         |> maybe_expand_span(Map.get(params, "span"))}
+        socket =
+          socket
+          |> assign(:trace_id, trace_id)
+          |> assign(:page_title, "Trace #{String.slice(trace_id, 0, 8)}")
+          |> assign(:expanded_idx, nil)
+          |> assign(:highlight_idx, nil)
+
+        if connected?(socket) do
+          {:noreply,
+           socket
+           |> load_trace(srql_module(), trace_id)
+           |> maybe_expand_span(Map.get(params, "span"))}
+        else
+          {:noreply, assign(socket, :state, :loading)}
+        end
 
       :error ->
         {:noreply,
@@ -198,6 +208,15 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
         </div>
 
         <div
+          :if={@state == :loading and is_nil(@error)}
+          class="mb-4 flex items-center gap-3 rounded-lg border border-sr-line bg-sr-surface p-4 text-sm text-sr-muted"
+          id="trace-loading"
+        >
+          <.icon name="hero-arrow-path" class="size-5 animate-spin" />
+          <span>Loading trace…</span>
+        </div>
+
+        <div
           :if={@state == :not_found and is_nil(@error)}
           class={ui_alert_class(variant: "warning", class: "mb-4")}
           id="trace-not-found"
@@ -207,7 +226,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
         </div>
 
         <div
-          :if={@state != :not_found}
+          :if={@state not in [:loading, :not_found]}
           class="mb-4 flex flex-wrap items-center gap-3"
           id="trace-summary-bar"
         >
@@ -376,7 +395,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           </div>
         </.ui_panel>
 
-        <.ui_panel :if={@state != :not_found}>
+        <.ui_panel :if={@state not in [:loading, :not_found]}>
           <:header>
             <div class="min-w-0">
               <div class="text-sm font-semibold">Correlated Logs</div>
@@ -540,7 +559,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   defp load_trace(socket, srql, trace_id) do
     scope = socket.assigns.current_scope
     {summary, summary_error} = fetch_summary(srql, trace_id, scope)
-    {spans, spans_error, truncated?} = fetch_spans(srql, trace_id, scope)
+    {spans, spans_error, truncated?} = fetch_spans(srql, trace_id, scope, derive_span_window(summary))
 
     state =
       cond do
@@ -597,8 +616,13 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     end
   end
 
-  defp fetch_spans(srql, trace_id, scope) do
-    query = ~s(in:traces trace_id:"#{trace_id}" sort:start_time_unix_nano:asc limit:#{@span_limit})
+  defp fetch_spans(srql, trace_id, scope, span_window) do
+    time_clause = format_srql_time_clause(span_window)
+
+    query =
+      ~s(in:traces trace_id:"#{trace_id}" ) <>
+        time_clause <>
+        "sort:start_time_unix_nano:asc limit:#{@span_limit}"
 
     case srql.query(query, %{scope: scope}) do
       {:ok, %{"results" => spans}} when is_list(spans) ->
@@ -611,6 +635,43 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
         {[], "Unexpected spans response: #{inspect(other)}", false}
     end
   end
+
+  defp derive_span_window(%{} = summary) do
+    start_ns = to_int(Map.get(summary, "start_time_unix_nano"))
+    end_ns = to_int(Map.get(summary, "end_time_unix_nano"))
+
+    if is_integer(start_ns) and start_ns > 0 do
+      effective_end_ns =
+        if is_integer(end_ns) and end_ns >= start_ns, do: end_ns, else: start_ns
+
+      pad = @span_window_pad_seconds * @nanos_per_second
+
+      with {:ok, from_dt} <- DateTime.from_unix(start_ns - pad, :nanosecond),
+           {:ok, to_dt} <- DateTime.from_unix(effective_end_ns + pad, :nanosecond) do
+        {:ok, DateTime.truncate(from_dt, :second), DateTime.truncate(to_dt, :second)}
+      else
+        _ -> :error
+      end
+    else
+      case parse_timestamp(Map.get(summary, "timestamp")) do
+        {:ok, ts} ->
+          duration_ms = max(to_number(Map.get(summary, "duration_ms")) || 0, 0)
+          from_dt = DateTime.shift(ts, second: -@span_window_pad_seconds)
+
+          to_dt =
+            ts
+            |> DateTime.add(round(duration_ms), :millisecond)
+            |> DateTime.shift(second: @span_window_pad_seconds)
+
+          {:ok, DateTime.truncate(from_dt, :second), DateTime.truncate(to_dt, :second)}
+
+        _ ->
+          :error
+      end
+    end
+  end
+
+  defp derive_span_window(_summary), do: :error
 
   defp assign_header(socket, summary, rows, min_start, max_end) do
     summary = summary || %{}
@@ -805,14 +866,20 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   # Correlated logs
   # ----------------------------------------------------------------------
 
+  defp format_srql_time_clause({:ok, from_dt, to_dt}) do
+    "time:[#{DateTime.to_iso8601(from_dt)},#{DateTime.to_iso8601(to_dt)}] "
+  end
+
+  defp format_srql_time_clause(:error), do: ""
+
   defp load_logs(socket, _srql, _trace_id, :error) do
     socket |> assign(:logs, []) |> assign(:logs_query, nil) |> assign(:logs_error, nil)
   end
 
-  defp load_logs(socket, srql, trace_id, {:ok, from_dt, to_dt}) do
+  defp load_logs(socket, srql, trace_id, {:ok, _from_dt, _to_dt} = window) do
     query =
       ~s(in:logs trace_id:"#{trace_id}" ) <>
-        "time:[#{DateTime.to_iso8601(from_dt)},#{DateTime.to_iso8601(to_dt)}] " <>
+        format_srql_time_clause(window) <>
         "sort:timestamp:asc limit:#{@log_limit}"
 
     socket = assign(socket, :logs_query, query)

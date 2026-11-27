@@ -68,12 +68,54 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
 
     queries = drain_srql_queries()
 
+    assert length(queries) == 3
+
     assert ~s(in:otel_trace_summaries trace_id:"#{@trace_id}" limit:1) in queries
 
-    assert ~s(in:traces trace_id:"#{@trace_id}" sort:start_time_unix_nano:asc limit:1000) in queries
+    assert ~s(in:traces trace_id:"#{@trace_id}" time:[2026-06-10T00:00:00Z,2026-06-11T00:00:00Z] sort:start_time_unix_nano:asc limit:1000) in queries
 
     # Correlated logs window derives from the trace's own span times ±5m.
     assert ~s(in:logs trace_id:"#{@trace_id}" time:[2023-11-14T22:08:20Z,2023-11-14T22:18:20Z] sort:timestamp:asc limit:50) in queries
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "disconnected mount does not execute SRQL queries and renders loading state", %{conn: conn} do
+    conn = get(conn, ~p"/observability/traces/#{@trace_id}")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(id="trace-loading")
+    assert html =~ "Loading trace"
+    refute html =~ "Trace not found or expired."
+    refute html =~ ~s(id="trace-summary-bar")
+    refute html =~ ~s(id="trace-spans")
+    assert drain_srql_queries() == []
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "falls back to unbounded in:traces query when summary is absent", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :spans_without_summary)
+
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    assert has_element?(lv, "#trace-spans-row-0", "GET /api/devices")
+
+    queries = drain_srql_queries()
+
+    assert ~s(in:otel_trace_summaries trace_id:"#{@trace_id}" limit:1) in queries
+    assert ~s(in:traces trace_id:"#{@trace_id}" sort:start_time_unix_nano:asc limit:1000) in queries
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "derives bounded in:traces window from summary nanosecond bounds when present", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :nano_summary)
+
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    assert has_element?(lv, "#trace-spans-row-0", "GET /api/devices")
+
+    queries = drain_srql_queries()
+
+    assert ~s(in:traces trace_id:"#{@trace_id}" time:[2023-11-14T10:13:20Z,2023-11-15T10:13:20Z] sort:start_time_unix_nano:asc limit:1000) in queries
   end
 
   @tag :web_ng_shared_fixture_db
@@ -231,6 +273,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
 
     queries = drain_srql_queries()
 
+    assert ~s(in:traces trace_id:"#{@trace_id}" sort:start_time_unix_nano:asc limit:1000) in queries
     refute Enum.any?(queries, &String.starts_with?(&1, "in:logs "))
     refute Enum.any?(queries, &String.contains?(&1, "2026-06-10T11:55:00Z"))
   end
@@ -349,7 +392,25 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
       ]
     end
 
-    defp results("in:traces" <> _rest, :full) do
+    defp results("in:otel_trace_summaries" <> _rest, :nano_summary) do
+      [
+        %{
+          "trace_id" => @trace_id,
+          "timestamp" => "2023-11-14T22:13:20Z",
+          "start_time_unix_nano" => @base_ns,
+          "end_time_unix_nano" => @base_ns + 50 * @ms,
+          "root_span_name" => "GET /api/devices",
+          "root_service_name" => "web-ng",
+          "duration_ms" => 50.0,
+          "span_count" => 3,
+          "error_count" => 1,
+          "status_code" => 2,
+          "service_set" => ["web-ng", "core-elx"]
+        }
+      ]
+    end
+
+    defp results("in:traces" <> _rest, scenario) when scenario in [:full, :spans_without_summary, :nano_summary] do
       # Deliberately out of order: child2, child1, root.
       [
         %{

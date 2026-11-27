@@ -97,7 +97,8 @@ DISTRIBUTED BY HASH(trace_id) BUCKETS 8
 ORDER BY (`timestamp`)
 PROPERTIES (
   "replication_num" = "3",
-  "enable_persistent_index" = "true"
+  "enable_persistent_index" = "true",
+  "bloom_filter_columns" = "trace_id"
 );
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS serviceradar.traces_stats_5m
