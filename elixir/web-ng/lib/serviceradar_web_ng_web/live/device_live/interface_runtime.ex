@@ -122,6 +122,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
             {socket, count, "tagged with: #{Enum.join(tags, ", ")}"}
           end
 
+        "mark_internet_egress" ->
+          count = InterfaceData.bulk_update_internet_egress(scope, device_uid, selected, true)
+          {socket, count, "marked as Internet egress"}
+
+        "clear_internet_egress" ->
+          count = InterfaceData.bulk_update_internet_egress(scope, device_uid, selected, false)
+          {socket, count, "cleared from Internet egress"}
+
         _ ->
           {socket, 0, "updated"}
       end

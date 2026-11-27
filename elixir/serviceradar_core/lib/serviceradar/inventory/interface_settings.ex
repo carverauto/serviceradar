@@ -18,7 +18,9 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  alias ServiceRadar.Inventory.Changes.NormalizeInterfaceEgressConfig
   alias ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
+  alias ServiceRadar.Inventory.Changes.ScheduleEgressProjection
 
   @interface_settings_fields [
     :favorited,
@@ -33,7 +35,11 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     :threshold_metric,
     :threshold_duration_seconds,
     :threshold_severity,
-    :tags
+    :tags,
+    :internet_egress,
+    :egress_upstream_asn,
+    :egress_vantage_id,
+    :egress_port_speed_mbps
   ]
   @interface_key_fields [:device_id, :interface_uid]
   @interface_create_fields @interface_key_fields ++ @interface_settings_fields
@@ -62,6 +68,7 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     define :list_by_device, action: :by_device, args: [:device_id]
     define :list_favorited, action: :favorited
     define :list_metrics_enabled, action: :metrics_enabled
+    define :list_internet_egress, action: :internet_egress
     define :upsert, action: :upsert, args: [:device_id, :interface_uid]
     define :bulk_update_favorites, action: :bulk_favorite, args: [:interface_uids, :favorited]
   end
@@ -73,12 +80,16 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       accept @interface_create_fields
 
       change NormalizeInterfaceMetricsConfig
+      change NormalizeInterfaceEgressConfig
+      change ScheduleEgressProjection
     end
 
     update :update do
       accept @interface_settings_fields
 
       change NormalizeInterfaceMetricsConfig
+      change NormalizeInterfaceEgressConfig
+      change ScheduleEgressProjection
     end
 
     create :upsert do
@@ -94,9 +105,11 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
       change set_attribute(:device_id, arg(:device_id))
       change set_attribute(:interface_uid, arg(:interface_uid))
       change NormalizeInterfaceMetricsConfig
+      change NormalizeInterfaceEgressConfig
       change ServiceRadar.Inventory.Changes.ScheduleThresholdEvaluator
       change ServiceRadar.Inventory.Changes.SyncMetricEventRules
       change ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig
+      change ScheduleEgressProjection
     end
 
     update :toggle_favorite do
@@ -163,6 +176,11 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     read :metrics_enabled do
       description "Get all interfaces with metrics collection enabled"
       filter expr(metrics_enabled == true)
+    end
+
+    read :internet_egress do
+      description "Get all interfaces designated as Internet egress"
+      filter expr(internet_egress == true)
     end
 
     action :bulk_favorite do
@@ -262,6 +280,30 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     attribute :tags, {:array, :string} do
       default []
       description "User-defined tags for this interface"
+    end
+
+    attribute :internet_egress, :boolean do
+      default false
+      allow_nil? false
+      public? true
+      description "Whether this interface is manually designated as an Internet egress"
+    end
+
+    attribute :egress_upstream_asn, :integer do
+      public? true
+      constraints min: 1
+      description "Optional upstream ISP ASN bound to this Internet egress interface"
+    end
+
+    attribute :egress_vantage_id, :string do
+      public? true
+      description "Optional Horizon vantage ID associated with this Internet egress"
+    end
+
+    attribute :egress_port_speed_mbps, :integer do
+      public? true
+      constraints min: 1
+      description "Optional link speed override in Mbps for this Internet egress"
     end
 
     attribute :metric_groups, {:array, :map} do

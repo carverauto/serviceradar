@@ -28,6 +28,9 @@ defmodule ServiceRadar.DgraphExternalTest do
     assert function_exported?(Native, :query_shared_fate_spofs, 4)
     assert function_exported?(Native, :query_customer_cone, 5)
     assert function_exported?(Native, :query_multi_hop_trace, 6)
+    assert function_exported?(Native, :query_egress_topology, 4)
+    assert function_exported?(Native, :query_external_egress_targets, 3)
+    assert function_exported?(Native, :reconcile_egress_edges, 4)
   end
 
   test "rejects empty query seeds and non-map snapshots without contacting Dgraph" do

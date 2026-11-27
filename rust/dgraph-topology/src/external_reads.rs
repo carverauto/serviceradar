@@ -25,20 +25,22 @@ use serde::Deserialize;
 use crate::client::{TopologyClient, dql_string};
 use crate::errors::TopologyError;
 use crate::external_rows::{
-    AsnsBlock, HopExpandBlock, PrefixConeBlock, RawNode, Subgraph, add_node, dedup_raw_nodes,
-    record_edge, record_simple_edge, shortest_path_trace,
+    AsnsBlock, HopExpandBlock, PrefixConeBlock, PrefixesBlock, RawEdge, RawNode, Subgraph,
+    add_node, dedup_raw_nodes, record_edge, record_simple_edge, shortest_path_trace,
 };
 use crate::types::{
-    BlastRadiusResult, CustomerConeResult, ExternalEdgeRef, MultiHopTraceResult, clamp_max_hops,
-    clamp_query_limit,
+    BlastRadiusResult, CustomerConeResult, DEFAULT_EGRESS_TARGETS_LIMIT, EgressDeviceRef,
+    EgressTopologyResult, ExternalEdgeRef, ExternalEgressTargetsResult, MAX_EGRESS_TARGETS_LIMIT,
+    MultiHopTraceResult, clamp_max_hops, clamp_query_limit,
 };
 
 pub(crate) const NODE_FIELDS: &str = "uid dgraph.type device.id device.hostname device.ip hop.ip \
   prefix.cidr prefix.asn prefix.rpki_state prefix.rtbh_active \
   ext.id ext.kind ext.asn ext.label ext.region ext.ip ext.rpki_state \
-  ext.rtbh_active ext.outage_state ext.metro ext.iata ext.country_code ext.stale";
+  ext.rtbh_active ext.outage_state ext.port_speed_mbps ext.metro ext.iata ext.country_code ext.stale";
 pub(crate) const EDGE_BODY: &str = "topo.kind topo.border_asn topo.as_boundary_confidence \
-  topo.avg_rtt_us topo.loss_pct topo.last_seen";
+  topo.avg_rtt_us topo.loss_pct topo.port_speed_mbps topo.if_name_ab topo.if_index_ab \
+  topo.egress_source topo.last_seen";
 
 impl TopologyClient {
     /// Compute bounded inside-to-outside blast radius from `seed_id`
@@ -188,6 +190,360 @@ impl TopologyClient {
             edges: graph.edges,
         })
     }
+
+    /// Bounded read-only stitched inside-to-outside Internet egress graph for
+    /// God View (`"Internet Egress / Horizon"` layer).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TopologyError`] if a Dgraph query fails.
+    pub async fn query_egress_topology(
+        &self,
+        max_hops: u8,
+        limit: usize,
+    ) -> Result<EgressTopologyResult, TopologyError> {
+        let hops = clamp_max_hops(max_hops);
+        let cap = clamp_query_limit(limit);
+        let mut txn = self.dgraph().new_read_only_txn();
+
+        let seed_query = format!(
+            "{{\n  direct(func: type(TopologyEdge), first: {cap}) @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\"])) {{\n    uid\n    {EDGE_BODY}\n    topo.src {{ {NODE_FIELDS} }}\n    topo.dst {{ {NODE_FIELDS} }}\n  }}\n  dev_prefixes(func: type(Prefix), first: {cap}) @filter(gt(prefix.asn, 0) AND has(~iface.prefixes)) {{\n    {NODE_FIELDS}\n    ~iface.prefixes {{\n      iface.name\n      iface.if_index\n      ~device.interfaces {{ {NODE_FIELDS} }}\n    }}\n  }}\n}}"
+        );
+        let seed_block: EgressSeedBlock = ro_query(&mut txn, &seed_query).await?;
+
+        let mut egress_devs: BTreeMap<String, EgressDeviceRef> = BTreeMap::new();
+        let mut ext_nodes: BTreeMap<String, RawNode> = BTreeMap::new();
+        let mut seen_edges: BTreeSet<String> = BTreeSet::new();
+        let mut edges: Vec<ExternalEdgeRef> = Vec::new();
+        let mut frontier: Vec<String> = Vec::new();
+        let mut truncated = seed_block.direct.len() >= cap || seed_block.dev_prefixes.len() >= cap;
+
+        for edge in seed_block.direct {
+            let (Some(src), Some(dst)) = (edge.src.first(), edge.dst.first()) else {
+                continue;
+            };
+            if src.stale || dst.stale || !src.is_internal_device() {
+                continue;
+            }
+            let src_id = src.canonical_id();
+            let dst_id = dst.canonical_id();
+            if src_id.is_empty() || dst_id.is_empty() {
+                continue;
+            }
+            let source_label = edge
+                .egress_source
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("automagic")
+                .to_string();
+            insert_egress_device(
+                &mut egress_devs,
+                EgressDeviceRef {
+                    id: src_id.clone(),
+                    kind: "Device".to_string(),
+                    label: src.hostname.clone().or_else(|| src.label.clone()),
+                    ip: src.device_ip.clone().or_else(|| src.ext_ip.clone()),
+                    if_name: edge.if_name.clone(),
+                    if_index: edge.if_index,
+                    egress_source: source_label,
+                    port_speed_mbps: edge.port_speed_mbps,
+                },
+            );
+            if add_node(
+                dst.clone(),
+                &mut ext_nodes,
+                &mut frontier,
+                cap,
+                &mut truncated,
+            ) {
+                record_edge(
+                    &src_id,
+                    &dst_id,
+                    &edge.kind,
+                    &edge,
+                    &mut seen_edges,
+                    &mut edges,
+                    cap,
+                    &mut truncated,
+                );
+            }
+        }
+
+        let mut wanted_asns = BTreeSet::new();
+        for pfx in &seed_block.dev_prefixes {
+            if !pfx.node.stale
+                && let Some(asn) = pfx.node.prefix_asn.filter(|&a| a > 0)
+            {
+                wanted_asns.insert(asn);
+            }
+        }
+        let mut asns_by_num: HashMap<i64, Vec<RawNode>> = HashMap::new();
+        if !wanted_asns.is_empty() {
+            let asn_list = wanted_asns
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let asn_query = format!(
+                "{{\n  asns(func: eq(ext.asn, [{asn_list}]), first: {cap}) \
+                 @filter(eq(ext.kind, \"ASN\") AND NOT eq(ext.stale, true)) {{ {NODE_FIELDS} }}\n}}"
+            );
+            let parsed: AsnsBlock = ro_query(&mut txn, &asn_query).await?;
+            for asn_node in parsed.asns {
+                if !asn_node.stale
+                    && let Some(asn) = asn_node.ext_asn
+                {
+                    asns_by_num.entry(asn).or_default().push(asn_node);
+                }
+            }
+        }
+
+        for pfx in seed_block.dev_prefixes {
+            if pfx.node.stale {
+                continue;
+            }
+            let Some(asn) = pfx.node.prefix_asn.filter(|&a| a > 0) else {
+                continue;
+            };
+            let Some(asn_nodes) = asns_by_num.get(&asn) else {
+                continue;
+            };
+            let pfx_id = pfx.node.canonical_id();
+            if pfx_id.is_empty() {
+                continue;
+            }
+            let mut linked_devices = Vec::new();
+            for iface in pfx.rev_ifaces {
+                for dev in iface.devices {
+                    if !dev.stale && dev.is_internal_device() {
+                        linked_devices.push((dev, iface.if_name.clone(), iface.if_index));
+                    }
+                }
+            }
+            if linked_devices.is_empty() {
+                continue;
+            }
+            if !add_node(pfx.node, &mut ext_nodes, &mut frontier, cap, &mut truncated) {
+                continue;
+            }
+            for (dev, if_name, if_index) in linked_devices {
+                let dev_id = dev.canonical_id();
+                if dev_id.is_empty() {
+                    continue;
+                }
+                insert_egress_device(
+                    &mut egress_devs,
+                    EgressDeviceRef {
+                        id: dev_id.clone(),
+                        kind: "Device".to_string(),
+                        label: dev.hostname.clone().or_else(|| dev.label.clone()),
+                        ip: dev.device_ip.clone().or_else(|| dev.ext_ip.clone()),
+                        if_name,
+                        if_index,
+                        egress_source: "prefix_origin".to_string(),
+                        port_speed_mbps: None,
+                    },
+                );
+                record_simple_edge(
+                    &dev_id,
+                    &pfx_id,
+                    "INTERFACE_PREFIX",
+                    &mut seen_edges,
+                    &mut edges,
+                    cap,
+                    &mut truncated,
+                );
+            }
+            for asn_node in asn_nodes {
+                let asn_id = asn_node.canonical_id();
+                if add_node(
+                    asn_node.clone(),
+                    &mut ext_nodes,
+                    &mut frontier,
+                    cap,
+                    &mut truncated,
+                ) {
+                    record_simple_edge(
+                        &asn_id,
+                        &pfx_id,
+                        "ORIGIN_PREFIX",
+                        &mut seen_edges,
+                        &mut edges,
+                        cap,
+                        &mut truncated,
+                    );
+                }
+            }
+        }
+
+        for _depth in 0..hops {
+            if frontier.is_empty() || ext_nodes.len() >= cap || edges.len() >= cap {
+                if !frontier.is_empty() {
+                    truncated = true;
+                }
+                break;
+            }
+            let uids = frontier.join(", ");
+            let expand_query = format!(
+                "{{\n  q(func: uid({uids})) {{\n    uid\n    ~topo.src @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\", \"AS_REL_PROVIDER\", \"AS_REL_PEER\", \"IXP_MEMBER\", \"TRACEROUTE_HOP\", \"ANYCAST_SERVES\"])) {{ {EDGE_BODY} topo.dst {{ {NODE_FIELDS} }} }}\n  }}\n}}"
+            );
+            let parsed: HopExpandBlock = ro_query(&mut txn, &expand_query).await?;
+            let mut next_frontier = Vec::new();
+            for row in parsed.q {
+                let Some(src_node) = ext_nodes.get(&row.uid).cloned() else {
+                    continue;
+                };
+                let src_id = src_node.canonical_id();
+                for e in row.out_edges {
+                    for dst_node in e
+                        .dst
+                        .iter()
+                        .filter(|n| !n.stale && !n.is_internal_device())
+                        .cloned()
+                    {
+                        let dst_id = dst_node.canonical_id();
+                        if add_node(
+                            dst_node,
+                            &mut ext_nodes,
+                            &mut next_frontier,
+                            cap,
+                            &mut truncated,
+                        ) {
+                            record_edge(
+                                &src_id,
+                                &dst_id,
+                                &e.kind,
+                                &e,
+                                &mut seen_edges,
+                                &mut edges,
+                                cap,
+                                &mut truncated,
+                            );
+                        }
+                    }
+                }
+            }
+            bridge_prefix_asns(
+                &mut txn,
+                &frontier,
+                &mut ext_nodes,
+                &mut next_frontier,
+                &mut seen_edges,
+                &mut edges,
+                cap,
+                &mut truncated,
+            )
+            .await?;
+            frontier = next_frontier;
+        }
+
+        let external_nodes: Vec<_> = ext_nodes.values().map(RawNode::to_ref).collect();
+        let present_ids: HashSet<&str> = egress_devs
+            .keys()
+            .map(String::as_str)
+            .chain(external_nodes.iter().map(|n| n.id.as_str()))
+            .collect();
+        edges.retain(|e| {
+            present_ids.contains(e.src_id.as_str()) && present_ids.contains(e.dst_id.as_str())
+        });
+
+        Ok(EgressTopologyResult {
+            max_hops: hops,
+            truncated,
+            egress_devices: egress_devs.into_values().collect(),
+            external_nodes,
+            edges,
+        })
+    }
+
+    /// Read active external `Prefix`, `ASN`, and `Vantage` vertices for
+    /// Elixir LPM/Vantage egress stitch matching.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TopologyError`] if a Dgraph query fails.
+    pub async fn query_external_egress_targets(
+        &self,
+        limit: usize,
+    ) -> Result<ExternalEgressTargetsResult, TopologyError> {
+        let cap = if limit == 0 {
+            DEFAULT_EGRESS_TARGETS_LIMIT
+        } else {
+            limit.min(MAX_EGRESS_TARGETS_LIMIT)
+        };
+        let mut txn = self.dgraph().new_read_only_txn();
+        let query = format!(
+            "{{\n  prefixes(func: type(Prefix), first: {cap}) @filter(gt(prefix.asn, 0)) {{ {NODE_FIELDS} }}\n  asns(func: eq(ext.kind, \"ASN\"), first: {cap}) @filter(NOT eq(ext.stale, true)) {{ {NODE_FIELDS} }}\n  vantages(func: eq(ext.kind, \"Vantage\"), first: {cap}) @filter(NOT eq(ext.stale, true)) {{ {NODE_FIELDS} }}\n}}"
+        );
+        let block: EgressTargetsBlock = ro_query(&mut txn, &query).await?;
+        Ok(ExternalEgressTargetsResult {
+            prefixes: dedup_raw_nodes(block.prefixes)
+                .into_iter()
+                .filter(|n| !n.stale)
+                .map(|n| n.to_ref())
+                .collect(),
+            asns: dedup_raw_nodes(block.asns)
+                .into_iter()
+                .filter(|n| !n.stale)
+                .map(|n| n.to_ref())
+                .collect(),
+            vantages: dedup_raw_nodes(block.vantages)
+                .into_iter()
+                .filter(|n| !n.stale)
+                .map(|n| n.to_ref())
+                .collect(),
+        })
+    }
+}
+
+fn egress_source_rank(source: &str) -> u8 {
+    match source {
+        "manual" => 3,
+        "automagic" => 2,
+        "prefix_origin" => 1,
+        _ => 0,
+    }
+}
+
+fn insert_egress_device(map: &mut BTreeMap<String, EgressDeviceRef>, cand: EgressDeviceRef) {
+    match map.get_mut(&cand.id) {
+        Some(existing) => {
+            if egress_source_rank(&cand.egress_source) > egress_source_rank(&existing.egress_source)
+            {
+                *existing = cand;
+            }
+        }
+        None => {
+            map.insert(cand.id.clone(), cand);
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct EgressSeedBlock {
+    #[serde(default)]
+    direct: Vec<RawEdge>,
+    #[serde(default)]
+    dev_prefixes: Vec<PrefixConeBlockRow>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PrefixConeBlockRow {
+    #[serde(flatten)]
+    node: RawNode,
+    #[serde(default, rename = "~iface.prefixes")]
+    rev_ifaces: Vec<crate::external_rows::IfaceDevices>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct EgressTargetsBlock {
+    #[serde(default)]
+    prefixes: Vec<RawNode>,
+    #[serde(default)]
+    asns: Vec<RawNode>,
+    #[serde(default)]
+    vantages: Vec<RawNode>,
 }
 
 fn require_nonempty_id<'a>(val: &'a str, name: &str) -> Result<&'a str, TopologyError> {
@@ -250,9 +606,8 @@ async fn resolve_asn_seeds(
     asn_num: Option<i64>,
 ) -> Result<Vec<RawNode>, TopologyError> {
     let q = dql_string(raw);
-    let mut blocks = format!(
-        "  a(func: eq(ext.id, {q})) @filter(NOT eq(ext.stale, true)) {{ {NODE_FIELDS} }}"
-    );
+    let mut blocks =
+        format!("  a(func: eq(ext.id, {q})) @filter(NOT eq(ext.stale, true)) {{ {NODE_FIELDS} }}");
     if let Some(asn) = asn_num {
         blocks.push_str(&format!(
             "\n  b(func: eq(ext.asn, {asn})) @filter(eq(ext.kind, \"ASN\") AND NOT eq(ext.stale, true)) {{ {NODE_FIELDS} }}"
@@ -307,16 +662,46 @@ async fn expand_subgraph(
             for e in row.out_edges {
                 for dst_node in e.dst.iter().filter(|n| !n.stale).cloned() {
                     let dst_id = dst_node.canonical_id();
-                    if add_node(dst_node, &mut nodes, &mut next_frontier, limit, &mut truncated) {
-                        record_edge(&src_id, &dst_id, &e.kind, &e, &mut seen_edges, &mut edges, limit, &mut truncated);
+                    if add_node(
+                        dst_node,
+                        &mut nodes,
+                        &mut next_frontier,
+                        limit,
+                        &mut truncated,
+                    ) {
+                        record_edge(
+                            &src_id,
+                            &dst_id,
+                            &e.kind,
+                            &e,
+                            &mut seen_edges,
+                            &mut edges,
+                            limit,
+                            &mut truncated,
+                        );
                     }
                 }
             }
             for e in row.in_edges {
                 for far_node in e.src.iter().filter(|n| !n.stale).cloned() {
                     let far_id = far_node.canonical_id();
-                    if add_node(far_node, &mut nodes, &mut next_frontier, limit, &mut truncated) {
-                        record_edge(&far_id, &src_id, &e.kind, &e, &mut seen_edges, &mut edges, limit, &mut truncated);
+                    if add_node(
+                        far_node,
+                        &mut nodes,
+                        &mut next_frontier,
+                        limit,
+                        &mut truncated,
+                    ) {
+                        record_edge(
+                            &far_id,
+                            &src_id,
+                            &e.kind,
+                            &e,
+                            &mut seen_edges,
+                            &mut edges,
+                            limit,
+                            &mut truncated,
+                        );
                     }
                 }
             }
@@ -324,7 +709,15 @@ async fn expand_subgraph(
                 for pfx in iface.prefixes {
                     let pfx_id = pfx.canonical_id();
                     if add_node(pfx, &mut nodes, &mut next_frontier, limit, &mut truncated) {
-                        record_simple_edge(&src_id, &pfx_id, "INTERFACE_PREFIX", &mut seen_edges, &mut edges, limit, &mut truncated);
+                        record_simple_edge(
+                            &src_id,
+                            &pfx_id,
+                            "INTERFACE_PREFIX",
+                            &mut seen_edges,
+                            &mut edges,
+                            limit,
+                            &mut truncated,
+                        );
                     }
                 }
             }
@@ -332,12 +725,31 @@ async fn expand_subgraph(
                 for dev in rev_iface.devices {
                     let dev_id = dev.canonical_id();
                     if add_node(dev, &mut nodes, &mut next_frontier, limit, &mut truncated) {
-                        record_simple_edge(&dev_id, &src_id, "INTERFACE_PREFIX", &mut seen_edges, &mut edges, limit, &mut truncated);
+                        record_simple_edge(
+                            &dev_id,
+                            &src_id,
+                            "INTERFACE_PREFIX",
+                            &mut seen_edges,
+                            &mut edges,
+                            limit,
+                            &mut truncated,
+                        );
                     }
                 }
             }
         }
         bridge_prefix_asns(
+            txn,
+            &frontier,
+            &mut nodes,
+            &mut next_frontier,
+            &mut seen_edges,
+            &mut edges,
+            limit,
+            &mut truncated,
+        )
+        .await?;
+        bridge_asn_prefixes(
             txn,
             &frontier,
             &mut nodes,
@@ -428,6 +840,74 @@ async fn bridge_prefix_asns(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn bridge_asn_prefixes(
+    txn: &mut Txn<ReadOnly>,
+    frontier: &[String],
+    nodes: &mut BTreeMap<String, RawNode>,
+    next_frontier: &mut Vec<String>,
+    seen_edges: &mut BTreeSet<String>,
+    edges: &mut Vec<ExternalEdgeRef>,
+    limit: usize,
+    truncated: &mut bool,
+) -> Result<(), TopologyError> {
+    if nodes.len() >= limit || edges.len() >= limit {
+        return Ok(());
+    }
+    let mut asn_ids: Vec<(String, i64)> = Vec::new();
+    let mut wanted_asns = BTreeSet::new();
+    for uid in frontier {
+        if let Some(node) = nodes.get(uid)
+            && node.kind() == "ASN"
+            && let Some(asn) = node.ext_asn.filter(|&a| a > 0)
+        {
+            asn_ids.push((node.canonical_id(), asn));
+            wanted_asns.insert(asn);
+        }
+    }
+    if wanted_asns.is_empty() {
+        return Ok(());
+    }
+
+    let asn_list = wanted_asns
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!(
+        "{{\n  prefixes(func: eq(prefix.asn, [{asn_list}]), first: {limit}) {{ {NODE_FIELDS} }}\n}}"
+    );
+    let parsed: PrefixesBlock = ro_query(txn, &query).await?;
+    let mut by_asn: HashMap<i64, Vec<RawNode>> = HashMap::new();
+    for pfx_node in parsed.prefixes {
+        if !pfx_node.stale
+            && let Some(asn) = pfx_node.prefix_asn
+        {
+            by_asn.entry(asn).or_default().push(pfx_node);
+        }
+    }
+
+    for (asn_id, asn) in asn_ids {
+        if let Some(pfx_nodes) = by_asn.get(&asn) {
+            for pfx_node in pfx_nodes {
+                let pfx_id = pfx_node.canonical_id();
+                if add_node(pfx_node.clone(), nodes, next_frontier, limit, truncated) {
+                    record_simple_edge(
+                        &asn_id,
+                        &pfx_id,
+                        "ORIGIN_PREFIX",
+                        seen_edges,
+                        edges,
+                        limit,
+                        truncated,
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn expand_customer_cone(
     txn: &mut Txn<ReadOnly>,
     seeds: &[RawNode],
@@ -463,13 +943,29 @@ async fn expand_customer_cone(
                 continue;
             }
             if let Some(seed) = seeds.first().filter(|s| nodes.contains_key(&s.uid)) {
-                record_simple_edge(&seed.canonical_id(), &pfx_id, "ORIGIN_PREFIX", &mut seen_edges, &mut edges, limit, &mut truncated);
+                record_simple_edge(
+                    &seed.canonical_id(),
+                    &pfx_id,
+                    "ORIGIN_PREFIX",
+                    &mut seen_edges,
+                    &mut edges,
+                    limit,
+                    &mut truncated,
+                );
             }
             for iface in pfx.rev_ifaces {
                 for dev in iface.devices {
                     let dev_id = dev.canonical_id();
                     if add_node(dev, &mut nodes, &mut frontier, limit, &mut truncated) {
-                        record_simple_edge(&dev_id, &pfx_id, "INTERFACE_PREFIX", &mut seen_edges, &mut edges, limit, &mut truncated);
+                        record_simple_edge(
+                            &dev_id,
+                            &pfx_id,
+                            "INTERFACE_PREFIX",
+                            &mut seen_edges,
+                            &mut edges,
+                            limit,
+                            &mut truncated,
+                        );
                     }
                 }
             }
@@ -485,7 +981,7 @@ async fn expand_customer_cone(
         }
         let uids = frontier.join(", ");
         let query = format!(
-            "{{\n  q(func: uid({uids})) {{\n    uid\n    ~topo.src @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"AS_REL_PROVIDER\", \"AS_REL_PEER\", \"IXP_MEMBER\", \"ANYCAST_SERVES\", \"BORDER_HANDOFF\", \"TRACEROUTE_HOP\"])) {{ {EDGE_BODY} topo.dst {{ {NODE_FIELDS} }} }}\n  }}\n}}"
+            "{{\n  q(func: uid({uids})) {{\n    uid\n    ~topo.src @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"AS_REL_PROVIDER\", \"AS_REL_PEER\", \"IXP_MEMBER\", \"ANYCAST_SERVES\", \"BORDER_HANDOFF\", \"TRACEROUTE_HOP\", \"EGRESSES_TO\"])) {{ {EDGE_BODY} topo.dst {{ {NODE_FIELDS} }} }}\n    ~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\"])) {{ {EDGE_BODY} topo.src {{ {NODE_FIELDS} }} }}\n  }}\n}}"
         );
         let parsed: HopExpandBlock = ro_query(txn, &query).await?;
         let mut next_frontier = Vec::new();
@@ -502,11 +998,50 @@ async fn expand_customer_cone(
                     let is_peer = e.kind == "AS_REL_PEER";
                     let dst_uid = dst_node.uid.clone();
                     let dst_id = dst_node.canonical_id();
-                    if add_node(dst_node, &mut nodes, &mut next_frontier, limit, &mut truncated) {
+                    if add_node(
+                        dst_node,
+                        &mut nodes,
+                        &mut next_frontier,
+                        limit,
+                        &mut truncated,
+                    ) {
                         if is_peer {
                             peer_uids.insert(dst_uid);
                         }
-                        record_edge(&src_id, &dst_id, &e.kind, &e, &mut seen_edges, &mut edges, limit, &mut truncated);
+                        record_edge(
+                            &src_id,
+                            &dst_id,
+                            &e.kind,
+                            &e,
+                            &mut seen_edges,
+                            &mut edges,
+                            limit,
+                            &mut truncated,
+                        );
+                    }
+                }
+            }
+            for e in row.in_edges {
+                for far_node in e.src.iter().filter(|n| !n.stale).cloned() {
+                    let far_id = far_node.canonical_id();
+                    let is_device = far_node.is_internal_device();
+                    let mut dummy_frontier = Vec::new();
+                    let target_frontier = if is_device {
+                        &mut dummy_frontier
+                    } else {
+                        &mut next_frontier
+                    };
+                    if add_node(far_node, &mut nodes, target_frontier, limit, &mut truncated) {
+                        record_edge(
+                            &far_id,
+                            &src_id,
+                            &e.kind,
+                            &e,
+                            &mut seen_edges,
+                            &mut edges,
+                            limit,
+                            &mut truncated,
+                        );
                     }
                 }
             }

@@ -60,6 +60,10 @@ defmodule ServiceRadarWebNG.McpRunnerUnitTest do
       send(self(), {:graph_multi_hop_trace, query, opts})
       {:ok, %{"found" => true, "hops" => 2, "nodes" => [], "edges" => []}}
     end
+
+    @impl true
+    def egress_topology(_opts),
+      do: {:ok, %{"max_hops" => 4, "truncated" => false, "egress_devices" => [], "external_nodes" => [], "edges" => []}}
   end
 
   setup do

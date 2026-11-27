@@ -39,6 +39,9 @@ pub const PRED_EXT_ID: &str = "ext.id";
 /// Ingestor tag stamped on external topology projections.
 pub const HORIZON_INGESTOR: &str = "horizon_topology_v1";
 
+/// Ingestor tag stamped on inside-to-outside Internet egress stitch edges/nodes.
+pub const EGRESS_STITCH_INGESTOR: &str = "egress_stitch_v1";
+
 /// DQL schema applied by the migrator.
 pub const SCHEMA: &str = r#"
 device.id: string @index(exact) @upsert .
@@ -80,6 +83,7 @@ topo.flow_pps_ba: int .
 topo.flow_bps_ab: int .
 topo.flow_bps_ba: int .
 topo.capacity_bps: int .
+topo.port_speed_mbps: int .
 topo.telemetry_eligible: bool @index(bool) .
 topo.if_index_ab: int .
 topo.if_index_ba: int .
@@ -99,6 +103,7 @@ topo.border_asn: int @index(int) .
 topo.as_boundary_confidence: float .
 topo.expires_at: datetime @index(hour) .
 topo.ttl_secs: int .
+topo.egress_source: string @index(exact) .
 
 prefix.cidr: string @index(exact) @upsert .
 prefix.family: string @index(exact) .
@@ -130,6 +135,7 @@ ext.metro: string @index(exact) .
 ext.iata: string @index(exact) .
 ext.country_code: string @index(exact) .
 ext.outage_state: string @index(exact) .
+ext.port_speed_mbps: int .
 ext.ingestor: string @index(exact) .
 ext.last_seen: datetime @index(hour) .
 ext.expires_at: datetime @index(hour) .
@@ -188,6 +194,7 @@ type TopologyEdge {
   topo.flow_bps_ab
   topo.flow_bps_ba
   topo.capacity_bps
+  topo.port_speed_mbps
   topo.telemetry_eligible
   topo.if_index_ab
   topo.if_index_ba
@@ -207,6 +214,7 @@ type TopologyEdge {
   topo.as_boundary_confidence
   topo.expires_at
   topo.ttl_secs
+  topo.egress_source
 }
 
 type Prefix {
@@ -240,6 +248,7 @@ type Vantage {
   ext.ip
   ext.iata
   ext.country_code
+  ext.port_speed_mbps
   ext.ingestor
   ext.last_seen
   ext.expires_at
@@ -255,6 +264,7 @@ type TransitRouter {
   ext.ip
   ext.rpki_state
   ext.rtbh_active
+  ext.port_speed_mbps
   ext.ingestor
   ext.last_seen
   ext.expires_at
@@ -269,6 +279,7 @@ type IXP {
   ext.metro
   ext.iata
   ext.country_code
+  ext.port_speed_mbps
   ext.ingestor
   ext.last_seen
   ext.expires_at
@@ -282,6 +293,7 @@ type Facility {
   ext.region
   ext.metro
   ext.country_code
+  ext.port_speed_mbps
   ext.ingestor
   ext.last_seen
   ext.expires_at
@@ -370,6 +382,7 @@ pub const PREDICATES: &[&str] = &[
     "topo.flow_bps_ab",
     "topo.flow_bps_ba",
     "topo.capacity_bps",
+    "topo.port_speed_mbps",
     "topo.telemetry_eligible",
     "topo.if_index_ab",
     "topo.if_index_ba",
@@ -389,6 +402,7 @@ pub const PREDICATES: &[&str] = &[
     "topo.as_boundary_confidence",
     "topo.expires_at",
     "topo.ttl_secs",
+    "topo.egress_source",
     "prefix.cidr",
     "prefix.family",
     "prefix.asn",
@@ -417,6 +431,7 @@ pub const PREDICATES: &[&str] = &[
     "ext.iata",
     "ext.country_code",
     "ext.outage_state",
+    "ext.port_speed_mbps",
     "ext.ingestor",
     "ext.last_seen",
     "ext.expires_at",

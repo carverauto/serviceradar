@@ -43,6 +43,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:settings, nil)
      |> assign(:srql, srql)
      |> assign(:metric_form, to_form(%{}, as: :metric))
+     |> assign(:egress_form, to_form(egress_form_values(nil), as: :egress))
+     |> assign(:can_update_devices, false)
      |> assign(:metric_modal_open, false)
      |> assign(:metric_modal_metric, nil)
      |> assign(:group_modal_open, false)
@@ -73,6 +75,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     # Load metrics for this interface
     metrics = load_interface_metrics(srql_module, device_uid, interface, settings, scope)
     can_view_northbound_history = RBAC.can?(scope, "northbound.actions.view")
+    can_update_devices = RBAC.can?(scope, "devices.update")
 
     {northbound_history, northbound_history_error} =
       load_northbound_interface_history(
@@ -124,6 +127,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:interface, interface)
      |> assign(:device, device)
      |> assign(:settings, settings)
+     |> assign(:egress_form, to_form(egress_form_values(settings), as: :egress))
+     |> assign(:can_update_devices, can_update_devices)
      |> assign(:srql, srql)
      |> assign(:loading, false)
      |> assign(:error, error)
@@ -244,6 +249,16 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Failed to update favorite status")}
+    end
+  end
+
+  def handle_event("save_egress_settings", %{"egress" => params}, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "devices.update") do
+      save_egress_settings(socket, scope, params)
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to update Internet egress settings.")}
     end
   end
 
@@ -654,6 +669,136 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   <.property_row label="Duplex" value={Map.get(@interface, "duplex")} />
                   <.property_row label="MTU" value={Map.get(@interface, "if_mtu")} />
                 </div>
+              </div>
+            </div>
+
+            <%!-- Internet Egress Designation --%>
+            <div class="sr-ui-card bg-sr-surface border border-sr-line lg:col-span-2">
+              <div class="sr-ui-card-body">
+                <% egress_enabled = settings_value(@settings, :internet_egress) == true %>
+                <% egress_asn = settings_raw_value(@settings, :egress_upstream_asn) %>
+                <% egress_vantage = settings_raw_value(@settings, :egress_vantage_id) %>
+                <% egress_speed = settings_raw_value(@settings, :egress_port_speed_mbps) %>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 class="sr-ui-card-title text-lg">
+                      <.icon name="hero-arrow-up-right" class="size-5 text-sr-brand" />
+                      Internet Egress Designation
+                    </h2>
+                    <p class="text-xs text-sr-muted mt-0.5">
+                      Manually designate this interface as an Internet egress for Dgraph inside-to-outside stitching and God View.
+                    </p>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <.ui_badge
+                      :if={egress_enabled}
+                      size="sm"
+                      variant="info"
+                      id="interface-internet-egress-badge"
+                    >
+                      Internet Egress <span :if={is_integer(egress_asn)}>· AS{egress_asn}</span>
+                      <span :if={is_integer(egress_speed)}>· {format_mbps(egress_speed)}</span>
+                    </.ui_badge>
+                    <.ui_badge :if={!egress_enabled} size="sm" variant="ghost">
+                      Not designated
+                    </.ui_badge>
+                  </div>
+                </div>
+
+                <%= if @can_update_devices do %>
+                  <.form
+                    for={@egress_form}
+                    id="interface-egress-form"
+                    phx-submit="save_egress_settings"
+                    class="mt-4 space-y-4 border-t border-sr-line pt-4"
+                  >
+                    <input type="hidden" name="egress[internet_egress]" value="false" />
+                    <label class="inline-flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="egress[internet_egress]"
+                        value="true"
+                        checked={@egress_form[:internet_egress].value in [true, "true", "on", "1"]}
+                        class={ui_toggle_class(class: "toggle-info")}
+                      />
+                      <span class="text-sm font-medium text-sr-ink">
+                        Designate as Internet Egress
+                      </span>
+                    </label>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div class="flex flex-col gap-1.5">
+                        <label class="text-xs font-medium text-sr-ink" for="egress-upstream-asn">
+                          Upstream ISP ASN (optional)
+                        </label>
+                        <input
+                          id="egress-upstream-asn"
+                          type="number"
+                          min="1"
+                          name="egress[egress_upstream_asn]"
+                          value={@egress_form[:egress_upstream_asn].value}
+                          placeholder="e.g., 174"
+                          class={ui_field_class(size: "sm", mono: true)}
+                        />
+                      </div>
+
+                      <div class="flex flex-col gap-1.5">
+                        <label class="text-xs font-medium text-sr-ink" for="egress-vantage-id">
+                          Horizon Vantage ID (optional)
+                        </label>
+                        <input
+                          id="egress-vantage-id"
+                          type="text"
+                          name="egress[egress_vantage_id]"
+                          value={@egress_form[:egress_vantage_id].value}
+                          placeholder="e.g., vantage-1b3a6111"
+                          class={ui_field_class(size: "sm", mono: true)}
+                        />
+                      </div>
+
+                      <div class="flex flex-col gap-1.5">
+                        <label class="text-xs font-medium text-sr-ink" for="egress-port-speed-mbps">
+                          Port Speed (Mbps, optional)
+                        </label>
+                        <input
+                          id="egress-port-speed-mbps"
+                          type="number"
+                          min="1"
+                          name="egress[egress_port_speed_mbps]"
+                          value={@egress_form[:egress_port_speed_mbps].value}
+                          placeholder={egress_speed_placeholder(@interface)}
+                          class={ui_field_class(size: "sm", mono: true)}
+                        />
+                      </div>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-2">
+                      <.ui_button type="submit" size="sm" variant="primary">
+                        <.icon name="hero-check" class="size-4" /> Save Egress Settings
+                      </.ui_button>
+                    </div>
+                  </.form>
+                <% else %>
+                  <div
+                    :if={egress_enabled}
+                    class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-sr-line pt-3 text-xs"
+                  >
+                    <div>
+                      <span class="text-sr-muted">Upstream ASN:</span>
+                      <span class="font-mono ml-1">{if egress_asn, do: "AS#{egress_asn}", else: "Auto"}</span>
+                    </div>
+                    <div>
+                      <span class="text-sr-muted">Vantage ID:</span>
+                      <span class="font-mono ml-1">{egress_vantage || "Auto"}</span>
+                    </div>
+                    <div>
+                      <span class="text-sr-muted">Port Speed:</span>
+                      <span class="font-mono ml-1">{if egress_speed,
+                        do: format_mbps(egress_speed),
+                        else: "Auto"}</span>
+                    </div>
+                  </div>
+                <% end %>
               </div>
             </div>
 
@@ -2059,9 +2204,107 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
   defp upsert_interface_setting(_scope, _device_uid, nil, _attrs), do: {:error, :no_interface}
 
-  defp upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
-    InterfaceSettings.upsert(device_uid, interface_uid, attrs, scope: scope)
+  defp upsert_interface_setting(scope, device_uid, interface_uid, attrs, opts \\ []) do
+    ash_opts =
+      if Keyword.get(opts, :skip_snmp_config_invalidation, false) do
+        [scope: scope, context: %{skip_snmp_config_invalidation: true}]
+      else
+        [scope: scope]
+      end
+
+    InterfaceSettings.upsert(device_uid, interface_uid, attrs, ash_opts)
   end
+
+  defp save_egress_settings(socket, scope, params) do
+    device_uid = socket.assigns.device_uid
+    interface_uid = socket.assigns.interface_uid
+
+    with {:ok, asn} <- parse_optional_pos_int(params["egress_upstream_asn"], "Upstream ISP ASN"),
+         {:ok, speed} <- parse_optional_pos_int(params["egress_port_speed_mbps"], "Port Speed (Mbps)") do
+      attrs = %{
+        internet_egress: param_bool(params["internet_egress"], false),
+        egress_upstream_asn: asn,
+        egress_vantage_id: params["egress_vantage_id"] |> blank_to_nil() |> trim_if_binary(),
+        egress_port_speed_mbps: speed
+      }
+
+      case upsert_interface_setting(scope, device_uid, interface_uid, attrs, skip_snmp_config_invalidation: true) do
+        {:ok, updated_settings} ->
+          {:noreply,
+           socket
+           |> assign(:settings, updated_settings)
+           |> assign(:egress_form, to_form(egress_form_values(updated_settings), as: :egress))
+           |> put_flash(:info, "Internet egress settings saved")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to save Internet egress settings")}
+      end
+    else
+      {:error, message} ->
+        {:noreply,
+         socket
+         |> assign(:egress_form, to_form(params, as: :egress))
+         |> put_flash(:error, message)}
+    end
+  end
+
+  defp egress_form_values(settings) do
+    %{
+      "internet_egress" => settings_value(settings, :internet_egress) == true,
+      "egress_upstream_asn" => to_form_str(settings_raw_value(settings, :egress_upstream_asn)),
+      "egress_vantage_id" => to_form_str(settings_raw_value(settings, :egress_vantage_id)),
+      "egress_port_speed_mbps" => to_form_str(settings_raw_value(settings, :egress_port_speed_mbps))
+    }
+  end
+
+  defp settings_raw_value(nil, _key), do: nil
+  defp settings_raw_value(settings, key) when is_map(settings), do: Map.get(settings, key)
+  defp settings_raw_value(_, _), do: nil
+
+  defp to_form_str(nil), do: ""
+  defp to_form_str(val), do: to_string(val)
+
+  defp trim_if_binary(val) when is_binary(val), do: String.trim(val)
+  defp trim_if_binary(val), do: val
+
+  defp parse_optional_pos_int(nil, _label), do: {:ok, nil}
+
+  defp parse_optional_pos_int(val, label) when is_binary(val) do
+    trimmed = String.trim(val)
+
+    if trimmed == "" do
+      {:ok, nil}
+    else
+      case Integer.parse(trimmed) do
+        {n, ""} when n > 0 -> {:ok, n}
+        _ -> {:error, "#{label} must be a positive integer"}
+      end
+    end
+  end
+
+  defp parse_optional_pos_int(val, _label) when is_integer(val) and val > 0, do: {:ok, val}
+  defp parse_optional_pos_int(_val, label), do: {:error, "#{label} must be a positive integer"}
+
+  defp egress_speed_placeholder(interface) do
+    case interface_speed_bps(interface) do
+      bps when is_integer(bps) and bps >= 1_000_000 ->
+        "Auto (#{div(bps, 1_000_000)} Mbps)"
+
+      _ ->
+        "e.g., 1000"
+    end
+  end
+
+  defp format_mbps(mbps) when is_integer(mbps) and mbps >= 1_000 do
+    if rem(mbps, 1_000) == 0 do
+      "#{div(mbps, 1_000)} Gbps"
+    else
+      "#{Float.round(mbps / 1_000, 1)} Gbps"
+    end
+  end
+
+  defp format_mbps(mbps) when is_integer(mbps), do: "#{mbps} Mbps"
+  defp format_mbps(_), do: nil
 
   defp settings_value(nil, _key), do: false
   defp settings_value(settings, key) when is_struct(settings), do: Map.get(settings, key, false)

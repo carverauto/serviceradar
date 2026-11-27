@@ -377,6 +377,7 @@ defmodule ServiceRadar.Inventory.Device do
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
       change ForgetIpProvenance
+      change ServiceRadar.Inventory.Changes.ScheduleEgressProjection
       validate AgentManaged
     end
 

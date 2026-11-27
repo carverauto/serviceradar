@@ -36,7 +36,7 @@ const MAX_PREFIX_SPOF_PAGES: usize = 20;
 
 const EXTERNAL_SPOF_EDGE_FILTER: &str = "NOT eq(topo.stale, true) AND eq(topo.kind, \
   [\"TRACEROUTE_HOP\", \"BORDER_HANDOFF\", \"AS_REL_PROVIDER\", \"AS_REL_PEER\", \
-  \"IXP_MEMBER\", \"ANYCAST_SERVES\", \"MTR_PATH\"])";
+  \"IXP_MEMBER\", \"ANYCAST_SERVES\", \"MTR_PATH\", \"EGRESSES_TO\"])";
 const CANONICAL_SPOF_EDGE_FILTER: &str =
     "NOT eq(topo.stale, true) AND eq(topo.kind, \"CANONICAL_TOPOLOGY\")";
 
@@ -64,9 +64,12 @@ impl TopologyClient {
         let mut edges =
             fetch_spof_edges_paged(&mut txn, EXTERNAL_SPOF_EDGE_FILTER, MAX_EXTERNAL_SPOF_PAGES)
                 .await?;
-        let canonical =
-            fetch_spof_edges_paged(&mut txn, CANONICAL_SPOF_EDGE_FILTER, MAX_CANONICAL_SPOF_PAGES)
-                .await?;
+        let canonical = fetch_spof_edges_paged(
+            &mut txn,
+            CANONICAL_SPOF_EDGE_FILTER,
+            MAX_CANONICAL_SPOF_PAGES,
+        )
+        .await?;
         edges.extend(canonical);
 
         let device_prefix_links = fetch_device_prefix_links_paged(&mut txn).await?;
@@ -189,8 +192,12 @@ pub(crate) fn compute_shared_fate_spofs(
         if dev_id.is_empty() || pfx_id.is_empty() {
             continue;
         }
-        node_map.entry(dev_id.clone()).or_insert_with(|| dev.clone());
-        node_map.entry(pfx_id.clone()).or_insert_with(|| pfx.clone());
+        node_map
+            .entry(dev_id.clone())
+            .or_insert_with(|| dev.clone());
+        node_map
+            .entry(pfx_id.clone())
+            .or_insert_with(|| pfx.clone());
         adj.entry(dev_id.clone()).or_default().push(pfx_id.clone());
         rev.entry(pfx_id).or_default().push(dev_id);
     }
@@ -218,7 +225,7 @@ pub(crate) fn compute_shared_fate_spofs(
     for (id, node) in &node_map {
         if !matches!(
             node.kind(),
-            "TransitRouter" | "IXP" | "Facility" | "ASN" | "AnycastPop" | "HopNode"
+            "TransitRouter" | "IXP" | "Facility" | "ASN" | "AnycastPop" | "HopNode" | "Vantage"
         ) {
             continue;
         }
@@ -234,6 +241,7 @@ pub(crate) fn compute_shared_fate_spofs(
             asn: node.ext_asn.or(node.prefix_asn),
             region: node.region.clone(),
             outage_state: node.outage_state.clone(),
+            port_speed_mbps: node.port_speed_mbps,
             target_count: targets.len(),
             device_count: devices.len(),
             targets,

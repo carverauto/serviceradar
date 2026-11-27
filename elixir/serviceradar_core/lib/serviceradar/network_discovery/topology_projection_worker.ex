@@ -81,6 +81,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyGlobalPassWorker
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
   alias ServiceRadar.NetworkDiscovery.TopologyLink
   alias ServiceRadar.Repo
@@ -129,9 +130,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
     watermark = watermark(device_id, cutoff)
 
     with :ok <- project(device_id, cutoff, job) do
+      _ = maybe_reconcile_egress(device_id)
       if watermark(device_id, cutoff) != watermark, do: enqueue_device(device_id)
       TopologyGlobalPassWorker.schedule()
     end
+  end
+
+  defp maybe_reconcile_egress(device_id) do
+    EgressStitch.reconcile_device(device_id)
+  rescue
+    error ->
+      Logger.debug("EgressStitch reconcile skipped: #{Exception.message(error)}")
+      :ok
   end
 
   defp enqueue_device(device_id) do
@@ -251,7 +261,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionWorker do
           if_descr: i.if_descr,
           if_alias: i.if_alias,
           if_phys_address: i.if_phys_address,
-          ip_addresses: i.ip_addresses
+          ip_addresses: i.ip_addresses,
+          metadata: i.metadata
         }
       )
     )

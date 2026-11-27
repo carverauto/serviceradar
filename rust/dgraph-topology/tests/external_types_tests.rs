@@ -19,6 +19,8 @@ fn sample_node(id: &str, kind: ExternalNodeKind) -> ExternalNodeWrite {
         iata: None,
         country_code: Some("US".to_string()),
         outage_state: Some("up".to_string()),
+        port_speed_mbps: None,
+        ingestor: None,
         last_seen: "2026-11-25T00:00:00Z".to_string(),
         expires_at: Some("2026-11-25T00:15:00Z".to_string()),
     }
@@ -33,6 +35,11 @@ fn sample_edge(src: &str, dst: &str, kind: ExternalEdgeKind, avg_rtt_us: i64) ->
         as_boundary_confidence: Some(0.95),
         avg_rtt_us: Some(avg_rtt_us),
         loss_pct: Some(0.0),
+        port_speed_mbps: None,
+        if_name: None,
+        if_index: None,
+        egress_source: None,
+        ingestor: None,
         last_seen: "2026-11-25T00:00:00Z".to_string(),
         ttl_secs: Some(900),
         expires_at: Some("2026-11-25T00:15:00Z".to_string()),
@@ -66,6 +73,7 @@ fn external_edge_kinds_never_use_canonical_topology() {
         ("as_rel_peer", "AS_REL_PEER"),
         ("ixp_member", "IXP_MEMBER"),
         ("anycast_serves", "ANYCAST_SERVES"),
+        ("egresses_to", "EGRESSES_TO"),
     ] {
         let parsed = ExternalEdgeKind::parse(raw).expect("valid edge kind");
         assert_eq!(parsed.as_str(), expected);
@@ -107,8 +115,18 @@ fn snapshot_deduped_collapses_duplicate_nodes_and_edges() {
             sample_node("2001:db8:1::/48", ExternalNodeKind::Prefix),
         ],
         edges: vec![
-            sample_edge("asn:64512", "asn:64513", ExternalEdgeKind::AsRelProvider, 1_000),
-            sample_edge("asn:64512", "asn:64513", ExternalEdgeKind::AsRelProvider, 2_000),
+            sample_edge(
+                "asn:64512",
+                "asn:64513",
+                ExternalEdgeKind::AsRelProvider,
+                1_000,
+            ),
+            sample_edge(
+                "asn:64512",
+                "asn:64513",
+                ExternalEdgeKind::AsRelProvider,
+                2_000,
+            ),
         ],
     };
 

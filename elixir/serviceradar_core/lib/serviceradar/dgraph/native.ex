@@ -176,4 +176,17 @@ defmodule ServiceRadar.Dgraph.Native do
         ) :: submission()
   def query_multi_hop_trace(_url, _src_id, _dst_id, _max_hops, _limit, _deadline_ms),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec query_egress_topology(url(), non_neg_integer(), pos_integer(), deadline_ms()) ::
+          submission()
+  def query_egress_topology(_url, _max_hops, _limit, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec query_external_egress_targets(url(), pos_integer(), deadline_ms()) :: submission()
+  def query_external_egress_targets(_url, _limit, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec reconcile_egress_edges(url(), [String.t()], [String.t()], deadline_ms()) :: submission()
+  def reconcile_egress_edges(_url, _device_ids, _keep_link_keys, _deadline_ms),
+    do: :erlang.nif_error(:nif_not_loaded)
 end

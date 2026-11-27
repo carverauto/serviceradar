@@ -86,6 +86,10 @@ pub(crate) fn record_edge(
         as_boundary_confidence: raw.as_boundary_confidence,
         avg_rtt_us: raw.avg_rtt_us,
         loss_pct: raw.loss_pct,
+        port_speed_mbps: raw.port_speed_mbps,
+        if_name: raw.if_name.clone(),
+        if_index: raw.if_index,
+        egress_source: raw.egress_source.clone(),
         last_seen: raw.last_seen.clone(),
     });
 }
@@ -223,6 +227,8 @@ pub(crate) struct RawNode {
     pub(crate) ext_rtbh_active: Option<bool>,
     #[serde(default, rename = "ext.outage_state")]
     pub(crate) outage_state: Option<String>,
+    #[serde(default, rename = "ext.port_speed_mbps")]
+    pub(crate) port_speed_mbps: Option<i64>,
     #[serde(default, rename = "ext.metro")]
     pub(crate) metro: Option<String>,
     #[serde(default, rename = "ext.iata")]
@@ -284,6 +290,7 @@ impl RawNode {
                 .or_else(|| self.prefix_rpki_state.clone()),
             rtbh_active: self.ext_rtbh_active.or(self.prefix_rtbh_active),
             outage_state: self.outage_state.clone(),
+            port_speed_mbps: self.port_speed_mbps,
             metro: self.metro.clone(),
             iata: self.iata.clone(),
             country_code: self.country_code.clone(),
@@ -303,6 +310,14 @@ pub(crate) struct RawEdge {
     pub(crate) avg_rtt_us: Option<i64>,
     #[serde(default, rename = "topo.loss_pct")]
     pub(crate) loss_pct: Option<f64>,
+    #[serde(default, rename = "topo.port_speed_mbps")]
+    pub(crate) port_speed_mbps: Option<i64>,
+    #[serde(default, rename = "topo.if_name_ab")]
+    pub(crate) if_name: Option<String>,
+    #[serde(default, rename = "topo.if_index_ab")]
+    pub(crate) if_index: Option<i64>,
+    #[serde(default, rename = "topo.egress_source")]
+    pub(crate) egress_source: Option<String>,
     #[serde(default, rename = "topo.last_seen")]
     pub(crate) last_seen: Option<String>,
     #[serde(default, rename = "topo.src")]
@@ -315,6 +330,12 @@ pub(crate) struct RawEdge {
 pub(crate) struct AsnsBlock {
     #[serde(default)]
     pub(crate) asns: Vec<RawNode>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub(crate) struct PrefixesBlock {
+    #[serde(default)]
+    pub(crate) prefixes: Vec<RawNode>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -345,6 +366,10 @@ pub(crate) struct IfacePrefixes {
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct IfaceDevices {
+    #[serde(default, rename = "iface.name")]
+    pub(crate) if_name: Option<String>,
+    #[serde(default, rename = "iface.if_index")]
+    pub(crate) if_index: Option<i64>,
     #[serde(default, rename = "~device.interfaces")]
     pub(crate) devices: Vec<RawNode>,
 }

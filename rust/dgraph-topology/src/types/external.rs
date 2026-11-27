@@ -27,6 +27,8 @@ pub const DEFAULT_MAX_HOPS: u8 = 4;
 pub const MAX_ALLOWED_HOPS: u8 = 8;
 pub const DEFAULT_QUERY_LIMIT: usize = 50;
 pub const MAX_QUERY_LIMIT: usize = 200;
+pub const DEFAULT_EGRESS_TARGETS_LIMIT: usize = 1000;
+pub const MAX_EGRESS_TARGETS_LIMIT: usize = 5000;
 
 /// Clamp multi-hop traversal depth to `1..=8`.
 #[must_use]
@@ -101,6 +103,7 @@ pub enum ExternalEdgeKind {
     AsRelPeer,
     IxpMember,
     AnycastServes,
+    EgressesTo,
 }
 
 impl ExternalEdgeKind {
@@ -113,6 +116,7 @@ impl ExternalEdgeKind {
             Self::AsRelPeer => "AS_REL_PEER",
             Self::IxpMember => "IXP_MEMBER",
             Self::AnycastServes => "ANYCAST_SERVES",
+            Self::EgressesTo => "EGRESSES_TO",
         }
     }
 
@@ -124,6 +128,7 @@ impl ExternalEdgeKind {
             "as_rel_peer" => Some(Self::AsRelPeer),
             "ixp_member" => Some(Self::IxpMember),
             "anycast_serves" => Some(Self::AnycastServes),
+            "egresses_to" => Some(Self::EgressesTo),
             _ => None,
         }
     }
@@ -146,6 +151,10 @@ pub struct ExternalNodeWrite {
     pub iata: Option<String>,
     pub country_code: Option<String>,
     pub outage_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port_speed_mbps: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingestor: Option<String>,
     pub last_seen: String,
     pub expires_at: Option<String>,
 }
@@ -160,6 +169,16 @@ pub struct ExternalEdgeWrite {
     pub as_boundary_confidence: Option<f64>,
     pub avg_rtt_us: Option<i64>,
     pub loss_pct: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port_speed_mbps: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub if_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub if_index: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub egress_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingestor: Option<String>,
     pub last_seen: String,
     pub ttl_secs: Option<i64>,
     pub expires_at: Option<String>,
@@ -246,6 +265,8 @@ pub struct ExternalNodeRef {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outage_state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub port_speed_mbps: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metro: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iata: Option<String>,
@@ -266,6 +287,14 @@ pub struct ExternalEdgeRef {
     pub avg_rtt_us: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loss_pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port_speed_mbps: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub if_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub if_index: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub egress_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_seen: Option<String>,
 }
@@ -293,6 +322,8 @@ pub struct SharedFateSpof {
     pub region: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outage_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port_speed_mbps: Option<i64>,
     pub target_count: usize,
     pub device_count: usize,
     pub targets: Vec<String>,
@@ -322,4 +353,37 @@ pub struct MultiHopTraceResult {
     pub hops: usize,
     pub nodes: Vec<ExternalNodeRef>,
     pub edges: Vec<ExternalEdgeRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EgressDeviceRef {
+    pub id: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub if_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub if_index: Option<i64>,
+    pub egress_source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port_speed_mbps: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EgressTopologyResult {
+    pub max_hops: usize,
+    pub truncated: bool,
+    pub egress_devices: Vec<EgressDeviceRef>,
+    pub external_nodes: Vec<ExternalNodeRef>,
+    pub edges: Vec<ExternalEdgeRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalEgressTargetsResult {
+    pub prefixes: Vec<ExternalNodeRef>,
+    pub asns: Vec<ExternalNodeRef>,
+    pub vantages: Vec<ExternalNodeRef>,
 }

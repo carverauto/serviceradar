@@ -1,7 +1,10 @@
 use std::collections::{BTreeSet, HashSet};
 use std::sync::{Arc, Mutex};
 
-use dgraph_topology::TopologyClient;
+use dgraph_topology::{
+    EGRESS_STITCH_INGESTOR, ExternalEdgeKind, ExternalEdgeWrite, ExternalNodeKind,
+    ExternalNodeWrite, ExternalSnapshotWrite, TopologyClient,
+};
 use proto_dgraph::api;
 use proto_dgraph::api::dgraph_server::{Dgraph, DgraphServer};
 use serde_json::{Value, json};
@@ -24,6 +27,22 @@ impl MockExternalDgraph {
         if !req.mutations.is_empty() && req.query.contains("aged as uid") {
             return self.handle_prune(&req.query);
         }
+        if !req.mutations.is_empty() && req.query.is_empty() {
+            return self.handle_delete_mutation(&req.mutations);
+        }
+        if req.query.contains("direct(func: type(TopologyEdge)") {
+            return self.handle_egress_seed(&req.query);
+        }
+        if req.query.contains("vantages(func: eq(ext.kind,") {
+            return self.handle_egress_targets();
+        }
+        if req.query.contains("d0(func: eq(device.id,") {
+            return self.handle_device_egress_lookup(&req.query);
+        }
+        if req.query.contains("func: type(TopologyEdge)") && req.query.contains("egress_stitch_v1")
+        {
+            return self.handle_global_egress_lookup();
+        }
         if req.query.contains("a(func: eq(device.id,") {
             return self.handle_seed_resolve(&req.query);
         }
@@ -34,7 +53,7 @@ impl MockExternalDgraph {
             return self.handle_prefix_asn_bridge(&req.query);
         }
         if req.query.contains("prefixes(func: eq(prefix.asn,") {
-            return Ok(ok_json(json!({ "prefixes": [] })));
+            return self.handle_asn_prefixes(&req.query);
         }
         if req.query.contains("prefixes(func: type(Prefix)") {
             return self.handle_spof_prefixes(&req.query);
@@ -61,7 +80,8 @@ impl MockExternalDgraph {
                     e.get("topo.last_seen").and_then(Value::as_str),
                     &now,
                     &fallback,
-                ) && e.get("topo.ingestor").and_then(Value::as_str) == Some("horizon_topology_v1");
+                ) && e.get("topo.ingestor").and_then(Value::as_str)
+                    == Some("horizon_topology_v1");
                 if stale {
                     aged.push(json!({ "uid": e["uid"] }));
                 }
@@ -78,7 +98,8 @@ impl MockExternalDgraph {
             for n in &self.nodes {
                 let uid = n["uid"].as_str().unwrap_or("");
                 let orphan = !connected.contains(uid);
-                let stale = n.get("ext.ingestor").and_then(Value::as_str) == Some("horizon_topology_v1")
+                let stale = n.get("ext.ingestor").and_then(Value::as_str)
+                    == Some("horizon_topology_v1")
                     && orphan
                     && matches_prune(
                         n.get("ext.expires_at").and_then(Value::as_str),
@@ -91,9 +112,8 @@ impl MockExternalDgraph {
                     aged.push(json!({ "uid": uid }));
                 }
             }
-            self.nodes.retain(|n| {
-                !removed.contains(&n["uid"].as_str().unwrap_or("").to_string())
-            });
+            self.nodes
+                .retain(|n| !removed.contains(&n["uid"].as_str().unwrap_or("").to_string()));
         }
         Ok(ok_json(json!({ "stale": aged })))
     }
@@ -133,11 +153,158 @@ impl MockExternalDgraph {
             .iter()
             .filter(|n| {
                 n.get("ext.kind").and_then(Value::as_str) == Some("ASN")
-                    && n.get("ext.asn").and_then(Value::as_i64).is_some_and(|a| wanted.contains(&a))
+                    && n.get("ext.asn")
+                        .and_then(Value::as_i64)
+                        .is_some_and(|a| wanted.contains(&a))
             })
             .cloned()
             .collect();
         Ok(ok_json(json!({ "asns": asns })))
+    }
+
+    fn handle_asn_prefixes(&self, query: &str) -> Result<api::Response, Status> {
+        let wanted: HashSet<i64> = if query.contains("eq(prefix.asn, [") {
+            extract_bracket_list(query, "eq(prefix.asn, [")
+                .split(',')
+                .filter_map(|s| s.trim().parse::<i64>().ok())
+                .collect()
+        } else {
+            parse_arg_usize(query, "eq(prefix.asn,")
+                .map(|v| i64::try_from(v).unwrap_or(0))
+                .into_iter()
+                .collect()
+        };
+        let prefixes: Vec<Value> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.get("prefix.cidr").is_some()
+                    && n.get("prefix.asn")
+                        .and_then(Value::as_i64)
+                        .is_some_and(|a| wanted.contains(&a))
+            })
+            .map(|n| {
+                let mut row = n.clone();
+                if let Some(link) = self
+                    .prefix_links
+                    .iter()
+                    .find(|p| p.get("prefix.cidr") == n.get("prefix.cidr"))
+                    && let Some(rev) = link.get("~iface.prefixes")
+                {
+                    row["~iface.prefixes"] = rev.clone();
+                }
+                row
+            })
+            .collect();
+        Ok(ok_json(json!({ "prefixes": prefixes })))
+    }
+
+    fn handle_egress_seed(&self, query: &str) -> Result<api::Response, Status> {
+        let cap = parse_arg_usize(query, "first:").unwrap_or(50);
+        let direct: Vec<Value> = self
+            .edges
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.get("topo.kind").and_then(Value::as_str),
+                    Some("EGRESSES_TO" | "BORDER_HANDOFF")
+                )
+            })
+            .take(cap)
+            .cloned()
+            .collect();
+        let dev_prefixes: Vec<Value> = self.prefix_links.iter().take(cap).cloned().collect();
+        Ok(ok_json(json!({
+            "direct": direct,
+            "dev_prefixes": dev_prefixes
+        })))
+    }
+
+    fn handle_egress_targets(&self) -> Result<api::Response, Status> {
+        let prefixes: Vec<Value> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.get("prefix.cidr").is_some()
+                    && n.get("prefix.asn")
+                        .and_then(Value::as_i64)
+                        .is_some_and(|a| a > 0)
+            })
+            .cloned()
+            .collect();
+        let asns: Vec<Value> = self
+            .nodes
+            .iter()
+            .filter(|n| n.get("ext.kind").and_then(Value::as_str) == Some("ASN"))
+            .cloned()
+            .collect();
+        let vantages: Vec<Value> = self
+            .nodes
+            .iter()
+            .filter(|n| n.get("ext.kind").and_then(Value::as_str) == Some("Vantage"))
+            .cloned()
+            .collect();
+        Ok(ok_json(json!({
+            "prefixes": prefixes,
+            "asns": asns,
+            "vantages": vantages
+        })))
+    }
+
+    fn handle_device_egress_lookup(&self, query: &str) -> Result<api::Response, Status> {
+        let dev_id = extract_quoted_after(query, "eq(device.id, ").unwrap_or_default();
+        let dev_uid = self
+            .nodes
+            .iter()
+            .find(|n| n.get("device.id").and_then(Value::as_str) == Some(dev_id.as_str()))
+            .and_then(|n| n["uid"].as_str());
+        let out_edges: Vec<Value> = self
+            .edges
+            .iter()
+            .filter(|e| {
+                e.get("topo.ingestor").and_then(Value::as_str) == Some(EGRESS_STITCH_INGESTOR)
+                    && dev_uid.is_some_and(|u| edge_end_uid(e, "topo.src") == Some(u))
+            })
+            .cloned()
+            .collect();
+        Ok(ok_json(json!({
+            "d0": [{ "~topo.src": out_edges }]
+        })))
+    }
+
+    fn handle_global_egress_lookup(&self) -> Result<api::Response, Status> {
+        let edges: Vec<Value> = self
+            .edges
+            .iter()
+            .filter(|e| {
+                e.get("topo.ingestor").and_then(Value::as_str) == Some(EGRESS_STITCH_INGESTOR)
+            })
+            .cloned()
+            .collect();
+        Ok(ok_json(json!({ "edges": edges })))
+    }
+
+    fn handle_delete_mutation(
+        &mut self,
+        mutations: &[api::Mutation],
+    ) -> Result<api::Response, Status> {
+        for m in mutations {
+            if !m.delete_json.is_empty()
+                && let Ok(Value::Array(items)) = serde_json::from_slice::<Value>(&m.delete_json)
+            {
+                let remove: HashSet<String> = items
+                    .iter()
+                    .filter_map(|v| {
+                        v.get("uid")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string)
+                    })
+                    .collect();
+                self.edges
+                    .retain(|e| !e["uid"].as_str().is_some_and(|u| remove.contains(u)));
+            }
+        }
+        Ok(ok_json(json!({})))
     }
 
     fn handle_hop_expand(&self, query: &str) -> Result<api::Response, Status> {
@@ -168,12 +335,20 @@ impl MockExternalDgraph {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
+            let rev_ifaces: Vec<Value> = self
+                .prefix_links
+                .iter()
+                .find(|p| p["uid"].as_str() == Some(uid))
+                .and_then(|p| p.get("~iface.prefixes"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             q.push(json!({
                 "uid": uid,
                 "~topo.src": out_edges,
                 "~topo.dst": in_edges,
                 "device.interfaces": interfaces,
-                "~iface.prefixes": []
+                "~iface.prefixes": rev_ifaces
             }));
         }
         Ok(ok_json(json!({ "q": q })))
@@ -187,7 +362,8 @@ impl MockExternalDgraph {
             .edges
             .iter()
             .filter(|e| {
-                let is_canon = e.get("topo.kind").and_then(Value::as_str) == Some("CANONICAL_TOPOLOGY");
+                let is_canon =
+                    e.get("topo.kind").and_then(Value::as_str) == Some("CANONICAL_TOPOLOGY");
                 is_canon == canonical_only && parse_uid_hex(&e["uid"]) > after
             })
             .take(first)
@@ -214,7 +390,10 @@ struct ServerHandle(Arc<Mutex<MockExternalDgraph>>);
 
 #[tonic::async_trait]
 impl Dgraph for ServerHandle {
-    async fn login(&self, _req: Request<api::LoginRequest>) -> Result<Response<api::Response>, Status> {
+    async fn login(
+        &self,
+        _req: Request<api::LoginRequest>,
+    ) -> Result<Response<api::Response>, Status> {
         Err(Status::unimplemented("unused"))
     }
     async fn query(&self, req: Request<api::Request>) -> Result<Response<api::Response>, Status> {
@@ -238,7 +417,10 @@ impl Dgraph for ServerHandle {
             tag: "mock-external-dgraph".into(),
         }))
     }
-    async fn run_dql(&self, _req: Request<api::RunDqlRequest>) -> Result<Response<api::Response>, Status> {
+    async fn run_dql(
+        &self,
+        _req: Request<api::RunDqlRequest>,
+    ) -> Result<Response<api::Response>, Status> {
         Err(Status::unimplemented("unused"))
     }
     async fn allocate_i_ds(
@@ -281,7 +463,13 @@ impl Dgraph for ServerHandle {
     }
 }
 
-async fn start_mock(state: MockExternalDgraph) -> (TopologyClient, Arc<Mutex<MockExternalDgraph>>, JoinHandle<()>) {
+async fn start_mock(
+    state: MockExternalDgraph,
+) -> (
+    TopologyClient,
+    Arc<Mutex<MockExternalDgraph>>,
+    JoinHandle<()>,
+) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
     let shared = Arc::new(Mutex::new(state));
@@ -302,7 +490,10 @@ async fn start_mock(state: MockExternalDgraph) -> (TopologyClient, Arc<Mutex<Moc
 fn ok_json(val: Value) -> api::Response {
     api::Response {
         json: serde_json::to_vec(&val).expect("json"),
-        txn: Some(api::TxnContext { start_ts: 1, ..Default::default() }),
+        txn: Some(api::TxnContext {
+            start_ts: 1,
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
@@ -386,19 +577,33 @@ async fn prune_stale_external_respects_short_and_long_ttl_and_legacy_fallback() 
     };
     let (client, shared, task) = start_mock(state).await;
 
-    let deleted_61s = client.prune_stale_external("2026-11-25T00:01:01Z").await.expect("prune 61s");
+    let deleted_61s = client
+        .prune_stale_external("2026-11-25T00:01:01Z")
+        .await
+        .expect("prune 61s");
     assert_eq!(deleted_61s, 1);
     {
         let guard = shared.lock().expect("lock");
-        let remaining: Vec<&str> = guard.edges.iter().map(|e| e["uid"].as_str().unwrap()).collect();
+        let remaining: Vec<&str> = guard
+            .edges
+            .iter()
+            .map(|e| e["uid"].as_str().unwrap())
+            .collect();
         assert_eq!(remaining, vec!["0x2", "0x3"]);
     }
 
-    let deleted_16m = client.prune_stale_external("2026-11-25T00:16:00Z").await.expect("prune 16m");
+    let deleted_16m = client
+        .prune_stale_external("2026-11-25T00:16:00Z")
+        .await
+        .expect("prune 16m");
     assert_eq!(deleted_16m, 1);
     {
         let guard = shared.lock().expect("lock");
-        let remaining: Vec<&str> = guard.edges.iter().map(|e| e["uid"].as_str().unwrap()).collect();
+        let remaining: Vec<&str> = guard
+            .edges
+            .iter()
+            .map(|e| e["uid"].as_str().unwrap())
+            .collect();
         assert_eq!(remaining, vec!["0x2"]);
     }
     task.abort();
@@ -412,12 +617,25 @@ async fn six_way_star_truncation_emits_zero_dangling_edges() {
     for i in 1..=6 {
         let uid = format!("{:#x}", 10 + i);
         let fan = ext_node(&uid, &format!("tr:fan-{i}"), "TransitRouter", Some(64512));
-        edges.push(topo_edge(&format!("{:#x}", 100 + i), "TRACEROUTE_HOP", hub.clone(), fan.clone()));
+        edges.push(topo_edge(
+            &format!("{:#x}", 100 + i),
+            "TRACEROUTE_HOP",
+            hub.clone(),
+            fan.clone(),
+        ));
         nodes.push(fan);
     }
-    let (client, _shared, task) = start_mock(MockExternalDgraph { nodes, edges, ..Default::default() }).await;
+    let (client, _shared, task) = start_mock(MockExternalDgraph {
+        nodes,
+        edges,
+        ..Default::default()
+    })
+    .await;
 
-    let br = client.query_blast_radius("sr:hub", 4, 3).await.expect("blast radius");
+    let br = client
+        .query_blast_radius("sr:hub", 4, 3)
+        .await
+        .expect("blast radius");
     assert!(br.truncated);
     let node_ids: BTreeSet<String> = br
         .internal_devices
@@ -428,10 +646,17 @@ async fn six_way_star_truncation_emits_zero_dangling_edges() {
         .collect();
     assert_eq!(node_ids.len(), 3);
     assert_eq!(br.edges.len(), 2);
-    let dangling = br.edges.iter().filter(|e| !node_ids.contains(&e.src_id) || !node_ids.contains(&e.dst_id)).count();
+    let dangling = br
+        .edges
+        .iter()
+        .filter(|e| !node_ids.contains(&e.src_id) || !node_ids.contains(&e.dst_id))
+        .count();
     assert_eq!(dangling, 0);
 
-    let trace = client.query_multi_hop_trace("sr:hub", Some("tr:fan-3"), 4, 3).await.expect("trace");
+    let trace = client
+        .query_multi_hop_trace("sr:hub", Some("tr:fan-3"), 4, 3)
+        .await
+        .expect("trace");
     assert!(!trace.found);
     assert_eq!(trace.hops, 0);
     assert!(trace.nodes.is_empty());
@@ -445,8 +670,15 @@ async fn customer_cone_clamps_seeds_to_limit_without_dangling_edges() {
         ext_node("0x2", "asn:64513", "ASN", Some(64512)),
         ext_node("0x3", "asn:64514", "ASN", Some(64512)),
     ];
-    let (client, _shared, task) = start_mock(MockExternalDgraph { nodes, ..Default::default() }).await;
-    let cone = client.query_customer_cone("64512", 4, 2).await.expect("cone");
+    let (client, _shared, task) = start_mock(MockExternalDgraph {
+        nodes,
+        ..Default::default()
+    })
+    .await;
+    let cone = client
+        .query_customer_cone("64512", 4, 2)
+        .await
+        .expect("cone");
     assert!(cone.truncated);
     assert!(cone.edges.is_empty());
     task.abort();
@@ -469,12 +701,19 @@ async fn expand_subgraph_bridges_prefix_to_asn_via_prefix_asn() {
         nodes: vec![dev, pfx, asn, saas],
         edges: vec![edge],
         ..Default::default()
-    }).await;
+    })
+    .await;
 
-    let trace = client.query_multi_hop_trace("sr:edge-01", Some("saas:crm"), 4, 50).await.expect("trace");
+    let trace = client
+        .query_multi_hop_trace("sr:edge-01", Some("saas:crm"), 4, 50)
+        .await
+        .expect("trace");
     assert!(trace.found);
     let ids: Vec<&str> = trace.nodes.iter().map(|n| n.id.as_str()).collect();
-    assert_eq!(ids, vec!["sr:edge-01", "198.51.100.0/24", "asn:64512", "saas:crm"]);
+    assert_eq!(
+        ids,
+        vec!["sr:edge-01", "198.51.100.0/24", "asn:64512", "saas:crm"]
+    );
     task.abort();
 }
 
@@ -484,7 +723,12 @@ async fn shared_fate_spofs_pages_past_2000_canonical_edges_and_includes_device_i
     for i in 1..=2100usize {
         let d1 = json!({"uid": format!("{:#x}", 10_000 + i), "dgraph.type": ["Device"], "device.id": format!("sr:d{i}")});
         let d2 = json!({"uid": format!("{:#x}", 20_000 + i), "dgraph.type": ["Device"], "device.id": format!("sr:n{i}")});
-        edges.push(topo_edge(&format!("{:#x}", i), "CANONICAL_TOPOLOGY", d1, d2));
+        edges.push(topo_edge(
+            &format!("{:#x}", i),
+            "CANONICAL_TOPOLOGY",
+            d1,
+            d2,
+        ));
     }
 
     let tr = ext_node("0x5001", "tr:spof", "TransitRouter", Some(64512));
@@ -493,7 +737,12 @@ async fn shared_fate_spofs_pages_past_2000_canonical_edges_and_includes_device_i
     let pfx1 = json!({"uid": "0x5004", "dgraph.type": ["Prefix"], "prefix.cidr": "203.0.113.0/24", "prefix.asn": 64513});
     let dev1 = json!({"uid": "0x5005", "dgraph.type": ["Device"], "device.id": "sr:edge-01"});
 
-    edges.push(topo_edge("0x6001", "TRACEROUTE_HOP", pfx1.clone(), tr.clone()));
+    edges.push(topo_edge(
+        "0x6001",
+        "TRACEROUTE_HOP",
+        pfx1.clone(),
+        tr.clone(),
+    ));
     edges.push(topo_edge("0x6002", "TRACEROUTE_HOP", tr.clone(), s1));
     edges.push(topo_edge("0x6003", "TRACEROUTE_HOP", tr, s2));
 
@@ -509,7 +758,8 @@ async fn shared_fate_spofs_pages_past_2000_canonical_edges_and_includes_device_i
         edges,
         prefix_links,
         ..Default::default()
-    }).await;
+    })
+    .await;
 
     let spofs = client.query_shared_fate_spofs(2, 10).await.expect("spofs");
     assert_eq!(spofs.len(), 1);
@@ -517,5 +767,219 @@ async fn shared_fate_spofs_pages_past_2000_canonical_edges_and_includes_device_i
     assert_eq!(spofs[0].target_count, 2);
     assert_eq!(spofs[0].device_count, 1);
     assert_eq!(spofs[0].devices, vec!["sr:edge-01"]);
+    task.abort();
+}
+
+#[tokio::test]
+async fn egress_stitch_traverses_all_four_modes_and_preserves_port_speed_mbps() {
+    let dev = json!({"uid": "0x1", "dgraph.type": ["Device"], "device.id": "sr:gw-01", "device.hostname": "edge-gw-01", "device.ip": "198.51.100.1"});
+    let pfx = json!({"uid": "0x2", "dgraph.type": ["Prefix"], "prefix.cidr": "198.51.100.0/24", "prefix.asn": 64512});
+    let mut asn = ext_node("0x3", "asn:64512", "ASN", Some(64512));
+    asn["ext.label"] = json!("AS64512");
+    let mut ixp = ext_node("0x4", "ixp:501", "IXP", None);
+    ixp["ext.port_speed_mbps"] = json!(100_000);
+    let mut vantage = ext_node("0x5", "vantage:van-1", "Vantage", Some(64513));
+    vantage["ext.ip"] = json!("203.0.113.10");
+    let saas1 = ext_node("0x6", "saas:app-1", "SaasTarget", None);
+    let saas2 = ext_node("0x7", "saas:app-2", "SaasTarget", None);
+
+    let mut egress_edge = topo_edge("0x10", "EGRESSES_TO", dev.clone(), asn.clone());
+    egress_edge["topo.ingestor"] = json!(EGRESS_STITCH_INGESTOR);
+    egress_edge["topo.port_speed_mbps"] = json!(10_000);
+    egress_edge["topo.if_name_ab"] = json!("xe-0/0/0");
+    egress_edge["topo.if_index_ab"] = json!(101);
+    egress_edge["topo.egress_source"] = json!("manual");
+
+    let mut ixp_edge = topo_edge("0x11", "IXP_MEMBER", asn.clone(), ixp.clone());
+    ixp_edge["topo.port_speed_mbps"] = json!(100_000);
+
+    let edges = vec![
+        egress_edge,
+        ixp_edge,
+        topo_edge("0x12", "TRACEROUTE_HOP", ixp.clone(), saas1.clone()),
+        topo_edge("0x13", "TRACEROUTE_HOP", ixp.clone(), saas2.clone()),
+        topo_edge("0x14", "EGRESSES_TO", dev.clone(), vantage.clone()),
+        topo_edge("0x15", "TRACEROUTE_HOP", vantage.clone(), saas1.clone()),
+        topo_edge("0x16", "TRACEROUTE_HOP", vantage.clone(), saas2.clone()),
+    ];
+
+    let prefix_links = vec![json!({
+        "uid": "0x2",
+        "dgraph.type": ["Prefix"],
+        "prefix.cidr": "198.51.100.0/24",
+        "prefix.asn": 64512,
+        "~iface.prefixes": [{"iface.name": "eth0", "iface.if_index": 1, "~device.interfaces": [dev.clone()]}]
+    })];
+
+    let (client, _shared, task) = start_mock(MockExternalDgraph {
+        nodes: vec![dev, pfx, asn, ixp, vantage, saas1, saas2],
+        edges,
+        prefix_links,
+        ..Default::default()
+    })
+    .await;
+
+    // 1. Blast radius from asn:64512 traverses reverse bridge_asn_prefixes -> Prefix -> Device AND EGRESSES_TO -> Device
+    let br = client
+        .query_blast_radius("asn:64512", 4, 50)
+        .await
+        .expect("blast radius");
+    assert!(
+        br.internal_devices.iter().any(|d| d.id == "sr:gw-01"),
+        "expected sr:gw-01 in internal_devices: {:?}",
+        br.internal_devices
+    );
+    assert!(br.prefixes.iter().any(|p| p.id == "198.51.100.0/24"));
+    let ixp_ref = br
+        .external_nodes
+        .iter()
+        .find(|n| n.id == "ixp:501")
+        .expect("ixp:501");
+    assert_eq!(ixp_ref.port_speed_mbps, Some(100_000));
+    let egress_ref = br
+        .edges
+        .iter()
+        .find(|e| e.kind == "EGRESSES_TO" && e.dst_id == "asn:64512")
+        .expect("egresses_to edge");
+    assert_eq!(egress_ref.port_speed_mbps, Some(10_000));
+    assert_eq!(egress_ref.if_name.as_deref(), Some("xe-0/0/0"));
+    assert_eq!(egress_ref.if_index, Some(101));
+    assert_eq!(egress_ref.egress_source.as_deref(), Some("manual"));
+
+    // 2. Shared-fate SPOFs includes EGRESSES_TO and Vantage
+    let spofs = client.query_shared_fate_spofs(2, 10).await.expect("spofs");
+    let ixp_spof = spofs.iter().find(|s| s.id == "ixp:501").expect("ixp spof");
+    assert_eq!(ixp_spof.port_speed_mbps, Some(100_000));
+    assert_eq!(ixp_spof.devices, vec!["sr:gw-01"]);
+    let van_spof = spofs
+        .iter()
+        .find(|s| s.id == "vantage:van-1")
+        .expect("vantage spof");
+    assert_eq!(van_spof.devices, vec!["sr:gw-01"]);
+
+    // 3. Customer cone discovers inbound Device via ~topo.dst EGRESSES_TO
+    let cone = client
+        .query_customer_cone("64512", 4, 50)
+        .await
+        .expect("customer cone");
+    assert!(cone.impacted_devices.iter().any(|d| d.id == "sr:gw-01"));
+    assert!(cone.saas_targets.iter().any(|t| t.id == "saas:app-1"));
+
+    // 4. Multi-hop trace inside -> outside
+    let trace = client
+        .query_multi_hop_trace("sr:gw-01", Some("saas:app-1"), 4, 50)
+        .await
+        .expect("trace");
+    assert!(trace.found);
+
+    // 5. God View B2 query_egress_topology & query_external_egress_targets
+    let egress = client
+        .query_egress_topology(4, 50)
+        .await
+        .expect("egress topology");
+    assert_eq!(egress.egress_devices.len(), 1);
+    assert_eq!(egress.egress_devices[0].id, "sr:gw-01");
+    assert_eq!(egress.egress_devices[0].egress_source, "manual");
+    assert_eq!(egress.egress_devices[0].port_speed_mbps, Some(10_000));
+    assert!(egress.external_nodes.iter().any(|n| n.id == "saas:app-1"));
+
+    let targets = client
+        .query_external_egress_targets(100)
+        .await
+        .expect("egress targets");
+    assert_eq!(targets.prefixes.len(), 1);
+    assert_eq!(targets.asns.len(), 1);
+    assert_eq!(targets.vantages.len(), 1);
+
+    task.abort();
+}
+
+#[tokio::test]
+async fn prune_stale_external_preserves_egress_stitch_and_reconcile_removes_stale() {
+    let dev = json!({"uid": "0x1", "dgraph.type": ["Device"], "device.id": "sr:gw-01"});
+    let asn1 = ext_node("0x2", "asn:64512", "ASN", Some(64512));
+    let asn2 = ext_node("0x3", "asn:64513", "ASN", Some(64513));
+    let mut keep_edge = topo_edge("0x10", "EGRESSES_TO", dev.clone(), asn1.clone());
+    keep_edge["topo.ingestor"] = json!(EGRESS_STITCH_INGESTOR);
+    keep_edge["topo.link_key"] = json!("EGRESSES_TO|sr:gw-01|asn:64512||");
+    keep_edge["topo.last_seen"] = json!("2026-11-25T00:00:00Z");
+
+    let mut drop_edge = topo_edge("0x11", "EGRESSES_TO", dev.clone(), asn2.clone());
+    drop_edge["topo.ingestor"] = json!(EGRESS_STITCH_INGESTOR);
+    drop_edge["topo.link_key"] = json!("EGRESSES_TO|sr:gw-01|asn:64513||");
+    drop_edge["topo.last_seen"] = json!("2026-11-25T00:00:00Z");
+
+    let (client, shared, task) = start_mock(MockExternalDgraph {
+        nodes: vec![dev, asn1, asn2],
+        edges: vec![keep_edge, drop_edge],
+        ..Default::default()
+    })
+    .await;
+
+    let pruned = client
+        .prune_stale_external("2026-11-25T06:00:00Z")
+        .await
+        .expect("prune");
+    assert_eq!(pruned, 0);
+
+    let removed = client
+        .reconcile_egress_edges(
+            &["sr:gw-01".to_string()],
+            &["EGRESSES_TO|sr:gw-01|asn:64512||".to_string()],
+        )
+        .await
+        .expect("reconcile");
+    assert_eq!(removed, 1);
+
+    let remaining: Vec<String> = shared
+        .lock()
+        .expect("lock")
+        .edges
+        .iter()
+        .filter_map(|e| e["topo.link_key"].as_str().map(ToString::to_string))
+        .collect();
+    assert_eq!(remaining, vec!["EGRESSES_TO|sr:gw-01|asn:64512||"]);
+
+    let _ = ExternalSnapshotWrite {
+        generated_at: "2026-11-25T00:00:00Z".to_string(),
+        ttl_secs: 900,
+        nodes: vec![ExternalNodeWrite {
+            id: "asn:64512".to_string(),
+            kind: ExternalNodeKind::Asn,
+            asn: Some(64_512),
+            label: None,
+            region: None,
+            ip: None,
+            rpki_state: None,
+            rtbh_active: None,
+            max_length: None,
+            irr_status: None,
+            metro: None,
+            iata: None,
+            country_code: None,
+            outage_state: None,
+            port_speed_mbps: None,
+            ingestor: Some(EGRESS_STITCH_INGESTOR.to_string()),
+            last_seen: "2026-11-25T00:00:00Z".to_string(),
+            expires_at: None,
+        }],
+        edges: vec![ExternalEdgeWrite {
+            src_id: "sr:gw-01".to_string(),
+            dst_id: "asn:64512".to_string(),
+            kind: ExternalEdgeKind::EgressesTo,
+            border_asn: Some(64_512),
+            as_boundary_confidence: None,
+            avg_rtt_us: None,
+            loss_pct: None,
+            port_speed_mbps: Some(10_000),
+            if_name: Some("eth0".to_string()),
+            if_index: Some(1),
+            egress_source: Some("manual".to_string()),
+            ingestor: Some(EGRESS_STITCH_INGESTOR.to_string()),
+            last_seen: "2026-11-25T00:00:00Z".to_string(),
+            ttl_secs: None,
+            expires_at: None,
+        }],
+    };
     task.abort();
 }

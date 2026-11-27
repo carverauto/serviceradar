@@ -307,16 +307,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       />
                     </td>
                     <td class="text-xs">
-                      <.link
-                        :if={iface_uid}
-                        navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
-                        class="font-mono text-sr-brand hover:underline"
-                        title={iface_uid}
-                      >
-                        {interface_label(iface)}
-                      </.link>
-                      <div :if={!iface_uid} class="font-mono" title="">
-                        {interface_label(iface)}
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <.link
+                          :if={iface_uid}
+                          navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
+                          class="font-mono text-sr-brand hover:underline"
+                          title={iface_uid}
+                        >
+                          {interface_label(iface)}
+                        </.link>
+                        <div :if={!iface_uid} class="font-mono" title="">
+                          {interface_label(iface)}
+                        </div>
+                        <.ui_badge
+                          :if={Map.get(iface, "internet_egress") == true}
+                          size="xs"
+                          variant="info"
+                          title="Internet Egress"
+                        >
+                          {egress_badge_label(iface)}
+                        </.ui_badge>
                       </div>
                       <div :if={interface_secondary(iface)} class="text-[11px] text-sr-muted">
                         {interface_secondary(iface)}
@@ -578,6 +588,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                 </p>
               </div>
             </label>
+
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-sr-line p-3 hover:bg-sr-subtle/70">
+              <input
+                type="radio"
+                name="bulk[action]"
+                value="mark_internet_egress"
+                class="radio radio-primary radio-sm"
+              />
+              <div>
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-arrow-up-right" class="size-4 text-sky-500" />
+                  <span class="font-medium text-sr-ink">Mark as Internet Egress</span>
+                </div>
+                <p class="mt-1 text-xs text-sr-muted">
+                  Designate selected interfaces as Internet egress links
+                </p>
+              </div>
+            </label>
+
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-sr-line p-3 hover:bg-sr-subtle/70">
+              <input
+                type="radio"
+                name="bulk[action]"
+                value="clear_internet_egress"
+                class="radio radio-primary radio-sm"
+              />
+              <div>
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-x-circle" class="size-4 text-sr-muted" />
+                  <span class="font-medium text-sr-ink">Clear Internet Egress</span>
+                </div>
+                <p class="mt-1 text-xs text-sr-muted">
+                  Remove manual Internet egress designation from selected interfaces
+                </p>
+              </div>
+            </label>
           </div>
         </div>
 
@@ -684,6 +730,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   defp interface_speed(iface) do
     Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
   end
+
+  defp egress_badge_label(iface) do
+    asn = Map.get(iface, "egress_upstream_asn")
+    speed = Map.get(iface, "egress_port_speed_mbps") || speed_bps_to_mbps(interface_speed(iface))
+
+    parts =
+      ["Internet Egress"]
+      |> then(fn acc -> if is_integer(asn) and asn > 0, do: acc ++ ["AS#{asn}"], else: acc end)
+      |> then(fn acc ->
+        if is_integer(speed) and speed > 0, do: acc ++ [format_egress_speed(speed)], else: acc
+      end)
+
+    Enum.join(parts, " · ")
+  end
+
+  defp speed_bps_to_mbps(bps) when is_integer(bps) and bps >= 1_000_000, do: div(bps, 1_000_000)
+  defp speed_bps_to_mbps(_), do: nil
+
+  defp format_egress_speed(mbps) when mbps >= 1_000 do
+    if rem(mbps, 1_000) == 0,
+      do: "#{div(mbps, 1_000)}G",
+      else: "#{Float.round(mbps / 1_000, 1)}G"
+  end
+
+  defp format_egress_speed(mbps), do: "#{mbps}M"
 
   defp format_interface_id(iface) do
     # Try if_index first (SNMP interface index), then interface_uid
