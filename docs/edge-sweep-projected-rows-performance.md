@@ -117,6 +117,9 @@ What changed:
 
 ### Dropping the table (next release)
 
+Done in `20261127090000_drop_edge_sweep_projected_rows.exs`, merged only after the
+writer-removal release was running on every installation.
+
 Operator decision (2026-11-27): drop the table as soon as this change is rolled out
 everywhere, not after a retention horizon. Nothing reads the rows, so waiting buys nothing.
 
