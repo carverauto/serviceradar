@@ -221,6 +221,7 @@ defmodule ServiceRadarAgentGateway.Application do
          endpoint: ServiceRadarAgentGateway.Endpoint,
          port: grpc_port,
          start_server: true,
+         max_body_size: edge_grpc_max_body_size(),
          exception_log_filter: {ServiceRadarAgentGateway.GRPCExceptionLogFilter, :report?},
          adapter_opts: edge_grpc_adapter_opts(grpc_ssl_opts)},
         ServiceRadarAgentGateway.ReleaseArtifactServer.child_spec(artifact_server_opts)
@@ -400,6 +401,11 @@ defmodule ServiceRadarAgentGateway.Application do
           []
       end
     end)
+  end
+
+  @doc false
+  def edge_grpc_max_body_size do
+    positive_integer_env("GATEWAY_GRPC_MAX_BODY_SIZE_BYTES", 16_777_215)
   end
 
   @doc false
