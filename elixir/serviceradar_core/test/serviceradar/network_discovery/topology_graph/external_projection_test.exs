@@ -185,4 +185,67 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjectionTest do
                upsert_external_topology: fn _snap, _opts -> {:error, :transient} end
              )
   end
+
+  test "HorizonTopology skips expired outage and BGP status updates without calling Dgraph" do
+    test_pid = self()
+
+    upsert_status = fn patch, _opts ->
+      send(test_pid, {:upsert_status, patch.entity_id})
+      :ok
+    end
+
+    expired_bgp =
+      Jason.encode!(%{
+        "covering_prefix" => "198.51.100.0/24",
+        "event_type" => "rtbh_blackhole",
+        "timestamp" => "2026-11-25T00:00:00Z",
+        "ttl_secs" => 900
+      })
+
+    expired_outage =
+      Jason.encode!(%{
+        "target_id" => "asn:10242",
+        "belief_state" => "confirmed_outage",
+        "timestamp" => "2026-11-25T00:10:00Z",
+        "ttl_secs" => 900
+      })
+
+    fresh_outage =
+      Jason.encode!(%{
+        "target_id" => "asn:13335",
+        "belief_state" => "confirmed_outage",
+        "timestamp" => "2026-11-25T00:30:00Z",
+        "ttl_secs" => 900
+      })
+
+    now = ~U[2026-11-25 00:40:00Z]
+
+    assert :ok =
+             HorizonTopology.process_message(
+               "serviceradar.horizon.bgp.rtbh",
+               expired_bgp,
+               now: now,
+               upsert_external_status: upsert_status
+             )
+
+    assert :ok =
+             HorizonTopology.process_message(
+               "serviceradar.horizon.outages.asn",
+               expired_outage,
+               now: now,
+               upsert_external_status: upsert_status
+             )
+
+    refute_received {:upsert_status, _}
+
+    assert :ok =
+             HorizonTopology.process_message(
+               "serviceradar.horizon.outages.asn",
+               fresh_outage,
+               now: now,
+               upsert_external_status: upsert_status
+             )
+
+    assert_received {:upsert_status, "asn:13335"}
+  end
 end

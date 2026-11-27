@@ -30,7 +30,7 @@ impl MockExternalDgraph {
         if !req.mutations.is_empty() && req.query.is_empty() {
             return self.handle_delete_mutation(&req.mutations);
         }
-        if req.query.contains("direct(func: type(TopologyEdge)") {
+        if req.query.contains("direct(func: eq(topo.kind,") {
             return self.handle_egress_seed(&req.query);
         }
         if req.query.contains("vantages(func: eq(ext.kind,") {
@@ -213,11 +213,20 @@ impl MockExternalDgraph {
         let direct: Vec<Value> = self
             .edges
             .iter()
+            .filter(|e| e.get("topo.kind").and_then(Value::as_str) == Some("EGRESSES_TO"))
+            .take(cap)
+            .cloned()
+            .collect();
+        let border_direct: Vec<Value> = self
+            .edges
+            .iter()
             .filter(|e| {
-                matches!(
-                    e.get("topo.kind").and_then(Value::as_str),
-                    Some("EGRESSES_TO" | "BORDER_HANDOFF")
-                )
+                e.get("topo.kind").and_then(Value::as_str) == Some("BORDER_HANDOFF")
+                    && e.get("topo.src")
+                        .and_then(Value::as_array)
+                        .and_then(|arr| arr.first())
+                        .and_then(|src| src.get("device.id"))
+                        .is_some()
             })
             .take(cap)
             .cloned()
@@ -225,6 +234,7 @@ impl MockExternalDgraph {
         let dev_prefixes: Vec<Value> = self.prefix_links.iter().take(cap).cloned().collect();
         Ok(ok_json(json!({
             "direct": direct,
+            "border_direct": border_direct,
             "dev_prefixes": dev_prefixes
         })))
     }
@@ -1119,6 +1129,52 @@ async fn shared_fate_spofs_asn_falls_back_to_min_incident_edge_port_speed_mbps()
         .expect("asn spof");
     assert_eq!(asn_spof.port_speed_mbps, Some(10_000));
     assert_eq!(asn_spof.devices, vec!["sr:gw-01"]);
+
+    task.abort();
+}
+
+#[tokio::test]
+async fn egress_topology_ignores_external_border_handoffs_before_device_egresses_to() {
+    let tr1 = ext_node("0x10", "transit:192.0.2.1", "TransitRouter", Some(64_500));
+    let tr2 = ext_node("0x11", "transit:192.0.2.2", "TransitRouter", Some(64_501));
+    let tr3 = ext_node("0x12", "transit:192.0.2.3", "TransitRouter", Some(64_502));
+    let tr4 = ext_node("0x13", "transit:192.0.2.4", "TransitRouter", Some(64_503));
+    let dev = json!({
+        "uid": "0x1",
+        "dgraph.type": ["Device"],
+        "device.id": "sr:gw-01",
+        "device.hostname": "edge-gw-01"
+    });
+    let asn = ext_node("0x2", "asn:64512", "ASN", Some(64_512));
+
+    let mut egress = topo_edge("0x30", "EGRESSES_TO", dev, asn);
+    egress["topo.egress_source"] = json!("manual");
+    egress["topo.port_speed_mbps"] = json!(1_000);
+
+    let (client, _shared, task) = start_mock(MockExternalDgraph {
+        edges: vec![
+            topo_edge("0x20", "BORDER_HANDOFF", tr1.clone(), tr2.clone()),
+            topo_edge("0x21", "BORDER_HANDOFF", tr2.clone(), tr3.clone()),
+            topo_edge("0x22", "BORDER_HANDOFF", tr3.clone(), tr4.clone()),
+            topo_edge("0x23", "BORDER_HANDOFF", tr1, tr3),
+            egress,
+        ],
+        ..Default::default()
+    })
+    .await;
+
+    let res = client
+        .query_egress_topology(4, 3)
+        .await
+        .expect("egress topology");
+
+    assert!(!res.truncated);
+    assert_eq!(res.egress_devices.len(), 1);
+    assert_eq!(res.egress_devices[0].id, "sr:gw-01");
+    assert_eq!(res.egress_devices[0].egress_source, "manual");
+    assert_eq!(res.egress_devices[0].port_speed_mbps, Some(1_000));
+    assert_eq!(res.edges.len(), 1);
+    assert_eq!(res.edges[0].kind, "EGRESSES_TO");
 
     task.abort();
 }

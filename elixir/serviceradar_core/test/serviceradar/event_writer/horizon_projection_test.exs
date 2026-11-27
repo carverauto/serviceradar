@@ -820,7 +820,8 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
                HorizonProjection.project_rows([asn_outage, saas_cleared, bgp_rtbh, bgp_asn_only],
                  starrocks_enabled: false,
                  load: load_fn,
-                 publish_nats: publish_nats
+                 publish_nats: publish_nats,
+                 now: ~U[2026-11-27 01:13:00Z]
                )
 
       assert_received {:nats_status, "serviceradar.horizon.outages.asn", asn_payload, asn_opts}
@@ -893,14 +894,16 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
                    HorizonProjection.project_rows([outage_row()],
                      starrocks_enabled: true,
                      load: load_fn,
-                     publish_nats: fn _subject, _payload, _opts -> {:error, :timeout} end
+                     publish_nats: fn _subject, _payload, _opts -> {:error, :timeout} end,
+                     now: ~U[2026-11-23 16:05:00Z]
                    )
 
           assert :ok ==
                    HorizonProjection.project_rows([outage_row()],
                      starrocks_enabled: true,
                      load: load_fn,
-                     publish_nats: fn _subject, _payload, _opts -> raise "nats crashed" end
+                     publish_nats: fn _subject, _payload, _opts -> raise "nats crashed" end,
+                     now: ~U[2026-11-23 16:05:00Z]
                    )
         end)
 
@@ -908,6 +911,75 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert log =~ "Horizon NATS status publish raised"
       assert_received {:loaded, :horizon_outages, 1}
       assert_received {:loaded, :horizon_outages, 1}
+    end
+
+    test "skips NATS status forwarding for stale or far-future horizon rows while still loading StarRocks" do
+      parent = self()
+
+      load_fn = fn dataset, rows ->
+        send(parent, {:loaded, dataset, length(rows)})
+        {:ok, %{loaded: length(rows)}}
+      end
+
+      publish_nats = fn subject, payload, _opts ->
+        send(parent, {:nats_status, subject, Jason.decode!(payload)})
+        :ok
+      end
+
+      stale_outage = outage_row("out-stale-1")
+
+      future_bgp =
+        ocsf_row(%{
+          "id" => "bgp-future-1",
+          "time" => "2026-11-23T16:17:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.bgp_anomaly",
+          "unmapped" => %{
+            "event_id" => "bgp-future-1",
+            "kind" => "hijack",
+            "covering_prefix" => "198.51.100.0/24",
+            "origin_asn" => 64_512
+          }
+        })
+
+      fresh_bgp =
+        ocsf_row(%{
+          "id" => "bgp-fresh-1",
+          "time" => "2026-11-23T16:05:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.bgp_anomaly",
+          "unmapped" => %{
+            "event_id" => "bgp-fresh-1",
+            "kind" => "leak",
+            "covering_prefix" => "203.0.113.0/24",
+            "origin_asn" => 64_513
+          }
+        })
+
+      # At 16:15:30Z: stale_outage (16:00:00Z) is 930s old (> 900s TTL),
+      # future_bgp (16:17:00Z) is +90s in the future (> 60s skew),
+      # fresh_bgp (16:05:00Z) is 630s old (within [-60, 900]).
+      assert :ok ==
+               HorizonProjection.project_rows([stale_outage, future_bgp, fresh_bgp],
+                 starrocks_enabled: true,
+                 load: load_fn,
+                 publish_nats: publish_nats,
+                 now: ~U[2026-11-23 16:15:30Z]
+               )
+
+      assert_received {:loaded, :horizon_outages, 1}
+      assert_received {:loaded, :horizon_bgp_events, 2}
+
+      assert_received {:nats_status, "serviceradar.horizon.bgp.leak",
+                       %{"entity_id" => "203.0.113.0/24"}}
+
+      refute_received {:nats_status, _, _}
     end
   end
 
