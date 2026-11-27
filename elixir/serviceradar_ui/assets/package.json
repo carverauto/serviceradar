@@ -1,0 +1,21 @@
+{
+  "name": "serviceradar-ui-assets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check",
+    "size": "node scripts/bundle_size.mjs",
+    "test": "node --test js/test/"
+  },
+  "dependencies": {
+    "d3-geo": "3.1.1",
+    "topojson-client": "3.1.0",
+    "world-atlas": "2.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.4"
+  }
+}

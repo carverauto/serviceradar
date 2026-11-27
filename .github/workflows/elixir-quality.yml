@@ -15,8 +15,9 @@
 name: Elixir Quality
 
 # PR / staging-push gate is mix format + mix credo --strict per *touched*
-# Mix project. The seven job names stay as required checks, so an untouched
-# project still reports success — it just does not mix deps.compile.
+# Mix project. The original seven job names stay as required checks, so an
+# untouched project still reports success and does not mix deps.compile.
+# serviceradar_ui is an additional job for the shared UI package.
 #
 # The hex/deps audits and Sobelow run daily from //buildbuddy.yaml
 # ("Elixir Quality (daily)") against staging. BazelCI compiles every
@@ -119,6 +120,8 @@ jobs:
             project: elixir/serviceradar_core_elx
           - name: serviceradar_srql
             project: elixir/serviceradar_srql
+          - name: serviceradar_ui
+            project: elixir/serviceradar_ui
           - name: web-ng
             project: elixir/web-ng
     env:
@@ -243,7 +246,7 @@ jobs:
       # `make verify-proto-elixir` regenerates every checked-in .pb.ex from proto/
       # and fails on a diff. It lives on the core lint job because that is the
       # project the bindings live in. protoc is installed here rather than for
-      # the whole matrix because the other six legs never generate protos.
+      # the whole matrix because the other legs never generate protos.
       # Version and checksum are pinned exactly as rust-checks.yml pins them.
       - name: Install protoc
         if: ${{ matrix.name == 'serviceradar_core' && (steps.decide.outputs.lint == 'true' || steps.decide.outputs.proto == 'true') }}

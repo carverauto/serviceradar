@@ -16,6 +16,7 @@ workspace_projects=(
   elixir/serviceradar_recording
   elixir/serviceradar_recording_metadata
   elixir/serviceradar_srql
+  elixir/serviceradar_ui
   elixir/web-ng
 )
 

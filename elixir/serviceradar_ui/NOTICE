@@ -1,0 +1,45 @@
+ServiceRadar UI
+Copyright 2026 Carver Automation Corporation
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file.
+
+This product bundles third-party software in priv/static/serviceradar_ui.js.
+
+d3-geo 3.1.1
+https://github.com/d3/d3-geo
+
+d3-array 3.2.5
+https://github.com/d3/d3-array
+
+topojson-client 3.1.0
+https://github.com/topojson/topojson-client
+
+Copyright Mike Bostock
+
+Licensed under the ISC License:
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+d3-scale and d3-shape are not part of the bundle. Charts are
+server-rendered SVG.
+
+priv/static/world-110m.json is the Natural Earth 1:110m cultural
+countries dataset, which is in the public domain.
+
+https://www.naturalearthdata.com/
+
+world-atlas 2.0.2 (https://github.com/topojson/world-atlas, ISC,
+Mike Bostock) converts that dataset to TopoJSON. The JSON file is
+loaded at runtime from the application origin. It is not inlined
+into priv/static/serviceradar_ui.js.
