@@ -89,6 +89,15 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCViewerBin do
   end
 
   @impl true
+  def handle_child_notification(:connected, :webrtc, ctx, state) do
+    {actions, next_state} =
+      :connected
+      |> WebRTCSink.handle_child_notification(:webrtc, ctx, state)
+      |> group_internal_specs()
+
+    {actions ++ [notify_parent: :connected], next_state}
+  end
+
   def handle_child_notification(notification, child, ctx, state) do
     notification
     |> WebRTCSink.handle_child_notification(child, ctx, state)

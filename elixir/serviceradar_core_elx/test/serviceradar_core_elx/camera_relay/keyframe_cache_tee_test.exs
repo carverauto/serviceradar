@@ -119,6 +119,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTeeTest do
       {[notify_child: {{:pli, pad_id}, :request_keyframe}], state}
     end
 
+    def handle_info({:replay_keyframe, pad_id}, _ctx, state) do
+      {[notify_child: {:tee, {:replay_keyframe, Pad.ref(:push_output, pad_id)}}], state}
+    end
+
     @impl true
     def handle_call({:attach_sink, sink_name, pad_id}, _ctx, state) do
       spec =
@@ -467,6 +471,90 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTeeTest do
     assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
     assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
     assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+  end
+
+  test "replay_keyframe parent notification replays cached SPS+PPS+IDR and GOP only to target pad" do
+    pipeline = Testing.Pipeline.start_link_supervised!(module: TestPipeline)
+    assert :ok = Membrane.Pipeline.call(pipeline, {:attach_sink, :viewer_a, :viewer_a})
+    assert :ok = Membrane.Pipeline.call(pipeline, {:attach_sink, :viewer_b, :viewer_b})
+
+    send(pipeline, {:send_chunk, chunk(@sps <> @pps <> @idr_1, 90_000, keyframe: true)})
+    send(pipeline, {:send_chunk, chunk(@p_frame_1, 93_000, keyframe: false)})
+
+    for sink <- [:viewer_a, :viewer_b] do
+      assert_sink_buffer(pipeline, sink, %Buffer{payload: @sps})
+      assert_sink_buffer(pipeline, sink, %Buffer{payload: @pps})
+      assert_sink_buffer(pipeline, sink, %Buffer{payload: @idr_1})
+      assert_sink_buffer(pipeline, sink, %Buffer{payload: @p_frame_1})
+    end
+
+    # Replay cached GOP only to viewer_a (e.g. on WebRTC DTLS :connected)
+    send(pipeline, {:replay_keyframe, :viewer_a})
+
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @p_frame_1})
+
+    # viewer_b must not receive the replay
+    refute_sink_buffer(pipeline, :viewer_b, _, 100)
+  end
+
+  test "replay_keyframe parent notification respects pli_cooldown_ms and resumes after cooldown" do
+    pipeline =
+      Testing.Pipeline.start_link_supervised!(
+        module: TestPipeline,
+        custom_args: [tee_opts: [pli_cooldown_ms: 80]]
+      )
+
+    assert :ok = Membrane.Pipeline.call(pipeline, {:attach_sink, :viewer_a, :viewer_a})
+
+    send(pipeline, {:send_chunk, chunk(@sps <> @pps <> @idr_1, 90_000, keyframe: true)})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+
+    # First replay fires immediately
+    send(pipeline, {:replay_keyframe, :viewer_a})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+
+    # Immediate second replay within cooldown is throttled
+    send(pipeline, {:replay_keyframe, :viewer_a})
+    refute_sink_buffer(pipeline, :viewer_a, _, 40)
+
+    # After cooldown elapses, replay fires again
+    Process.sleep(60)
+    send(pipeline, {:replay_keyframe, :viewer_a})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+  end
+
+  test "replay_keyframe parent notification safely no-ops for unknown pads and empty cache" do
+    pipeline = Testing.Pipeline.start_link_supervised!(module: TestPipeline)
+    assert :ok = Membrane.Pipeline.call(pipeline, {:attach_sink, :viewer_a, :viewer_a})
+
+    # Empty cache: replay_keyframe should be a safe no-op
+    send(pipeline, {:send_chunk, chunk(@p_frame_1, 90_000, keyframe: false)})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @p_frame_1})
+
+    send(pipeline, {:replay_keyframe, :viewer_a})
+    refute_sink_buffer(pipeline, :viewer_a, _, 50)
+
+    # Warm cache, then send replay_keyframe for an unknown pad
+    send(pipeline, {:send_chunk, chunk(@sps <> @pps <> @idr_1, 93_000, keyframe: true)})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+
+    send(pipeline, {:replay_keyframe, :unknown_viewer})
+    refute_sink_buffer(pipeline, :viewer_a, _, 50)
+
+    # Live frames continue flowing normally
+    send(pipeline, {:send_chunk, chunk(@p_frame_2, 96_000, keyframe: false)})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @p_frame_2})
   end
 
   defp chunk(payload, pts, opts) do

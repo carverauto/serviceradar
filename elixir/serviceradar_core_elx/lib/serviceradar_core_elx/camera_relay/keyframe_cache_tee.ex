@@ -141,15 +141,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
         {[event: {:input, event}], state}
 
       burst ->
-        now_ms = System.monotonic_time(:millisecond)
-
-        if pli_replay_allowed?(state, pad, now_ms) do
-          actions = Enum.map(burst, &{:buffer, {pad, &1}})
-          next_state = %{state | last_pli_replay_ms: Map.put(state.last_pli_replay_ms, pad, now_ms)}
-          {actions, next_state}
-        else
-          {[], state}
-        end
+        replay_burst(pad, burst, state)
     end
   end
 
@@ -158,9 +150,41 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
   end
 
   @impl true
+  def handle_parent_notification(
+        {:replay_keyframe, Pad.ref(:push_output, _id) = pad},
+        %{playback: :playing} = ctx,
+        %{end_of_stream?: false} = state
+      ) do
+    if Map.has_key?(ctx.pads, pad) do
+      case cached_gop_burst(state) do
+        [] -> {[], state}
+        burst -> replay_burst(pad, burst, state)
+      end
+    else
+      {[], state}
+    end
+  end
+
+  def handle_parent_notification({:replay_keyframe, _pad}, _ctx, state) do
+    {[], state}
+  end
+
+  @impl true
   def handle_end_of_stream(:input, ctx, state) do
     actions = Enum.map(output_pads(ctx), &{:end_of_stream, &1})
     {actions, %{state | end_of_stream?: true}}
+  end
+
+  defp replay_burst(pad, burst, state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    if pli_replay_allowed?(state, pad, now_ms) do
+      actions = Enum.map(burst, &{:buffer, {pad, &1}})
+      next_state = %{state | last_pli_replay_ms: Map.put(state.last_pli_replay_ms, pad, now_ms)}
+      {actions, next_state}
+    else
+      {[], state}
+    end
   end
 
   defp pli_replay_allowed?(state, pad, now_ms) do
