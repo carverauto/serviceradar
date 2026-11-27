@@ -7,16 +7,16 @@ helm:
     value: registry.carverauto.dev/serviceradar/serviceradar-web-ng
     forcestring: true
   - name: image.digests.core
-    value: sha256:8dcc1f14622617011c500e7708ee073e23e2e77d7f2957ceca07d1341f60a5b7
+    value: sha256:3e605b7f48e891fda7ec1a672fdad1ba9989cefd4e69897db06e815fe703233a
     forcestring: true
   - name: image.digests.webNg
-    value: sha256:b27dbb99bd7fd2eec0ea707566aeff6438b0b0e230686bf5031767129f382b4f
+    value: sha256:6d1c616a43dd96629b31cb45ea8b00a83a748fc5a55d32e4ccfc79d2fe297eaa
     forcestring: true
   - name: image.digests.nvr
     value: sha256:c773b0adea4b6f0bbf764e6ec91de387d29ba83ce3023a9cafad4cb21bd1cc80
     forcestring: true
   - name: image.digests.agentGateway
-    value: sha256:983dfdf401f88040de7da6f7db42b30bb477923ff682a35f9950409fee0f0dc1
+    value: sha256:8607944c1c9f3acd632f8e54c1cd5e0e3c738830d40127e510555c57ccb47048
     forcestring: true
   - name: image.digests.agent
     value: sha256:0d7f3eea36d866c0e93bb0efb61b2f31cbfe93be056c5fb44f17a3f617a7c36a
