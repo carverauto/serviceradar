@@ -510,7 +510,7 @@ geoipMmdb:
 webNg:
   replicas: 3
   database:
-    poolSize: 8
+    poolSize: 20
     queueTargetMs: 2000
     queueIntervalMs: 2000
     timeoutMs: 120000
