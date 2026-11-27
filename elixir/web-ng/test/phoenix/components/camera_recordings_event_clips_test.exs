@@ -288,14 +288,10 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     refute has_selector?(live_doc, "#camera-timeline-player")
 
     # Instant poster thumbnail renders behind the live video and on the pre-session placeholder
-    clip_with_thumb = %{
-      id: "evt-poster-1",
-      title: "Person",
-      category: "person",
-      thumbnail_url: "/api/cameras/cam-1/thumbnails/frame-1.jpg",
-      start_us: 1_763_164_700_000_000,
-      end_us: 1_763_164_710_000_000
-    }
+    clip_with_thumb =
+      sample_clips()
+      |> hd()
+      |> Map.put(:thumbnail_url, "/api/cameras/cam-1/thumbnails/frame-1.jpg")
 
     poster_live_doc =
       %{
