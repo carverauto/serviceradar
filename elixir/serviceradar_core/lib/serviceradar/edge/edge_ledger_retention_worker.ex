@@ -23,10 +23,8 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
        plus the clock tolerance: a late record may be PRIMARY only while the ledger still
        proves it was never applied, so the ledger outlives that window.
 
-  `platform.edge_sweep_projected_rows` is not pruned here: nothing writes or reads it
-  since #7069 (exactly-once for a sweep batch is `event_ledger` plus
-  `edge_sweep_batch_slots`), and a later migration drops it
-  (`docs/edge-sweep-projected-rows-performance.md`).
+  `platform.edge_sweep_projected_rows` is not pruned: `20261127090000_drop_edge_sweep_projected_rows`
+  replaced it with an empty, index-free stub that only a not-yet-upgraded core writes (#7069).
 
   ## Ledger Coverage
 

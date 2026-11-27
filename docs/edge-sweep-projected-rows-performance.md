@@ -7,9 +7,9 @@ Issue: https://github.com/carverauto/serviceradar/issues/7069
 `platform.edge_sweep_projected_rows` held one row per `(kind, batch_index, element_index)`
 coordinate of each primary `SweepObservationBatchV1` delivery, keyed by
 `(network_scope_id, row_key)` with `row_key = sha256(len || semantic_digest || ordinal)` and
-inserted `ON CONFLICT DO NOTHING`. Since the change described under "Writer stopped" below,
-nothing writes or prunes the table, and a migration in the next PR drops it once this
-change is deployed everywhere.
+inserted `ON CONFLICT DO NOTHING`. Current cores neither write nor prune it; see
+"Writer stopped". `20261127090000` drops the real table and leaves an `UNLOGGED`
+stub that only a not-yet-upgraded core writes; see "Dropping the table".
 
 ## Measured on demo (2026-11-26)
 
@@ -63,8 +63,8 @@ That prune no longer runs; see "Writer stopped".
 
 ## Prune index (#7076)
 
-This index landed before the writer and the prune stopped. It stays until the drop in the
-next PR.
+This index landed before the writer and the prune stopped. `20261127090000` drops it
+with the table; the stub has no indexes.
 
 1. `20261126070000_index_edge_sweep_projected_rows_inserted_at.exs`: concurrent B-tree on
    `inserted_at`. An interrupted build leaves an invalid index under that name; this
@@ -115,22 +115,24 @@ What changed:
 - The retention prune of this table is removed in the same change: nothing reads the rows,
   so there is nothing to age out. The table and its indexes stay only until the drop below.
 
-### Dropping the table (next release)
+### Dropping the table
+
+Done in `20261127090000_drop_edge_sweep_projected_rows.exs`, as a drop plus an empty stub.
+The migration runs on top of the committed baseline.
+
+A plain `DROP TABLE` is unsafe for an installation that upgrades from a release older
+than #7096 straight to the drop release: migrations run first, its old-projector cores
+are still serving, and their insert would fail every sweep batch transaction on the
+missing table. So the migration drops the real table (freeing all of its space) and
+creates an `UNLOGGED` table with the same columns and no primary key, indexes or
+constraints. The old projector inserts with `ON CONFLICT DO NOTHING` and no conflict
+target, which such a table accepts, so a mixed-version rollout appends a few rows to a
+small heap with no WAL or index writes, and nothing fails. Nothing reads or prunes the
+stub. Drop it in a later release that enforces a minimum upgrade version at or after
+#7096.
 
 Operator decision (2026-11-27): drop the table as soon as this change is rolled out
 everywhere, not after a retention horizon. Nothing reads the rows, so waiting buys nothing.
-
-It cannot ship in this same change: migrations run before the new pods start
-(`wait-migrations`), so during a rolling upgrade a core still running the old projector
-would fail every sweep batch transaction on the missing table, and those edge records
-would retry or dead-letter until the old pods were gone. So, in the next change, once this
-one is deployed on every installation:
-
-1. A migration that runs `DROP TABLE IF EXISTS platform.edge_sweep_projected_rows` (the
-   indexes go with it), with a `down` that recreates the empty table as
-   `20260910120000_create_edge_record_ledger.exs` and
-   `20261126070000_index_edge_sweep_projected_rows_inserted_at.exs` define it.
-2. Regenerate the baseline schema.
 
 On demo the drop frees about 13 GB (7.4 GB heap, 5.9 GB primary key, plus the
 `inserted_at` index).
@@ -155,9 +157,9 @@ projected row measured above.
 
 After the prune index (historical):
 
-The projected-rows DELETE no longer runs. Nothing writes or prunes the table, and the next
-PR drops it once this change is deployed everywhere. The checks below are what operators
-saw after the `inserted_at` index landed, before this change removed the prune:
+The projected-rows DELETE no longer runs. `20261127090000` drops the real table and its
+indexes and leaves the stub described under "Dropping the table". The checks below are
+what operators saw after the `inserted_at` index landed, before the prune was removed:
 
 - The index existed and was valid: `\d platform.edge_sweep_projected_rows`.
 - Historical: `pg_stat_statements` for the projected-rows DELETE showed mean time in
