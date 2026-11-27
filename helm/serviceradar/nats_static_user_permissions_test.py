@@ -360,5 +360,30 @@ class VantagePermissionsTest(unittest.TestCase):
         self.assertFalse(may(vantage_on, "subscribe", "$SYS.REQ.SERVER.PING"))
 
 
+class HorizonTopologyPermissionsTest(unittest.TestCase):
+    def test_core_may_publish_and_subscribe_horizon_topology_subjects(self):
+        users = index_users_by_subject(render_static_users())
+        core = users[CORE]
+        subjects = (
+            "serviceradar.horizon.topology.snapshot",
+            "serviceradar.horizon.outages.saas",
+            "serviceradar.horizon.bgp.route_flap",
+        )
+        for subject in subjects:
+            with self.subTest(direction="publish", subject=subject):
+                self.assertTrue(may_publish(core, subject))
+            with self.subTest(direction="subscribe", subject=subject):
+                self.assertTrue(may(core, "subscribe", subject))
+
+        for identity in (
+            chart_subject("serviceradar-agent"),
+            chart_subject("serviceradar-agent-gateway"),
+            WEB_NG,
+        ):
+            for subject in subjects:
+                with self.subTest(identity=identity, subject=subject):
+                    self.assertFalse(may_publish(users[identity], subject))
+
+
 if __name__ == "__main__":
     unittest.main()
