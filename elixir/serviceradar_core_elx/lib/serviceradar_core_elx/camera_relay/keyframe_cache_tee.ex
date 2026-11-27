@@ -6,9 +6,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
   When a dynamic output pad attaches to a warm relay stream, the element
   immediately emits the stream format followed by the cached
   `SPS + PPS + IDR` (and subsequent buffered GOP frames) on only the newly
-  attached pad before resuming normal live forwarding. This lets late-joining
-  WebRTC viewers decode their first frame immediately instead of waiting for
-  the camera's next natural IDR interval.
+  attached pad before resuming normal live forwarding. When a downstream
+  consumer (such as `Membrane.WebRTC.Sink` after DTLS/SRTP setup completes)
+  sends an upstream `%Membrane.KeyframeRequestEvent{}` (RTCP PLI), the element
+  replays the cached `SPS + PPS + IDR` and current GOP onto only that
+  requesting pad, rate-limited per pad by `pli_cooldown_ms`. This lets
+  late-joining WebRTC viewers decode their first frame immediately instead of
+  waiting for the camera's next natural IDR interval.
 
   Cache memory per relay is strictly bounded by `max_gop_buffers` and
   `max_gop_bytes`.
@@ -17,6 +21,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
   use Membrane.Filter, flow_control_hints?: false
 
   alias Membrane.Buffer
+  alias Membrane.KeyframeRequestEvent
   alias Membrane.Pad
 
   @nal_type_idr 5
@@ -25,6 +30,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
 
   @default_max_gop_buffers 150
   @default_max_gop_bytes 4 * 1024 * 1024
+  @default_pli_cooldown_ms 250
 
   def_input_pad(:input,
     accepted_format: _any,
@@ -47,6 +53,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
       spec: pos_integer(),
       default: @default_max_gop_bytes,
       description: "Maximum total payload bytes retained in the cached GOP."
+    ],
+    pli_cooldown_ms: [
+      spec: non_neg_integer(),
+      default: @default_pli_cooldown_ms,
+      description:
+        "Minimum interval in milliseconds between cached GOP replays triggered by KeyframeRequestEvent per pad."
     ]
   )
 
@@ -55,6 +67,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
     state = %{
       max_gop_buffers: opts.max_gop_buffers,
       max_gop_bytes: opts.max_gop_bytes,
+      pli_cooldown_ms: opts.pli_cooldown_ms,
+      last_pli_replay_ms: %{},
       stream_format: nil,
       end_of_stream?: false,
       latest_sps: nil,
@@ -93,8 +107,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
   end
 
   @impl true
-  def handle_pad_removed(Pad.ref(:push_output, _id), _ctx, state) do
-    {[], state}
+  def handle_pad_removed(Pad.ref(:push_output, _id) = pad, _ctx, state) do
+    {[], %{state | last_pli_replay_ms: Map.delete(state.last_pli_replay_ms, pad)}}
   end
 
   @impl true
@@ -116,6 +130,29 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
     {actions, state}
   end
 
+  def handle_event(
+        Pad.ref(:push_output, _id) = pad,
+        %KeyframeRequestEvent{} = event,
+        %{playback: :playing},
+        %{end_of_stream?: false} = state
+      ) do
+    case cached_gop_burst(state) do
+      [] ->
+        {[event: {:input, event}], state}
+
+      burst ->
+        now_ms = System.monotonic_time(:millisecond)
+
+        if pli_replay_allowed?(state, pad, now_ms) do
+          actions = Enum.map(burst, &{:buffer, {pad, &1}})
+          next_state = %{state | last_pli_replay_ms: Map.put(state.last_pli_replay_ms, pad, now_ms)}
+          {actions, next_state}
+        else
+          {[], state}
+        end
+    end
+  end
+
   def handle_event(Pad.ref(:push_output, _id), event, _ctx, state) do
     {[event: {:input, event}], state}
   end
@@ -124,6 +161,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee do
   def handle_end_of_stream(:input, ctx, state) do
     actions = Enum.map(output_pads(ctx), &{:end_of_stream, &1})
     {actions, %{state | end_of_stream?: true}}
+  end
+
+  defp pli_replay_allowed?(state, pad, now_ms) do
+    case Map.fetch(state.last_pli_replay_ms, pad) do
+      :error -> true
+      {:ok, last_ms} -> now_ms - last_ms >= state.pli_cooldown_ms
+    end
   end
 
   defp output_pads(ctx) do
