@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
   import Phoenix.Component, only: [assign: 3, to_form: 2]
   import Phoenix.LiveView, only: [put_flash: 3]
 
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
@@ -62,7 +63,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
   end
 
   def open_bulk_edit(socket) do
-    assign(socket, :show_interfaces_bulk_edit, true)
+    if RBAC.can?(socket.assigns.current_scope, "devices.update") do
+      assign(socket, :show_interfaces_bulk_edit, true)
+    else
+      put_flash(socket, :error, "You do not have permission to update interface settings.")
+    end
   end
 
   def close_bulk_edit(socket) do
@@ -72,74 +77,81 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
   end
 
   def apply_bulk_edit(socket, params, srql_module) do
-    selected = socket.assigns.selected_interfaces
-    device_uid = socket.assigns.device_uid
     scope = socket.assigns.current_scope
-    action = Map.get(params, "action", "favorite")
 
-    {socket, success_count, action_label} =
-      case action do
-        "favorite" ->
-          {count, new_favorites} =
-            InterfaceData.bulk_update_favorites(
-              scope,
-              device_uid,
-              selected,
-              true,
-              socket.assigns.favorited_interfaces
-            )
+    if RBAC.can?(scope, "devices.update") do
+      selected = socket.assigns.selected_interfaces
+      device_uid = socket.assigns.device_uid
+      action = Map.get(params, "action", "favorite")
 
-          {assign(socket, :favorited_interfaces, new_favorites), count, "added to favorites"}
+      {socket, success_count, action_label} =
+        case action do
+          "favorite" ->
+            {count, new_favorites} =
+              InterfaceData.bulk_update_favorites(
+                scope,
+                device_uid,
+                selected,
+                true,
+                socket.assigns.favorited_interfaces
+              )
 
-        "unfavorite" ->
-          {count, new_favorites} =
-            InterfaceData.bulk_update_favorites(
-              scope,
-              device_uid,
-              selected,
-              false,
-              socket.assigns.favorited_interfaces
-            )
+            {assign(socket, :favorited_interfaces, new_favorites), count, "added to favorites"}
 
-          {assign(socket, :favorited_interfaces, new_favorites), count, "removed from favorites"}
+          "unfavorite" ->
+            {count, new_favorites} =
+              InterfaceData.bulk_update_favorites(
+                scope,
+                device_uid,
+                selected,
+                false,
+                socket.assigns.favorited_interfaces
+              )
 
-        "enable_metrics" ->
-          count = InterfaceData.bulk_update_metrics(scope, device_uid, selected, true)
-          {socket, count, "enabled for metrics collection"}
+            {assign(socket, :favorited_interfaces, new_favorites), count, "removed from favorites"}
 
-        "disable_metrics" ->
-          count = InterfaceData.bulk_update_metrics(scope, device_uid, selected, false)
-          {socket, count, "disabled for metrics collection"}
+          "enable_metrics" ->
+            count = InterfaceData.bulk_update_metrics(scope, device_uid, selected, true)
+            {socket, count, "enabled for metrics collection"}
 
-        "add_tags" ->
-          tags_string = Map.get(params, "tags", "")
-          tags = InterfaceData.parse_tags(tags_string)
+          "disable_metrics" ->
+            count = InterfaceData.bulk_update_metrics(scope, device_uid, selected, false)
+            {socket, count, "disabled for metrics collection"}
 
-          if tags == [] do
-            {socket, 0, "tagged (no tags provided)"}
-          else
-            count = InterfaceData.bulk_update_tags(scope, device_uid, selected, tags)
-            {socket, count, "tagged with: #{Enum.join(tags, ", ")}"}
-          end
+          "add_tags" ->
+            tags_string = Map.get(params, "tags", "")
+            tags = InterfaceData.parse_tags(tags_string)
 
-        "mark_internet_egress" ->
-          count = InterfaceData.bulk_update_internet_egress(scope, device_uid, selected, true)
-          {socket, count, "marked as Internet egress"}
+            if tags == [] do
+              {socket, 0, "tagged (no tags provided)"}
+            else
+              count = InterfaceData.bulk_update_tags(scope, device_uid, selected, tags)
+              {socket, count, "tagged with: #{Enum.join(tags, ", ")}"}
+            end
 
-        "clear_internet_egress" ->
-          count = InterfaceData.bulk_update_internet_egress(scope, device_uid, selected, false)
-          {socket, count, "cleared from Internet egress"}
+          "mark_internet_egress" ->
+            count = InterfaceData.bulk_update_internet_egress(scope, device_uid, selected, true)
+            {socket, count, "marked as Internet egress"}
 
-        _ ->
-          {socket, 0, "updated"}
-      end
+          "clear_internet_egress" ->
+            count = InterfaceData.bulk_update_internet_egress(scope, device_uid, selected, false)
+            {socket, count, "cleared from Internet egress"}
 
-    socket
-    |> assign(:show_interfaces_bulk_edit, false)
-    |> assign(:selected_interfaces, MapSet.new())
-    |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
-    |> reload_settings_and_metrics(srql_module)
-    |> put_flash(:info, "#{success_count} interface(s) #{action_label}")
+          _ ->
+            {socket, 0, "updated"}
+        end
+
+      socket
+      |> assign(:show_interfaces_bulk_edit, false)
+      |> assign(:selected_interfaces, MapSet.new())
+      |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
+      |> reload_settings_and_metrics(srql_module)
+      |> put_flash(:info, "#{success_count} interface(s) #{action_label}")
+    else
+      socket
+      |> assign(:show_interfaces_bulk_edit, false)
+      |> put_flash(:error, "You do not have permission to update interface settings.")
+    end
   end
 
   def toggle_favorite(socket, uid, srql_module) do

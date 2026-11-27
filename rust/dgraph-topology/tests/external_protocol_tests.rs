@@ -133,11 +133,20 @@ impl MockExternalDgraph {
         Ok(ok_json(json!({ "a": matches })))
     }
 
-    fn handle_asn_seed_resolve(&self, _query: &str) -> Result<api::Response, Status> {
+    fn handle_asn_seed_resolve(&self, query: &str) -> Result<api::Response, Status> {
+        let wanted_id = extract_quoted_after(query, "eq(ext.id, ");
+        let wanted_asn = parse_arg_usize(query, "eq(ext.asn,").and_then(|v| i64::try_from(v).ok());
         let matches: Vec<Value> = self
             .nodes
             .iter()
-            .filter(|n| n.get("ext.kind").and_then(Value::as_str) == Some("ASN"))
+            .filter(|n| {
+                n.get("ext.kind").and_then(Value::as_str) == Some("ASN")
+                    && (wanted_id
+                        .as_deref()
+                        .is_some_and(|id| n.get("ext.id").and_then(Value::as_str) == Some(id))
+                        || wanted_asn
+                            .is_some_and(|a| n.get("ext.asn").and_then(Value::as_i64) == Some(a)))
+            })
             .cloned()
             .collect();
         Ok(ok_json(json!({ "a": matches })))
@@ -321,10 +330,20 @@ impl MockExternalDgraph {
                 .filter(|e| edge_end_uid(e, "topo.src") == Some(uid))
                 .cloned()
                 .collect();
+            let in_egress_only = query.contains(
+                "~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\"]))",
+            );
             let in_edges: Vec<Value> = self
                 .edges
                 .iter()
-                .filter(|e| edge_end_uid(e, "topo.dst") == Some(uid))
+                .filter(|e| {
+                    edge_end_uid(e, "topo.dst") == Some(uid)
+                        && (!in_egress_only
+                            || matches!(
+                                e.get("topo.kind").and_then(Value::as_str),
+                                Some("EGRESSES_TO" | "BORDER_HANDOFF")
+                            ))
+                })
                 .cloned()
                 .collect();
             let interfaces: Vec<Value> = self
@@ -846,8 +865,14 @@ async fn egress_stitch_traverses_all_four_modes_and_preserves_port_speed_mbps() 
     assert_eq!(egress_ref.if_index, Some(101));
     assert_eq!(egress_ref.egress_source.as_deref(), Some("manual"));
 
-    // 2. Shared-fate SPOFs includes EGRESSES_TO and Vantage
+    // 2. Shared-fate SPOFs includes EGRESSES_TO, Vantage, and ASN edge bottleneck fallback
     let spofs = client.query_shared_fate_spofs(2, 10).await.expect("spofs");
+    let asn_spof = spofs
+        .iter()
+        .find(|s| s.id == "asn:64512")
+        .expect("asn spof");
+    assert_eq!(asn_spof.port_speed_mbps, Some(10_000));
+    assert_eq!(asn_spof.devices, vec!["sr:gw-01"]);
     let ixp_spof = spofs.iter().find(|s| s.id == "ixp:501").expect("ixp spof");
     assert_eq!(ixp_spof.port_speed_mbps, Some(100_000));
     assert_eq!(ixp_spof.devices, vec!["sr:gw-01"]);
@@ -981,5 +1006,119 @@ async fn prune_stale_external_preserves_egress_stitch_and_reconcile_removes_stal
             expires_at: None,
         }],
     };
+    task.abort();
+}
+
+#[tokio::test]
+async fn customer_cone_prefix_attached_multihomed_device_does_not_leak_secondary_isp() {
+    let asn174 = ext_node("0x1", "asn:174", "ASN", Some(174));
+    let asn64512 = ext_node("0x2", "asn:64512", "ASN", Some(64512));
+    let asn64599 = ext_node("0x3", "asn:64599", "ASN", Some(64599));
+    let saas_cust = ext_node("0x4", "saas:64512-cust", "SaasTarget", None);
+    let saas_other = ext_node("0x5", "saas:other-isp", "SaasTarget", None);
+    let pfx = json!({
+        "uid": "0x6",
+        "dgraph.type": ["Prefix"],
+        "prefix.cidr": "198.51.100.0/24",
+        "prefix.asn": 64512
+    });
+    let dev_prefix = json!({
+        "uid": "0x7",
+        "dgraph.type": ["Device"],
+        "device.id": "sr:gw-via-prefix"
+    });
+    let dev_egress = json!({
+        "uid": "0x8",
+        "dgraph.type": ["Device"],
+        "device.id": "sr:gw-via-egress"
+    });
+
+    let edges = vec![
+        topo_edge("0x10", "AS_REL_PROVIDER", asn174, asn64512.clone()),
+        topo_edge("0x11", "AS_REL_PROVIDER", asn64512.clone(), saas_cust),
+        topo_edge("0x12", "EGRESSES_TO", dev_egress.clone(), asn64512.clone()),
+        topo_edge("0x13", "EGRESSES_TO", dev_prefix.clone(), asn64599.clone()),
+        topo_edge("0x14", "EGRESSES_TO", dev_egress, asn64599.clone()),
+        topo_edge("0x15", "AS_REL_PROVIDER", asn64599.clone(), saas_other),
+    ];
+
+    let prefix_links = vec![json!({
+        "uid": "0x6",
+        "dgraph.type": ["Prefix"],
+        "prefix.cidr": "198.51.100.0/24",
+        "prefix.asn": 64512,
+        "~iface.prefixes": [{"~device.interfaces": [dev_prefix]}]
+    })];
+
+    let (client, _shared, task) = start_mock(MockExternalDgraph {
+        nodes: vec![asn64512, asn64599, pfx],
+        edges,
+        prefix_links,
+        ..Default::default()
+    })
+    .await;
+
+    let cone = client
+        .query_customer_cone("asn:64512", 4, 50)
+        .await
+        .expect("customer cone");
+
+    let dev_ids: Vec<&str> = cone
+        .impacted_devices
+        .iter()
+        .map(|d| d.id.as_str())
+        .collect();
+    assert!(dev_ids.contains(&"sr:gw-via-prefix"));
+    assert!(dev_ids.contains(&"sr:gw-via-egress"));
+
+    let saas_ids: Vec<&str> = cone.saas_targets.iter().map(|t| t.id.as_str()).collect();
+    assert_eq!(saas_ids, vec!["saas:64512-cust"]);
+
+    assert!(
+        cone.customer_asns.is_empty(),
+        "unexpected customer ASNs leaked: {:?}",
+        cone.customer_asns
+    );
+    assert!(
+        cone.edges.iter().all(|e| e.dst_id != "asn:64599"
+            && e.src_id != "asn:64599"
+            && e.dst_id != "saas:other-isp"),
+        "unexpected secondary ISP edges leaked: {:?}",
+        cone.edges
+    );
+
+    task.abort();
+}
+
+#[tokio::test]
+async fn shared_fate_spofs_asn_falls_back_to_min_incident_edge_port_speed_mbps() {
+    let dev = json!({"uid": "0x1", "dgraph.type": ["Device"], "device.id": "sr:gw-01"});
+    let asn = ext_node("0x2", "asn:64512", "ASN", Some(64512));
+    let saas1 = ext_node("0x3", "saas:1", "SaasTarget", None);
+    let saas2 = ext_node("0x4", "saas:2", "SaasTarget", None);
+
+    let mut egress_10g = topo_edge("0x10", "EGRESSES_TO", dev, asn.clone());
+    egress_10g["topo.port_speed_mbps"] = json!(10_000);
+
+    let mut provider_100g = topo_edge("0x11", "AS_REL_PROVIDER", asn.clone(), saas1);
+    provider_100g["topo.port_speed_mbps"] = json!(100_000);
+
+    let mut provider_25g = topo_edge("0x12", "AS_REL_PROVIDER", asn, saas2);
+    provider_25g["topo.port_speed_mbps"] = json!(25_000);
+
+    let (client, _shared, task) = start_mock(MockExternalDgraph {
+        edges: vec![egress_10g, provider_100g, provider_25g],
+        ..Default::default()
+    })
+    .await;
+
+    let spofs = client.query_shared_fate_spofs(2, 10).await.expect("spofs");
+    let asn_spof = spofs
+        .iter()
+        .find(|s| s.id == "asn:64512")
+        .expect("asn spof");
+    assert_eq!(asn_spof.port_speed_mbps, Some(10_000));
+    assert_eq!(asn_spof.devices, vec!["sr:gw-01"]);
+
     task.abort();
 }

@@ -202,19 +202,33 @@ pub struct ExternalSnapshotWrite {
 }
 
 impl ExternalSnapshotWrite {
-    /// Deduplicate nodes by `id` and collapse edges by `link_key` (latest wins).
+    /// Deduplicate nodes by `id` and collapse edges by `link_key` (latest wins,
+    /// preserving the maximum positive `port_speed_mbps`).
     #[must_use]
     pub fn deduped(&self) -> Self {
-        let mut node_map = BTreeMap::new();
+        let mut node_map: BTreeMap<String, ExternalNodeWrite> = BTreeMap::new();
         for node in &self.nodes {
             if !node.id.trim().is_empty() {
-                node_map.insert(node.id.clone(), node.clone());
+                let mut next = node.clone();
+                next.port_speed_mbps = next.port_speed_mbps.filter(|&v| v > 0);
+                if let Some(prev) = node_map.get(&node.id) {
+                    next.port_speed_mbps =
+                        max_positive_opt(prev.port_speed_mbps, next.port_speed_mbps);
+                }
+                node_map.insert(node.id.clone(), next);
             }
         }
-        let mut edge_map = BTreeMap::new();
+        let mut edge_map: BTreeMap<String, ExternalEdgeWrite> = BTreeMap::new();
         for edge in &self.edges {
             if !edge.src_id.trim().is_empty() && !edge.dst_id.trim().is_empty() {
-                edge_map.insert(edge.link_key(), edge.clone());
+                let key = edge.link_key();
+                let mut next = edge.clone();
+                next.port_speed_mbps = next.port_speed_mbps.filter(|&v| v > 0);
+                if let Some(prev) = edge_map.get(&key) {
+                    next.port_speed_mbps =
+                        max_positive_opt(prev.port_speed_mbps, next.port_speed_mbps);
+                }
+                edge_map.insert(key, next);
             }
         }
         Self {
@@ -223,6 +237,14 @@ impl ExternalSnapshotWrite {
             nodes: node_map.into_values().collect(),
             edges: edge_map.into_values().collect(),
         }
+    }
+}
+
+fn max_positive_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+    match (a.filter(|&v| v > 0), b.filter(|&v| v > 0)) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (Some(x), None) | (None, Some(x)) => Some(x),
+        (None, None) => None,
     }
 }
 

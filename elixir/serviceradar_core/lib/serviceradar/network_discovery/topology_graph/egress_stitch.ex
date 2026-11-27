@@ -24,8 +24,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
   require Logger
 
   @egress_ingestor "egress_stitch_v1"
-  @all_reconcile_debounce_ms 15_000
-  @debounce_key {__MODULE__, :last_reconcile_all_ms}
+  @all_reconcile_settle_ms 1_000
+  @all_reconcile_max_wait_ms 15_000
+  @coalesce_key {__MODULE__, :reconcile_all_coalesce}
 
   @doc """
   Reconciles Internet egress Dgraph stitches for a single internal device.
@@ -57,18 +58,40 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
   end
 
   @doc """
-  Triggers a debounced, non-blocking `reconcile_all/0` when a Horizon topology
-  snapshot has upserted external vertices and both Dgraph and Repo are active.
+  Triggers a trailing-edge coalesced, non-blocking `reconcile_all/0` when a
+  Horizon topology snapshot has upserted external vertices and both Dgraph and
+  Repo are active.
+
+  Rapid multi-shard snapshot bursts reset the settle timer so reconciliation
+  runs after the trailing shard settles (bounded by `:max_wait_ms`), and a
+  trigger arriving while reconciliation is in flight schedules one follow-up
+  pass instead of being dropped.
   """
   @spec maybe_reconcile_all_async(keyword()) :: :ok
   def maybe_reconcile_all_async(opts \\ []) when is_list(opts) do
-    debounce_ms = Keyword.get(opts, :debounce_ms, @all_reconcile_debounce_ms)
+    force? = Keyword.get(opts, :force, false)
 
-    if Store.writable?() and Process.whereis(Repo) != nil and
-         should_trigger_reconcile?(debounce_ms) do
-      Task.start(fn ->
-        _ = reconcile_all()
-      end)
+    if force? or (Store.writable?() and Process.whereis(Repo) != nil) do
+      settle_ms =
+        opts
+        |> Keyword.get(:settle_ms, Keyword.get(opts, :debounce_ms, @all_reconcile_settle_ms))
+        |> max(0)
+
+      max_wait_ms =
+        opts
+        |> Keyword.get(:max_wait_ms, @all_reconcile_max_wait_ms)
+        |> max(settle_ms)
+
+      reconcile_fun = Keyword.get(opts, :reconcile_fun, &reconcile_all/0)
+      ref = Keyword.get(opts, :coalesce_ref) || default_coalesce_ref()
+
+      :atomics.add(ref, 1, 1)
+
+      if :atomics.compare_exchange(ref, 2, 0, 1) == :ok do
+        Task.start(fn ->
+          run_coalesced_reconcile(ref, settle_ms, max_wait_ms, reconcile_fun)
+        end)
+      end
     end
 
     :ok
@@ -154,7 +177,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
     }
   end
 
-  defp do_reconcile(candidates, scoped_device_ids, opts) do
+  @doc false
+  def do_reconcile(candidates, scoped_device_ids, opts \\ [])
+      when is_map(candidates) and is_list(scoped_device_ids) and is_list(opts) do
     targets_fun =
       Keyword.get(opts, :targets_loader, fn ->
         ExternalTopology.external_egress_targets(limit: 2000)
@@ -163,6 +188,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
     attach_fun =
       Keyword.get(opts, :attach_prefix_fun, fn iface_key, cidr ->
         Dgraph.attach_prefix(iface_key, cidr)
+      end)
+
+    upsert_device_fun =
+      Keyword.get(opts, :upsert_device_fun, fn device ->
+        Dgraph.upsert_device(device)
       end)
 
     upsert_fun =
@@ -183,23 +213,26 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
       end)
 
       upsert_result =
-        if plan.edges == [] and plan.nodes == [] do
-          {:ok, %{nodes_upserted: 0, edges_upserted: 0, edges_skipped: 0}}
-        else
-          upsert_fun.(%{
-            generated_at: Keyword.get(opts, :now_iso) || now_rfc3339(),
-            ttl_secs: 900,
-            nodes: plan.nodes,
-            edges: plan.edges
-          })
+        with :ok <- upsert_egress_devices(candidates, plan.edges, upsert_device_fun) do
+          if plan.edges == [] and plan.nodes == [] do
+            {:ok, %{nodes_upserted: 0, edges_upserted: 0, edges_skipped: 0}}
+          else
+            upsert_fun.(%{
+              generated_at: Keyword.get(opts, :now_iso) || now_rfc3339(),
+              ttl_secs: 900,
+              nodes: plan.nodes,
+              edges: plan.edges
+            })
+          end
         end
 
-      with {:ok, _stats} <- upsert_result,
+      with {:ok, stats} <- upsert_result,
+           :ok <- check_edges_skipped(stats),
            {:ok, _deleted} <- reconcile_fun.(scoped_device_ids, plan.keep_link_keys) do
         :ok
       else
         {:error, reason} ->
-          Logger.warning("EgressStitch Dgraph reconcile skipped",
+          Logger.warning("EgressStitch Dgraph reconcile skipped: #{inspect(reason)}",
             reason: inspect(reason)
           )
 
@@ -207,6 +240,46 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
       end
     end
   end
+
+  defp upsert_egress_devices(_candidates, [], _upsert_device_fun), do: :ok
+
+  defp upsert_egress_devices(candidates, edges, upsert_device_fun) do
+    devices_by_uid =
+      candidates
+      |> Map.get(:devices, [])
+      |> Map.new(&{get_field(&1, :uid), &1})
+
+    edges
+    |> Enum.map(& &1.src_id)
+    |> Enum.uniq()
+    |> Enum.reduce_while(:ok, fn src_id, :ok ->
+      dev = Map.get(devices_by_uid, src_id, %{})
+
+      device_write = %{
+        id: src_id,
+        hostname: non_blank(get_field(dev, :hostname)),
+        ip: non_blank(get_field(dev, :ip))
+      }
+
+      case upsert_device_fun.(device_write) do
+        :ok -> {:cont, :ok}
+        {:ok, _} -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp check_edges_skipped(stats) when is_map(stats) do
+    skipped = get_field(stats, :edges_skipped) || 0
+
+    if is_integer(skipped) and skipped > 0 do
+      {:error, {:egress_edges_skipped, skipped}}
+    else
+      :ok
+    end
+  end
+
+  defp check_edges_skipped(_stats), do: :ok
 
   defp plan_interface_stitches(state, device_id, interfaces, settings_by_key, targets, now_iso) do
     Enum.reduce(interfaces, state, fn iface, acc ->
@@ -744,14 +817,23 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
     type_id in [9, 12] or type in ["router", "firewall"]
   end
 
+  @doc false
+  def device_candidate_query(device_id) when is_binary(device_id) do
+    from(d in Device,
+      where: d.uid == ^device_id and is_nil(d.deleted_at),
+      select: %{
+        uid: d.uid,
+        hostname: d.hostname,
+        ip: d.ip,
+        type: d.type,
+        type_id: d.type_id,
+        tags: d.tags
+      }
+    )
+  end
+
   defp load_candidates_for_device(device_id) do
-    devices =
-      Repo.all(
-        from(d in Device,
-          where: d.uid == ^device_id,
-          select: %{uid: d.uid, ip: d.ip, type: d.type, type_id: d.type_id, tags: d.tags}
-        )
-      )
+    devices = Repo.all(device_candidate_query(device_id))
 
     interfaces =
       Repo.all(
@@ -847,7 +929,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
       Repo.all(
         from(d in Device,
           where: is_nil(d.deleted_at),
-          select: %{uid: d.uid, ip: d.ip, type: d.type, type_id: d.type_id, tags: d.tags}
+          select: %{
+            uid: d.uid,
+            hostname: d.hostname,
+            ip: d.ip,
+            type: d.type,
+            type_id: d.type_id,
+            tags: d.tags
+          }
         )
       )
 
@@ -859,15 +948,55 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.EgressStitch do
     }
   end
 
-  defp should_trigger_reconcile?(debounce_ms) do
-    now_ms = System.monotonic_time(:millisecond)
-    last_ms = :persistent_term.get(@debounce_key, nil)
+  defp default_coalesce_ref do
+    case :persistent_term.get(@coalesce_key, nil) do
+      nil ->
+        ref = :atomics.new(3, signed: false)
+        :persistent_term.put(@coalesce_key, ref)
+        ref
 
-    if is_nil(last_ms) or now_ms - last_ms >= debounce_ms do
-      :persistent_term.put(@debounce_key, now_ms)
-      true
+      ref ->
+        ref
+    end
+  end
+
+  defp run_coalesced_reconcile(ref, settle_ms, max_wait_ms, reconcile_fun) do
+    completed_gen =
+      try do
+        coalesce_loop(ref, settle_ms, max_wait_ms, reconcile_fun)
+      after
+        :atomics.put(ref, 2, 0)
+      end
+
+    if is_integer(completed_gen) and :atomics.get(ref, 1) != completed_gen and
+         :atomics.compare_exchange(ref, 2, 0, 1) == :ok do
+      run_coalesced_reconcile(ref, settle_ms, max_wait_ms, reconcile_fun)
+    end
+  end
+
+  defp coalesce_loop(ref, settle_ms, max_wait_ms, reconcile_fun) do
+    started_ms = System.monotonic_time(:millisecond)
+    run_gen = await_settle(ref, settle_ms, max_wait_ms, started_ms)
+    :atomics.put(ref, 3, run_gen)
+    _ = reconcile_fun.()
+
+    if :atomics.get(ref, 1) == run_gen do
+      run_gen
     else
-      false
+      coalesce_loop(ref, settle_ms, max_wait_ms, reconcile_fun)
+    end
+  end
+
+  defp await_settle(ref, settle_ms, max_wait_ms, started_ms) do
+    gen_before = :atomics.get(ref, 1)
+    if settle_ms > 0, do: Process.sleep(settle_ms)
+    gen_after = :atomics.get(ref, 1)
+    elapsed_ms = System.monotonic_time(:millisecond) - started_ms
+
+    if gen_after != gen_before and elapsed_ms < max_wait_ms do
+      await_settle(ref, settle_ms, max_wait_ms, started_ms)
+    else
+      gen_after
     end
   end
 

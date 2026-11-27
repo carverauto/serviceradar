@@ -137,6 +137,89 @@ fn snapshot_deduped_collapses_duplicate_nodes_and_edges() {
 }
 
 #[test]
+fn snapshot_deduped_preserves_max_positive_port_speed_mbps() {
+    let mut ixp_fast = sample_node("ixp:501", ExternalNodeKind::Ixp);
+    ixp_fast.port_speed_mbps = Some(100_000);
+    let mut ixp_slow = sample_node("ixp:501", ExternalNodeKind::Ixp);
+    ixp_slow.port_speed_mbps = Some(10_000);
+    let mut ixp_none = sample_node("ixp:502", ExternalNodeKind::Ixp);
+    ixp_none.port_speed_mbps = Some(40_000);
+    let mut ixp_zero = sample_node("ixp:502", ExternalNodeKind::Ixp);
+    ixp_zero.port_speed_mbps = Some(0);
+    let mut ixp_neg = sample_node("ixp:503", ExternalNodeKind::Ixp);
+    ixp_neg.port_speed_mbps = Some(-5);
+
+    let mut edge_fast = sample_edge("asn:64512", "ixp:501", ExternalEdgeKind::IxpMember, 1_000);
+    edge_fast.port_speed_mbps = Some(100_000);
+    let mut edge_slow = sample_edge("asn:64512", "ixp:501", ExternalEdgeKind::IxpMember, 2_000);
+    edge_slow.port_speed_mbps = Some(10_000);
+
+    let mut edge_none_first =
+        sample_edge("asn:64512", "ixp:502", ExternalEdgeKind::IxpMember, 1_000);
+    edge_none_first.port_speed_mbps = None;
+    let mut edge_pos_second =
+        sample_edge("asn:64512", "ixp:502", ExternalEdgeKind::IxpMember, 1_500);
+    edge_pos_second.port_speed_mbps = Some(40_000);
+
+    let mut edge_pos_first = sample_edge(
+        "asn:64512",
+        "ixp:503",
+        ExternalEdgeKind::BorderHandoff,
+        1_000,
+    );
+    edge_pos_first.port_speed_mbps = Some(25_000);
+    let mut edge_none_second = sample_edge(
+        "asn:64512",
+        "ixp:503",
+        ExternalEdgeKind::BorderHandoff,
+        1_200,
+    );
+    edge_none_second.port_speed_mbps = None;
+
+    let snap = ExternalSnapshotWrite {
+        generated_at: "2026-11-27T00:00:00Z".to_string(),
+        ttl_secs: 900,
+        nodes: vec![ixp_fast, ixp_slow, ixp_none, ixp_zero, ixp_neg],
+        edges: vec![
+            edge_fast,
+            edge_slow,
+            edge_none_first,
+            edge_pos_second,
+            edge_pos_first,
+            edge_none_second,
+        ],
+    };
+
+    let deduped = snap.deduped();
+    let n501 = deduped.nodes.iter().find(|n| n.id == "ixp:501").unwrap();
+    let n502 = deduped.nodes.iter().find(|n| n.id == "ixp:502").unwrap();
+    let n503 = deduped.nodes.iter().find(|n| n.id == "ixp:503").unwrap();
+    assert_eq!(n501.port_speed_mbps, Some(100_000));
+    assert_eq!(n502.port_speed_mbps, Some(40_000));
+    assert_eq!(n503.port_speed_mbps, None);
+
+    let e501 = deduped
+        .edges
+        .iter()
+        .find(|e| e.dst_id == "ixp:501")
+        .unwrap();
+    let e502 = deduped
+        .edges
+        .iter()
+        .find(|e| e.dst_id == "ixp:502")
+        .unwrap();
+    let e503 = deduped
+        .edges
+        .iter()
+        .find(|e| e.dst_id == "ixp:503")
+        .unwrap();
+    assert_eq!(e501.port_speed_mbps, Some(100_000));
+    assert_eq!(e501.avg_rtt_us, Some(2_000));
+    assert_eq!(e502.port_speed_mbps, Some(40_000));
+    assert_eq!(e503.port_speed_mbps, Some(25_000));
+}
+
+#[test]
 fn query_bounds_are_strictly_clamped() {
     assert_eq!(clamp_max_hops(0), 4);
     assert_eq!(clamp_max_hops(3), 3);

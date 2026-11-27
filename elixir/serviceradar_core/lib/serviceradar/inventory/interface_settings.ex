@@ -21,6 +21,9 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
   alias ServiceRadar.Inventory.Changes.NormalizeInterfaceEgressConfig
   alias ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig
   alias ServiceRadar.Inventory.Changes.ScheduleEgressProjection
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
+  @devices_update_check {ActorHasPermission, permission: "devices.update"}
 
   @interface_settings_fields [
     :favorited,
@@ -204,7 +207,8 @@ defmodule ServiceRadar.Inventory.InterfaceSettings do
     import ServiceRadar.Policies
 
     system_bypass()
-    operator_action_type([:create, :update])
+    action_type_with_permission(:create, @devices_update_check)
+    action_type_with_permission(:update, @devices_update_check)
     admin_action_type(:destroy)
     read_viewer_plus()
   end

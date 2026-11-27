@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:northbound_actions, :list, default: [])
   attr(:northbound_actions_loading, :boolean, default: false)
   attr(:can_launch_northbound, :boolean, default: false)
+  attr(:can_edit, :boolean, default: true)
   attr(:snmp_polling_source, :map, default: nil)
   attr(:interface_metrics_busy, :boolean, default: false)
 
@@ -176,6 +177,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                 {if @northbound_actions_loading, do: "Checking actions...", else: "Run Action"}
               </.ui_button>
               <.ui_button
+                :if={@can_edit}
                 type="button"
                 phx-click="open_interfaces_bulk_edit"
                 size="xs"

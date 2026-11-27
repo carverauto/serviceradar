@@ -4,9 +4,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceEgressComponentsTest do
   import Phoenix.Component, only: [to_form: 2]
   import Phoenix.LiveViewTest
 
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
+  alias ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime
 
   @moduletag :db_free
 
@@ -80,5 +82,58 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceEgressComponentsTest do
 
     assert edit_html =~ "internet_egress=true"
     assert edit_html =~ "egress_upstream_asn=174"
+  end
+
+  test "interfaces_tab_content hides Bulk Edit when can_edit is false and InterfaceRuntime blocks unauthorized bulk edits" do
+    interfaces = [%{"interface_uid" => "if-wan-1", "if_name" => "xe-0/0/0"}]
+
+    viewer_html =
+      render_component(&InterfaceComponents.interfaces_tab_content/1,
+        interfaces: interfaces,
+        selected_interfaces: MapSet.new(["if-wan-1"]),
+        favorited_interfaces: MapSet.new(),
+        device_uid: "sr:gw-1",
+        timezone: "Etc/UTC",
+        can_edit: false
+      )
+
+    refute viewer_html =~ "Bulk Edit"
+
+    editor_html =
+      render_component(&InterfaceComponents.interfaces_tab_content/1,
+        interfaces: interfaces,
+        selected_interfaces: MapSet.new(["if-wan-1"]),
+        favorited_interfaces: MapSet.new(),
+        device_uid: "sr:gw-1",
+        timezone: "Etc/UTC",
+        can_edit: true
+      )
+
+    assert editor_html =~ "Bulk Edit"
+
+    viewer_scope = %Scope{
+      user: %{id: "viewer-1", role: :viewer},
+      permissions: MapSet.new(["devices.view"])
+    }
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        current_scope: viewer_scope,
+        selected_interfaces: MapSet.new(["if-wan-1"]),
+        device_uid: "sr:gw-1",
+        show_interfaces_bulk_edit: true
+      }
+    }
+
+    denied_open = InterfaceRuntime.open_bulk_edit(socket)
+    assert denied_open.assigns.flash["error"] =~ "permission"
+
+    denied_apply =
+      InterfaceRuntime.apply_bulk_edit(socket, %{"action" => "mark_internet_egress"}, nil)
+
+    assert denied_apply.assigns.show_interfaces_bulk_edit == false
+    assert denied_apply.assigns.flash["error"] =~ "permission"
   end
 end

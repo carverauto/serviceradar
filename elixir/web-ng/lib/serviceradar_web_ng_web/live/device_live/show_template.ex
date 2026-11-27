@@ -436,6 +436,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               northbound_actions={@northbound_interface_actions}
               northbound_actions_loading={@northbound_interface_actions_loading}
               can_launch_northbound={can_launch_northbound_actions?(@current_scope)}
+              can_edit={@can_edit}
               snmp_polling_source={@snmp_polling_source}
               interface_metrics_busy={@interface_metrics_busy}
             />

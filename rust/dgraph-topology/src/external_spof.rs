@@ -164,6 +164,7 @@ pub(crate) fn compute_shared_fate_spofs(
     let mut node_map: HashMap<String, RawNode> = HashMap::new();
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     let mut rev: HashMap<String, Vec<String>> = HashMap::new();
+    let mut min_edge_speed: HashMap<String, i64> = HashMap::new();
 
     for edge in edges {
         let (Some(src), Some(dst)) = (edge.src.first(), edge.dst.first()) else {
@@ -176,6 +177,16 @@ pub(crate) fn compute_shared_fate_spofs(
         let did = dst.canonical_id();
         if sid.is_empty() || did.is_empty() {
             continue;
+        }
+        if let Some(speed) = edge.port_speed_mbps.filter(|&v| v > 0) {
+            min_edge_speed
+                .entry(sid.clone())
+                .and_modify(|cur| *cur = (*cur).min(speed))
+                .or_insert(speed);
+            min_edge_speed
+                .entry(did.clone())
+                .and_modify(|cur| *cur = (*cur).min(speed))
+                .or_insert(speed);
         }
         node_map.entry(sid.clone()).or_insert_with(|| src.clone());
         node_map.entry(did.clone()).or_insert_with(|| dst.clone());
@@ -234,6 +245,10 @@ pub(crate) fn compute_shared_fate_spofs(
             continue;
         }
         let devices = reachable_kinds(id, &rev, &node_map, &["Device"]);
+        let port_speed_mbps = node
+            .port_speed_mbps
+            .filter(|&v| v > 0)
+            .or_else(|| min_edge_speed.get(id).copied());
         spofs.push(SharedFateSpof {
             id: id.clone(),
             kind: node.kind().to_string(),
@@ -241,7 +256,7 @@ pub(crate) fn compute_shared_fate_spofs(
             asn: node.ext_asn.or(node.prefix_asn),
             region: node.region.clone(),
             outage_state: node.outage_state.clone(),
-            port_speed_mbps: node.port_speed_mbps,
+            port_speed_mbps,
             target_count: targets.len(),
             device_count: devices.len(),
             targets,
@@ -292,6 +307,8 @@ fn reachable_kinds(
 pub(crate) struct RawEdgeWithEnds {
     #[serde(default)]
     pub(crate) uid: String,
+    #[serde(default, rename = "topo.port_speed_mbps")]
+    pub(crate) port_speed_mbps: Option<i64>,
     #[serde(default, rename = "topo.src")]
     pub(crate) src: Vec<RawNode>,
     #[serde(default, rename = "topo.dst")]

@@ -956,7 +956,8 @@ async fn expand_customer_cone(
             for iface in pfx.rev_ifaces {
                 for dev in iface.devices {
                     let dev_id = dev.canonical_id();
-                    if add_node(dev, &mut nodes, &mut frontier, limit, &mut truncated) {
+                    let mut dummy_frontier = Vec::new();
+                    if add_node(dev, &mut nodes, &mut dummy_frontier, limit, &mut truncated) {
                         record_simple_edge(
                             &dev_id,
                             &pfx_id,
