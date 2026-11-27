@@ -18,6 +18,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Schema do
   @add_column_pattern ~r/^ALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s/i
   @redistribute_pattern ~r/^ALTER\s+TABLE\s+(\S+)\s+DISTRIBUTED\s+BY\s+HASH\s*\([^)]*\)\s+(DEFAULT\s+)?BUCKETS\s+(\d+)\s*$/i
   @modify_column_pattern ~r/^ALTER\s+TABLE\s+(\S+)\s+MODIFY\s+COLUMN\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+([A-Za-z]+(?:\(\d+\))?)/i
+  @bloom_filter_pattern ~r/^ALTER\s+TABLE\s+(\S+)\s+SET\s*\(\s*"bloom_filter_columns"\s*=\s*"([^"]*)"\s*\)\s*$/i
 
   @paths @dir |> Path.join("*.sql") |> Path.wildcard() |> Enum.sort()
 
@@ -170,6 +171,33 @@ defmodule ServiceRadar.Analytics.StarRocks.Schema do
       [_, table, default, buckets] ->
         kind = if default == "", do: :rewrite, else: :default
         {:ok, {table |> String.split(".") |> List.last(), String.to_integer(buckets), kind}}
+
+      nil ->
+        :error
+    end
+  end
+
+  @doc """
+  Recognises `ALTER TABLE t SET ("bloom_filter_columns" = "...")`.
+
+  StarRocks refuses a bloom-filter ALTER that changes nothing, and a fresh
+  install's CREATE already carries the bloom filter, so the migrator compares
+  against `SHOW CREATE TABLE` first and awaits the schema change job when it
+  runs.
+  """
+  @spec set_bloom_filter_columns(String.t()) ::
+          {:ok, {:bloom_filter_columns, String.t(), [String.t()]}} | :error
+  def set_bloom_filter_columns(statement) when is_binary(statement) do
+    case Regex.run(@bloom_filter_pattern, statement) do
+      [_, table, columns] ->
+        normalized =
+          columns
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.sort()
+
+        {:ok, {:bloom_filter_columns, table |> String.split(".") |> List.last(), normalized}}
 
       nil ->
         :error

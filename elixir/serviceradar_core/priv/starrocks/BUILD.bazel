@@ -49,6 +49,8 @@
 # rollups so their columns take the new widths.
 # 0042 creates the merged device availability history table, partitioned by day and
 # kept a year (partition_live_number), keyed by (device_uid, changed_at, to_state).
+# 0046 materializes event_type VARCHAR(128) NULL with a bloom filter on events so
+# SRQL event_type filters avoid full-JSON get_json_string() scans.
 # 0002 sorts timeseries_metrics by metric_type, metric_name, device_id, time. A
 # warehouse whose table predates that sort key is rebuilt onto it by PartitionRebuild,
 # like an unpartitioned one: StarRocks' in-place ORDER BY rewrites the whole table in

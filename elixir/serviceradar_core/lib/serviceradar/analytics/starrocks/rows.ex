@@ -469,7 +469,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "status_detail" => text(:events, :status_detail, field(row, :status_detail)),
       "log_version" => text(:events, :log_version, field(row, :log_version)),
       "raw_data" => text(:events, :raw_data, field(row, :raw_data)),
-      "created_at" => datetime(field(row, :created_at))
+      "created_at" => datetime(field(row, :created_at)),
+      "event_type" => event_type(row)
     }
   end
 
@@ -740,6 +741,46 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     if is_binary(name) and name != "", do: name
   end
 
+  @max_event_type_bytes 128
+
+  defp event_type(row) do
+    metadata = decode_object(field(row, :metadata))
+    unmapped = decode_object(field(row, :unmapped))
+
+    Enum.find_value(
+      [
+        map_get(metadata, "event_type"),
+        metadata |> map_get("service_radar") |> map_get("event_type"),
+        map_get(unmapped, "event_type")
+      ],
+      &normalize_event_type/1
+    )
+  end
+
+  defp normalize_event_type(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> truncate_utf8_bytes(trimmed, @max_event_type_bytes)
+    end
+  end
+
+  defp normalize_event_type(_), do: nil
+
+  defp truncate_utf8_bytes(value, max_bytes) when byte_size(value) <= max_bytes, do: value
+
+  defp truncate_utf8_bytes(value, max_bytes) do
+    value
+    |> String.graphemes()
+    |> Enum.reduce_while([], fn grapheme, acc ->
+      if IO.iodata_length(acc) + byte_size(grapheme) <= max_bytes do
+        {:cont, [acc, grapheme]}
+      else
+        {:halt, acc}
+      end
+    end)
+    |> IO.iodata_to_binary()
+  end
+
   defp source_type(row) do
     metadata = field(row, :metadata) || %{}
     service = map_get(metadata, "service_radar") || map_get(metadata, "serviceradar")
@@ -766,6 +807,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
 
   defp atom_key("ip"), do: :ip
   defp atom_key("name"), do: :name
+  defp atom_key("event_type"), do: :event_type
   defp atom_key("service_radar"), do: :service_radar
   defp atom_key("serviceradar"), do: :serviceradar
   defp atom_key("source_type"), do: :source_type

@@ -176,6 +176,54 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
     assert encoded["id"] == "evt-alpha-0001"
     assert encoded["metadata"] == "{}"
     assert encoded["observables"] == "[]"
+    assert encoded["event_type"] == nil
+  end
+
+  test "event_type materializes with SRQL 3-path precedence and truncates to 128 bytes" do
+    # 1. metadata["event_type"] wins over metadata["service_radar"]["event_type"] and unmapped["event_type"]
+    assert [%{"event_type" => "top_level"}] =
+             Rows.encode(:events, [
+               encode_event(%{
+                 "metadata" => %{
+                   "event_type" => "top_level",
+                   "service_radar" => %{"event_type" => "nested_sr"}
+                 },
+                 "unmapped" => %{"event_type" => "from_unmapped"}
+               })
+             ])
+
+    # 2. metadata["service_radar"]["event_type"] wins over unmapped["event_type"]
+    assert [%{"event_type" => "nested_sr"}] =
+             Rows.encode(:events, [
+               encode_event(%{
+                 "metadata" => %{
+                   "event_type" => "   ",
+                   "service_radar" => %{"event_type" => " nested_sr "}
+                 },
+                 "unmapped" => %{"event_type" => "from_unmapped"}
+               })
+             ])
+
+    # 3. unmapped["event_type"] is used when metadata paths are absent (including JSON-encoded documents)
+    assert [%{"event_type" => "from_unmapped"}] =
+             Rows.encode(:events, [
+               encode_event(%{
+                 "metadata" => "{}",
+                 "unmapped" => ~s({"event_type":"from_unmapped"})
+               })
+             ])
+
+    # 4. Oversized UTF-8 value is truncated to <= 128 bytes on a grapheme boundary
+    long_type = String.duplicate("é", 80)
+
+    assert [%{"event_type" => truncated}] =
+             Rows.encode(:events, [
+               encode_event(%{"metadata" => %{"event_type" => long_type}})
+             ])
+
+    assert byte_size(truncated) == 128
+    assert String.valid?(truncated)
+    assert truncated == String.duplicate("é", 64)
   end
 
   describe "MTR traces and hops" do

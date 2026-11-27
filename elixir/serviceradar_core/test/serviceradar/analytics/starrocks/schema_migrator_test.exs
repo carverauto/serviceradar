@@ -1132,4 +1132,49 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
 
     assert migrate(agent, migrations: [shipped(45)], database: "lab") == {:ok, []}
   end
+
+  test "migration 46 adds event_type and bloom filter sequentially, and skips both when already present" do
+    migration = shipped(46)
+
+    # Upgraded warehouse: neither event_type nor bloom_filter_columns exists yet.
+    agent = start_warehouse()
+    assert migrate(agent, migrations: [migration]) == {:ok, [46]}
+
+    ddl = state(agent).ddl
+
+    assert Enum.any?(
+             ddl,
+             &(&1 =~ "ALTER TABLE serviceradar.events ADD COLUMN event_type VARCHAR(128) NULL")
+           )
+
+    assert Enum.any?(
+             ddl,
+             &(&1 =~
+                 ~s|ALTER TABLE serviceradar.events SET ("bloom_filter_columns" = "event_type")|)
+           )
+
+    # Fresh warehouse: 0004 already created event_type and bloom_filter_columns.
+    fresh = start_warehouse(%{columns: MapSet.new(["event_type"])})
+
+    fresh_query = fn
+      "SHOW CREATE TABLE serviceradar.events" ->
+        {:ok,
+         %{
+           columns: ["Table", "Create Table"],
+           rows: [
+             [
+               "events",
+               ~s|CREATE TABLE `events` (...) PROPERTIES ("bloom_filter_columns" = "event_type")|
+             ]
+           ]
+         }}
+
+      sql ->
+        query_fun(fresh).(sql)
+    end
+
+    assert migrate(fresh, query: fresh_query, migrations: [migration]) == {:ok, [46]}
+    refute Enum.any?(state(fresh).ddl, &(&1 =~ "ADD COLUMN event_type"))
+    refute Enum.any?(state(fresh).ddl, &(&1 =~ "bloom_filter_columns"))
+  end
 end

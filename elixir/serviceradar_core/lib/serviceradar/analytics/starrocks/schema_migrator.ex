@@ -463,9 +463,13 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
     else
       with :error <- Schema.add_column(statement),
            :error <- Schema.modify_column(statement),
-           :error <- Schema.redistribute(statement) do
+           :error <- Schema.redistribute(statement),
+           :error <- Schema.set_bloom_filter_columns(statement) do
         run_statement(state, statement)
       else
+        {:ok, {:bloom_filter_columns, table, columns}} ->
+          set_bloom_filter_columns(state, statement, table, columns)
+
         {:ok, {table, column}} ->
           add_column(state, statement, table, column)
 
@@ -726,6 +730,41 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigrator do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp set_bloom_filter_columns(state, statement, table, target_columns) do
+    show_sql = "SHOW CREATE TABLE #{state.database}.#{table}"
+
+    with :ok <- await_quiet(state, table) do
+      case state.query.(show_sql) do
+        {:ok, %{rows: [[_table, ddl | _] | _]}} when is_binary(ddl) ->
+          if current_bloom_filter_columns(ddl) == target_columns do
+            :ok
+          else
+            alter_and_await(state, statement, table)
+          end
+
+        {:ok, _none} ->
+          alter_and_await(state, statement, table)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp current_bloom_filter_columns(ddl) do
+    case Regex.run(~r/"bloom_filter_columns"\s*=\s*"([^"]*)"/i, ddl) do
+      [_, columns] ->
+        columns
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.sort()
+
+      nil ->
+        []
     end
   end
 

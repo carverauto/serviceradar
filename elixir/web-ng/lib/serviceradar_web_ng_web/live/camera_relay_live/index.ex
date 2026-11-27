@@ -37,10 +37,14 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
   @impl true
   def handle_params(params, _uri, socket) do
+    socket = assign(socket, :filters, parse_filters(params))
+
     socket =
-      socket
-      |> assign(:filters, parse_filters(params))
-      |> load_sessions()
+      if connected?(socket) do
+        load_sessions(socket)
+      else
+        socket
+      end
 
     {:noreply, socket}
   end
