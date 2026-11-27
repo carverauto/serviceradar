@@ -277,13 +277,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     socket = assign(socket, base_assigns ++ search_reset_assigns ++ switcher_reset_assigns)
 
     if connected?(socket) do
-      socket = load_initial_or_switched_mode(socket)
-
       socket =
-        if enter_live_from_param? and is_nil(socket.assigns.error) do
-          start_live_stream(socket)
+        if enter_live_from_param? do
+          load_live_first_mode(socket)
         else
-          socket
+          load_initial_or_switched_mode(socket)
         end
 
       {:noreply, socket}
@@ -1303,6 +1301,33 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
+  def handle_async(:load_timeline_data, {:ok, {source_id, switcher_assigns, timeline_result}}, socket) do
+    if source_id == current_source_id(socket) and socket.assigns.mode == :timeline do
+      socket = assign(socket, switcher_assigns)
+
+      socket =
+        case timeline_result do
+          {:ok, timeline_assigns} ->
+            socket
+            |> maybe_rearm_live_refresh(source_id)
+            |> assign(timeline_assigns)
+
+          {:error, reason} ->
+            Logger.warning("Deferred camera timeline load failed: #{inspect(reason)}")
+            socket
+        end
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async(:load_timeline_data, {:exit, reason}, socket) do
+    Logger.warning("Deferred camera timeline load exited: #{inspect(reason, limit: 20, printable_limit: 200)}")
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_info({:refresh_camera_live_relay_session, relay_session_id}, socket) do
     {:noreply, refresh_live_tile(socket, relay_session_id, rearm: true)}
@@ -1357,6 +1382,75 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     else
       {:noreply, socket}
     end
+  end
+
+  defp load_live_first_mode(socket) do
+    case authorize_timeline_view(socket) do
+      {:ok, scope, source} ->
+        profiles = deps(socket).list_relay_profiles.(scope, source.id)
+
+        socket =
+          socket
+          |> ensure_live_refresh(source.id)
+          |> hydrate_roi_from_source(source, reset_draft?: not socket.assigns.roi_drawer_open?)
+          |> assign(
+            current_scope: scope,
+            source: source,
+            mode: :timeline,
+            stream_profiles: profiles,
+            error: nil,
+            loading: false
+          )
+          |> start_live_stream()
+
+        start_deferred_timeline_load(socket, scope, source)
+
+      {:error, reason} ->
+        unavailable(socket, reason)
+    end
+  end
+
+  defp start_deferred_timeline_load(socket, scope, source) do
+    source_id = source.id
+    profiles = socket.assigns.stream_profiles
+
+    task_assigns =
+      socket.assigns
+      |> Map.take([
+        :recordings_deps,
+        :switcher_search,
+        :switcher_page,
+        :switcher_per_page,
+        :timeline_span,
+        :timeline_source,
+        :timeline_profile_id,
+        :timeline_custom_from_us,
+        :timeline_anchor_to_us,
+        :timeline_seek_us,
+        :timeline_highlight_frame_id,
+        :timeline_search_query,
+        :timeline_search_object_class,
+        :timeline_search_results,
+        :timeline_search_executed?,
+        :timeline_search_error,
+        :timeline_embedder_unavailable?,
+        :timeline_clips_mode,
+        :timeline_clips_mode_user_set?,
+        :timeline_clips_category,
+        :timeline_min_confidence,
+        :timeline_clips_page,
+        :timeline_clips_per_page,
+        :timeline_selected_clip_id
+      ])
+      |> Map.put(:__changed__, %{})
+
+    task_socket = %Phoenix.LiveView.Socket{assigns: task_assigns}
+
+    start_async(socket, :load_timeline_data, fn ->
+      switcher_assigns = fetch_camera_switcher_assigns(task_socket, scope)
+      timeline_result = fetch_timeline_assigns(task_socket, scope, source, profiles)
+      {source_id, switcher_assigns, timeline_result}
+    end)
   end
 
   defp load_initial_or_switched_mode(socket) do
@@ -1454,9 +1548,31 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp load_timeline_for_authorized(socket, scope, source) do
+    profiles = deps(socket).list_relay_profiles.(scope, source.id)
+
+    case fetch_timeline_assigns(socket, scope, source, profiles) do
+      {:ok, timeline_assigns} ->
+        socket
+        |> maybe_rearm_live_refresh(source.id)
+        |> hydrate_roi_from_source(source, reset_draft?: not socket.assigns.roi_drawer_open?)
+        |> assign(
+          current_scope: scope,
+          source: source,
+          mode: :timeline,
+          stream_profiles: profiles,
+          error: nil,
+          loading: false
+        )
+        |> assign(timeline_assigns)
+
+      {:error, reason} ->
+        unavailable(socket, reason)
+    end
+  end
+
+  defp fetch_timeline_assigns(socket, scope, source, _profiles) do
     {cov_from_us, cov_to_us} = resolve_coverage_bounds(socket)
     profile_id = blank_to_nil(socket.assigns.timeline_profile_id)
-    profiles = deps(socket).list_relay_profiles.(scope, source.id)
 
     coverage_params = %{
       from_us: cov_from_us,
@@ -1540,40 +1656,34 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
             nil
         end
 
-      socket
-      |> maybe_rearm_live_refresh(source.id)
-      |> hydrate_roi_from_source(source, reset_draft?: not socket.assigns.roi_drawer_open?)
-      |> assign(
-        current_scope: scope,
-        source: source,
-        mode: :timeline,
-        stream_profiles: profiles,
-        timeline_coverage: coverage,
-        timeline_play_from_us: play_from_us,
-        timeline_play_to_us: play_to_us,
-        timeline_playlist_origin_us: playlist_origin_us,
-        timeline_seek_offset_seconds: seek_offset_seconds,
-        timeline_overlay_detections: overlay_detections,
-        timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
-        timeline_playlist_path: playlist_path,
-        timeline_has_adjacent_window: has_adjacent?,
-        timeline_holds: all_holds,
-        timeline_event_clips: clips_page.clips,
-        timeline_event_markers: clips_page.markers,
-        timeline_clips_mode: effective_clips_mode,
-        timeline_clips_category: effective_clips_category,
-        timeline_clips_page: clips_page.page,
-        timeline_clips_total_count: clips_page.total_count,
-        timeline_clips_total_pages: clips_page.total_pages,
-        timeline_clips_counts: clips_page.counts,
-        timeline_selected_clip_id: selected_clip_id,
-        timeline_user_selected_window?: false,
-        hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold),
-        error: nil,
-        loading: false
-      )
-    else
-      {:error, reason} -> unavailable(socket, reason)
+      {:ok,
+       [
+         timeline_search_results: socket.assigns.timeline_search_results,
+         timeline_search_executed?: socket.assigns.timeline_search_executed?,
+         timeline_search_error: socket.assigns.timeline_search_error,
+         timeline_embedder_unavailable?: socket.assigns.timeline_embedder_unavailable?,
+         timeline_coverage: coverage,
+         timeline_play_from_us: play_from_us,
+         timeline_play_to_us: play_to_us,
+         timeline_playlist_origin_us: playlist_origin_us,
+         timeline_seek_offset_seconds: seek_offset_seconds,
+         timeline_overlay_detections: overlay_detections,
+         timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
+         timeline_playlist_path: playlist_path,
+         timeline_has_adjacent_window: has_adjacent?,
+         timeline_holds: all_holds,
+         timeline_event_clips: clips_page.clips,
+         timeline_event_markers: clips_page.markers,
+         timeline_clips_mode: effective_clips_mode,
+         timeline_clips_category: effective_clips_category,
+         timeline_clips_page: clips_page.page,
+         timeline_clips_total_count: clips_page.total_count,
+         timeline_clips_total_pages: clips_page.total_pages,
+         timeline_clips_counts: clips_page.counts,
+         timeline_selected_clip_id: selected_clip_id,
+         timeline_user_selected_window?: false,
+         hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold)
+       ]}
     end
   end
 
@@ -3147,6 +3257,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp load_camera_switcher_for_scope(socket, scope) do
+    assign(socket, fetch_camera_switcher_assigns(socket, scope))
+  end
+
+  defp fetch_camera_switcher_assigns(socket, scope) do
     opts = %{
       search: socket.assigns.switcher_search,
       page: socket.assigns.switcher_page,
@@ -3160,19 +3274,19 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         total_pages = result[:total_pages] || max(div(total_count + per_page - 1, per_page), 1)
         page = min(result[:page] || socket.assigns.switcher_page, total_pages)
 
-        assign(socket,
+        [
           switcher_cameras: result[:cameras] || [],
           switcher_total_count: total_count,
           switcher_total_pages: total_pages,
           switcher_page: page
-        )
+        ]
 
       {:error, reason} ->
         Logger.warning("Failed to list cameras for switcher: #{inspect(reason)}")
-        socket
+        []
 
       _ ->
-        socket
+        []
     end
   end
 

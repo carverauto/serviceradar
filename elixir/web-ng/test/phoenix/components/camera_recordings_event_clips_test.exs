@@ -287,6 +287,52 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     refute has_selector?(live_doc, "#camera-workspace-live-relay-#{live_session.id} .sr-camera-relay-meta")
     refute has_selector?(live_doc, "#camera-timeline-player")
 
+    # Instant poster thumbnail renders behind the live video and on the pre-session placeholder
+    clip_with_thumb = %{
+      id: "evt-poster-1",
+      title: "Person",
+      category: "person",
+      thumbnail_url: "/api/cameras/cam-1/thumbnails/frame-1.jpg",
+      start_us: 1_763_164_700_000_000,
+      end_us: 1_763_164_710_000_000
+    }
+
+    poster_live_doc =
+      %{
+        live_mode?: true,
+        live_tile: %{label: "Synthetic South Gate", detail: "High", session: live_session, error: nil},
+        timeline_event_clips: [clip_with_thumb]
+      }
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert attr_of(
+             poster_live_doc,
+             "#camera-workspace-live-relay-#{live_session.id} [data-role='video-poster']",
+             "src"
+           ) == ["/api/cameras/cam-1/thumbnails/frame-1.jpg"]
+
+    assert attr_of(
+             poster_live_doc,
+             "#camera-workspace-live-relay-#{live_session.id} [data-role='video-element']",
+             "poster"
+           ) == ["/api/cameras/cam-1/thumbnails/frame-1.jpg"]
+
+    placeholder_doc =
+      %{
+        live_mode?: true,
+        live_tile: %{label: "Synthetic South Gate", detail: "Opening live camera relay...", session: nil, error: nil},
+        timeline_event_clips: [clip_with_thumb]
+      }
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert attr_of(
+             placeholder_doc,
+             "#camera-timeline-live-placeholder [data-role='live-placeholder-poster']",
+             "src"
+           ) == ["/api/cameras/cam-1/thumbnails/frame-1.jpg"]
+
     # Confidence threshold slider
     assert attr_of(live_doc, "#camera-clips-confidence-slider", "value") == ["65"]
     assert text_of(live_doc, "#camera-clips-confidence-value") == "65%"

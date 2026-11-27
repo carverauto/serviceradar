@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
   attr(:id_prefix, :string, default: "camera-relay")
   attr(:class, :string, default: "")
   attr(:compact, :boolean, default: false)
+  attr(:poster_url, :string, default: nil)
 
   def relay_player(assigns) do
     ~H"""
@@ -28,10 +29,18 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
       class={["sr-camera-relay-player", @compact && "sr-camera-relay-player-compact", @class]}
     >
       <div class="sr-camera-relay-frame">
+        <img
+          :if={is_binary(@poster_url) and @poster_url != ""}
+          src={@poster_url}
+          alt=""
+          data-role="video-poster"
+          class="sr-camera-relay-poster pointer-events-none absolute inset-0 z-10 h-full w-full object-contain transition-opacity duration-300"
+        />
         <canvas data-role="video-canvas" class="sr-camera-relay-canvas" />
         <video
           data-role="video-element"
           class="sr-camera-relay-video hidden"
+          poster={@poster_url}
           muted
           playsinline
           autoplay

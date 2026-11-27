@@ -1,5 +1,5 @@
 import {CAMERA_RELAY_MSE_TRANSPORT, CAMERA_RELAY_WEBRTC_TRANSPORT} from "../lib/camera_relay/player"
-import {CameraRelayViewer, playbackMetadataFromDataset} from "../lib/camera_relay/viewer"
+import {CAMERA_VIEWER_STATES, CameraRelayViewer, playbackMetadataFromDataset} from "../lib/camera_relay/viewer"
 
 function setText(root, role, value) {
   const element = root.querySelector(`[data-role="${role}"]`)
@@ -39,6 +39,7 @@ export default {
       report: (role, value) => setText(this.el, role, value),
       reportState: (role, value) => setDataset(this.el, role, value),
       setSurfaceVisibility: (transport) => this.setSurfaceVisibility(transport),
+      onStateChange: (state) => this.handleViewerStateChange(state),
     })
 
     this.viewer.start()
@@ -48,6 +49,13 @@ export default {
     if (this.viewer) {
       this.viewer.close()
       this.viewer = null
+    }
+  },
+
+  handleViewerStateChange(state) {
+    if (state === CAMERA_VIEWER_STATES.PLAYING) {
+      const poster = this.el.querySelector("[data-role='video-poster']")
+      poster?.classList?.add?.("opacity-0")
     }
   },
 

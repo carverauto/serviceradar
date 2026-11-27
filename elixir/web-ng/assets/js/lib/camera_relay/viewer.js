@@ -16,10 +16,17 @@ import {
 } from "./player"
 
 const WEBRTC_MEDIA_DEADLINE_MS = 8000
-// core-elx trickles its ICE candidates after returning the offer. Poll for
-// them until the connection settles; the media deadline bounds the loop.
-const WEBRTC_REMOTE_CANDIDATE_POLL_MS = 250
-const WEBRTC_CREATE_RETRY_DELAY_MS = 1000
+// core-elx trickles its ICE candidates after returning the offer. Poll
+// immediately after the answer and adaptively back off until ICE settles;
+// the media deadline bounds the loop.
+const WEBRTC_REMOTE_CANDIDATE_POLL_FAST_MS = 50
+const WEBRTC_REMOTE_CANDIDATE_POLL_MEDIUM_MS = 100
+const WEBRTC_REMOTE_CANDIDATE_POLL_SLOW_MS = 250
+const WEBRTC_REMOTE_CANDIDATE_FAST_POLLS = 10
+const WEBRTC_REMOTE_CANDIDATE_MEDIUM_POLLS = 20
+const WEBRTC_CREATE_RETRY_DELAY_MS = 150
+const WEBRTC_CREATE_MAX_RETRY_DELAY_MS = 500
+const WEBRTC_CREATE_RETRY_STEP_MS = 50
 const WEBRTC_CREATE_MAX_ATTEMPTS = 60
 const STREAM_RECONNECT_DELAY_MS = 1000
 const STREAM_RECONNECT_MAX_ATTEMPTS = 60
@@ -110,10 +117,6 @@ export function jsonHeaders() {
   }
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 // The relay's offer declares its track without a media stream (`a=msid:- <track>`),
 // so the browser reports `streams` empty; wrap the track itself in that case.
 function webRtcTrackStream(event) {
@@ -170,6 +173,7 @@ export class CameraRelayViewer {
     this.webrtcViewerSessionId = null
     this.webrtcMediaTimer = null
     this.webrtcCandidatePollTimer = null
+    this.webrtcActivationWake = null
     this.webrtcRemoteCandidates = new Set()
     this.webrtcVideo = null
     this.webrtcPlayingHandler = null
@@ -508,12 +512,24 @@ export class CameraRelayViewer {
 
   pollRemoteCandidates(peerConnection, isCurrentViewer) {
     const viewerSessionId = this.webrtcViewerSessionId
+    let pollCount = 0
     const settled = () =>
       ["connected", "failed", "closed"].includes(peerConnection.connectionState)
+    const nextPollDelayMs = (count) => {
+      if (count < WEBRTC_REMOTE_CANDIDATE_FAST_POLLS) {
+        return WEBRTC_REMOTE_CANDIDATE_POLL_FAST_MS
+      }
+      if (count < WEBRTC_REMOTE_CANDIDATE_MEDIUM_POLLS) {
+        return WEBRTC_REMOTE_CANDIDATE_POLL_MEDIUM_MS
+      }
+      return WEBRTC_REMOTE_CANDIDATE_POLL_SLOW_MS
+    }
 
     const poll = async () => {
       this.webrtcCandidatePollTimer = null
       if (!isCurrentViewer() || settled()) return
+
+      let gatheringComplete = false
 
       try {
         const response = await fetch(`${this.webrtcSignalingPath}/${viewerSessionId}`, {
@@ -528,16 +544,19 @@ export class CameraRelayViewer {
         const body = await response.json()
         if (!isCurrentViewer()) return
         this.addRemoteCandidates(peerConnection, body?.data?.remote_ice_candidates)
+        gatheringComplete = body?.data?.ice_gathering_state === "complete"
       } catch (_error) {
         if (!isCurrentViewer()) return
       }
 
-      if (!settled()) {
-        this.webrtcCandidatePollTimer = setTimeout(poll, WEBRTC_REMOTE_CANDIDATE_POLL_MS)
+      if (!settled() && !gatheringComplete) {
+        const delayMs = nextPollDelayMs(pollCount)
+        pollCount += 1
+        this.webrtcCandidatePollTimer = setTimeout(poll, delayMs)
       }
     }
 
-    this.webrtcCandidatePollTimer = setTimeout(poll, WEBRTC_REMOTE_CANDIDATE_POLL_MS)
+    void poll()
   }
 
   attachWebRtcTrack(peerConnection, event) {
@@ -564,6 +583,37 @@ export class CameraRelayViewer {
     }
 
     this.report("player-status", "WebRTC media track attached")
+  }
+
+  waitForRelayActivation(delayMs) {
+    return new Promise((resolve) => {
+      let settled = false
+      let timer = null
+
+      const finish = () => {
+        if (settled) return
+        settled = true
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+        if (this.webrtcActivationWake === finish) {
+          this.webrtcActivationWake = null
+        }
+        resolve()
+      }
+
+      this.webrtcActivationWake = finish
+      timer = setTimeout(finish, delayMs)
+    })
+  }
+
+  wakeRelayActivation() {
+    const wake = this.webrtcActivationWake
+    if (wake) {
+      this.webrtcActivationWake = null
+      wake()
+    }
   }
 
   async createWebRtcViewerSession() {
@@ -599,7 +649,11 @@ export class CameraRelayViewer {
       this.setState(CAMERA_VIEWER_STATES.ACTIVATING)
       this.report("transport-status", "Waiting for relay activation...")
       this.report("player-status", lastError)
-      await sleep(WEBRTC_CREATE_RETRY_DELAY_MS)
+      const retryDelayMs = Math.min(
+        WEBRTC_CREATE_RETRY_DELAY_MS + (attempt - 1) * WEBRTC_CREATE_RETRY_STEP_MS,
+        WEBRTC_CREATE_MAX_RETRY_DELAY_MS
+      )
+      await this.waitForRelayActivation(retryDelayMs)
       this.report("transport-status", "Creating WebRTC viewer session...")
       this.report("player-status", "Waiting for WebRTC offer...")
     }
@@ -610,6 +664,7 @@ export class CameraRelayViewer {
   destroyWebRtc() {
     const viewerSessionId = this.webrtcViewerSessionId
     const peerConnection = this.peerConnection
+    this.wakeRelayActivation()
     clearTimeout(this.webrtcMediaTimer)
     this.webrtcMediaTimer = null
     clearTimeout(this.webrtcCandidatePollTimer)
@@ -724,6 +779,10 @@ export class CameraRelayViewer {
         : "Waiting for core ingest to activate the relay session."
     )
     this.reportState("playback-state", payload.playback_state)
+
+    if (payload.status === "active" || payload.playback_state === "ready") {
+      this.wakeRelayActivation()
+    }
 
     if (payload.termination_kind === "failure") {
       this.setState(CAMERA_VIEWER_STATES.FAILED, {

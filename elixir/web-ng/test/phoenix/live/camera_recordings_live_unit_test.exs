@@ -58,6 +58,17 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       assert after_params.assigns.recording_subscribed_source_id == nil
       assert after_params.assigns.recording_refresh_timer_ref == nil
       assert after_params.assigns.recording_debounce_timer_ref == nil
+
+      assert {:noreply, after_live_params} =
+               Recordings.handle_params(
+                 %{"camera_source_id" => @camera_id, "mode" => "live"},
+                 "/cameras/#{@camera_id}/recordings?mode=live",
+                 mounted
+               )
+
+      assert after_live_params.assigns.live_mode? == true
+      assert after_live_params.assigns.recording_subscribed_source_id == nil
+      assert after_live_params.assigns.recording_refresh_timer_ref == nil
     end
   end
 
@@ -2417,6 +2428,139 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       assert_receive {:clips_queried, "basic", "all"}
       assert basic_socket.assigns.timeline_clips_mode == "basic"
       assert basic_socket.assigns.timeline_clips_category == "all"
+    end
+  end
+
+  describe "non-blocking live-first mount (mode=live)" do
+    test "starts live stream immediately and defers timeline and switcher queries into :load_timeline_data async task" do
+      {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+
+      if Process.whereis(ServiceRadar.PubSub) == nil do
+        start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      end
+
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          authorize_timeline_view: fn socket ->
+            scope = %{
+              socket.assigns.current_scope
+              | permissions: MapSet.put(socket.assigns.current_scope.permissions, "devices.cameras.view")
+            }
+
+            {:ok, scope, synthetic_source(socket.assigns.camera_source_id)}
+          end,
+          open_source_preview: fn _scope, _source_id, _opts ->
+            %{
+              camera_source_id: @camera_id,
+              label: "Camera",
+              detail: "High",
+              session: %{id: Ecto.UUID.generate(), status: :active, media_ingest_id: "ingest-async"},
+              error: nil
+            }
+          end,
+          coverage: fn _source_id, _params, _scope ->
+            send(parent, :coverage_called_sync)
+            {:ok, empty_coverage(@camera_id, @base_now_us - @hour_us, @base_now_us)}
+          end,
+          list_holds: fn _source_id, _scope ->
+            send(parent, :holds_called_sync)
+            {:ok, []}
+          end,
+          list_event_clips: fn _source_id, params, _scope ->
+            send(parent, :clips_called_sync)
+            {:ok, list_page_result([], params)}
+          end,
+          list_cameras: fn _scope, _opts ->
+            send(parent, :cameras_called_sync)
+            {:ok, %{cameras: [], total_count: 0, total_pages: 1, page: 1, per_page: 20}}
+          end
+        })
+
+      socket =
+        mount_connected(@camera_id, deps,
+          params: %{"camera_source_id" => @camera_id, "mode" => "live"},
+          refresh_interval_ms: 15_000,
+          debounce_ms: 0
+        )
+
+      on_exit(fn -> cancel_timers(socket) end)
+
+      # Initial connected render is ready immediately in live mode without blocking on heavy timeline queries.
+      assert socket.assigns.loading == false
+      assert socket.assigns.mode == :timeline
+      assert socket.assigns.live_mode? == true
+      assert socket.assigns.source.id == @camera_id
+      assert is_map(socket.assigns.live_tile)
+      assert socket.assigns.timeline_coverage == nil
+      assert socket.assigns.switcher_cameras == []
+
+      refute_received :coverage_called_sync
+      refute_received :holds_called_sync
+      refute_received :clips_called_sync
+      refute_received :cameras_called_sync
+
+      # Both async tasks (:camera_live_open first, then :load_timeline_data) are queued on the socket.
+      async_names =
+        socket.private
+        |> Map.get(:live_async, %{})
+        |> Map.keys()
+
+      assert :camera_live_open in async_names
+      assert :load_timeline_data in async_names
+
+      # Completing :load_timeline_data populates switcher + timeline without clobbering live_mode? or live_tile.
+      live_tile = %{
+        label: "Camera",
+        detail: "High",
+        session: %{id: Ecto.UUID.generate(), status: :active, media_ingest_id: "ingest-1"},
+        error: nil
+      }
+
+      {:noreply, with_live_tile} = Recordings.handle_async(:camera_live_open, {:ok, live_tile}, socket)
+      assert with_live_tile.assigns.live_tile == live_tile
+
+      cov = populated_coverage(@camera_id, @base_now_us - @hour_us, @base_now_us, [])
+      clip = sample_clip("clip-deferred-1", @base_now_us - 60_000_000, @base_now_us - 50_000_000)
+      other_cam = synthetic_source(@other_camera_id)
+
+      {:noreply, hydrated} =
+        Recordings.handle_async(
+          :load_timeline_data,
+          {:ok,
+           {@camera_id,
+            [switcher_cameras: [other_cam], switcher_total_count: 1, switcher_total_pages: 1, switcher_page: 1],
+            {:ok, [timeline_coverage: cov, timeline_event_clips: [clip]]}}},
+          with_live_tile
+        )
+
+      assert hydrated.assigns.live_mode? == true
+      assert hydrated.assigns.live_tile == live_tile
+      assert hydrated.assigns.timeline_coverage == cov
+      assert hydrated.assigns.timeline_event_clips == [clip]
+      assert hydrated.assigns.switcher_cameras == [other_cam]
+
+      # Stale :load_timeline_data results for a different camera are ignored.
+      {:noreply, ignored_stale} =
+        Recordings.handle_async(
+          :load_timeline_data,
+          {:ok, {@other_camera_id, [switcher_cameras: []], {:ok, [timeline_coverage: nil]}}},
+          hydrated
+        )
+
+      assert ignored_stale.assigns.timeline_coverage == cov
+      assert ignored_stale.assigns.switcher_cameras == [other_cam]
+
+      # Deferred task exit logs a warning and keeps the live stream intact.
+      {{:noreply, after_exit}, log} =
+        with_log(fn ->
+          Recordings.handle_async(:load_timeline_data, {:exit, :timeout}, hydrated)
+        end)
+
+      assert log =~ "Deferred camera timeline load exited"
+      assert after_exit.assigns.live_mode? == true
+      assert after_exit.assigns.live_tile == live_tile
     end
   end
 
