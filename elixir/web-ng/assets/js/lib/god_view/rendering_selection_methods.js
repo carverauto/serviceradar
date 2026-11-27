@@ -1,4 +1,12 @@
 import {dashboardUserTimeHtml} from "../../utils/dashboard_user_time"
+import {
+  formatLossPct,
+  formatPortSpeedMbps,
+  formatRttUs,
+  horizonEntityBadges,
+  horizonInspectUrl,
+  horizonNodeDisplayLabel,
+} from "./horizon_egress_shared"
 
 function storedDetailTime(details) {
   if (!details || typeof details !== "object") return ""
@@ -59,13 +67,76 @@ export const godViewRenderingSelectionMethods = {
     this.state.lastDetailsHtml = null
   },
   clearSelection() {
-    const hadSelection = this.state.selectedNodeIndex !== null || this.state.selectedEdgeKey != null
+    const hadSelection =
+      this.state.selectedNodeIndex !== null ||
+      this.state.selectedEdgeKey != null ||
+      this.state.selectedHorizonEntity != null
     const detailsOpen = Boolean(this.state.details && !this.state.details.classList.contains("hidden"))
     this.state.selectedNodeIndex = null
     this.state.selectedEdgeKey = null
+    this.state.selectedHorizonEntity = null
     this.hideSelectionDetails()
     if (!hadSelection && !detailsOpen) return
     this.scheduleSelectionRefresh()
+  },
+  renderHorizonSelectionDetails(entity) {
+    if (!this.state.details) return
+    if (!entity || typeof entity !== "object") {
+      this.hideSelectionDetails()
+      return
+    }
+
+    const isEdge = entity.horizonEntityType === "edge" || Boolean(entity.src_id && entity.dst_id)
+    const title = isEdge
+      ? `${entity.kind || "EGRESSES_TO"}`
+      : horizonNodeDisplayLabel(entity)
+    const badges = horizonEntityBadges(entity)
+    const inspectUrl = horizonInspectUrl(entity, entity.connectedNodes || [])
+    const speed = formatPortSpeedMbps(entity.port_speed_mbps)
+    const rtt = formatRttUs(entity.avg_rtt_us)
+    const loss = formatLossPct(entity.loss_pct)
+    const location = [entity.metro, entity.iata, entity.country_code].filter(Boolean).join(" · ")
+
+    const lines = [
+      `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(title)}</span><button type="button" class="btn btn-ghost btn-xs btn-square" data-close-details aria-label="Close details">×</button></div>`,
+      badges.length > 0
+        ? `<div class="mb-1 flex flex-wrap gap-1">${badges
+            .map((badge) => `<span class="badge badge-xs badge-outline font-mono">${this.escapeHtml(badge)}</span>`)
+            .join("")}</div>`
+        : "",
+      isEdge
+        ? `<div>Path: ${this.escapeHtml(entity.src_id)} → ${this.escapeHtml(entity.dst_id)}</div>`
+        : `<div>ID: <span class="font-mono break-all">${this.escapeHtml(entity.id || "unknown")}</span></div>`,
+      !isEdge && entity.kind ? `<div>Kind: ${this.escapeHtml(entity.kind)}</div>` : "",
+      entity.asn ? `<div>ASN: AS${this.escapeHtml(entity.asn)}</div>` : "",
+      entity.border_asn ? `<div>Border ASN: AS${this.escapeHtml(entity.border_asn)}</div>` : "",
+      entity.ip ? `<div>IP: ${this.escapeHtml(entity.ip)}</div>` : "",
+      entity.egress_source ? `<div>Egress Source: ${this.escapeHtml(entity.egress_source)}</div>` : "",
+      entity.if_name ? `<div>Interface: ${this.escapeHtml(entity.if_name)}</div>` : "",
+      speed ? `<div>Port Speed: ${this.escapeHtml(speed)}</div>` : "",
+      entity.outage_state ? `<div>Outage State: ${this.escapeHtml(entity.outage_state)}</div>` : "",
+      entity.rpki_state ? `<div>RPKI State: ${this.escapeHtml(entity.rpki_state)}</div>` : "",
+      entity.rtbh_active === true ? `<div>RTBH: active</div>` : "",
+      entity.irr_status ? `<div>IRR Status: ${this.escapeHtml(entity.irr_status)}</div>` : "",
+      entity.region ? `<div>Region: ${this.escapeHtml(entity.region)}</div>` : "",
+      location ? `<div>Location: ${this.escapeHtml(location)}</div>` : "",
+      rtt ? `<div>Avg RTT: ${this.escapeHtml(rtt)}</div>` : "",
+      loss ? `<div>Loss: ${this.escapeHtml(loss)}</div>` : "",
+      entity.last_seen ? `<div>Last Seen: ${this.escapeHtml(entity.last_seen)}</div>` : "",
+      `<div class="pt-2"><a class="link link-primary underline underline-offset-2 text-xs font-semibold" href="${this.escapeHtml(inspectUrl)}" data-horizon-href="${this.escapeHtml(inspectUrl)}">Inspect in Horizon</a></div>`,
+    ].filter(Boolean)
+
+    const nextHtml = lines.join("")
+    if (this.state.lastDetailsHtml !== nextHtml) {
+      this.state.details.innerHTML = nextHtml
+      this.state.lastDetailsHtml = nextHtml
+    }
+    if (this.state.details.classList.contains("hidden")) {
+      this.state.details.classList.remove("hidden")
+    }
+    if (this.state.details.style) {
+      this.state.details.style.display = ""
+    }
   },
   renderSelectionDetails(node) {
     if (!this.state.details) return
@@ -193,6 +264,40 @@ export const godViewRenderingSelectionMethods = {
           style: "full",
         })
       : "unknown"
+    const egressInfo =
+      typeof this.horizonEgressForDevice === "function" ? this.horizonEgressForDevice(node) : null
+    const egressSection = egressInfo
+      ? (() => {
+          const dev = egressInfo.device || {}
+          const speed = formatPortSpeedMbps(dev.port_speed_mbps)
+          const upstreamBadges = (egressInfo.connectedNodes || [])
+            .slice(0, 4)
+            .map((ext) => {
+              const label = horizonNodeDisplayLabel(ext)
+              const badges = horizonEntityBadges(ext).join(" ")
+              return `<div>${this.escapeHtml(badges ? `${label} ${badges}` : label)}</div>`
+            })
+            .join("")
+          const primaryTarget = (egressInfo.connectedNodes || []).find(
+            (ext) => String(ext?.kind || "").toLowerCase() === "saastarget",
+          )
+          const primaryAsn = (egressInfo.connectedNodes || []).find((ext) => ext?.asn)
+          const inspectUrl = horizonInspectUrl(primaryTarget || primaryAsn || dev, egressInfo.connectedNodes || [])
+          return [
+            `<div class="mt-2 border-t border-base-content/10 pt-2 space-y-0.5">`,
+            `<div class="text-[10px] uppercase tracking-wide text-base-content/60">Internet Egress / Horizon</div>`,
+            dev.egress_source ? `<div>Egress Source: ${this.escapeHtml(dev.egress_source)}</div>` : "",
+            dev.if_name ? `<div>Egress Interface: ${this.escapeHtml(dev.if_name)}</div>` : "",
+            speed ? `<div>Port Speed: ${this.escapeHtml(speed)}</div>` : "",
+            upstreamBadges,
+            `<div class="pt-1"><a class="link link-primary underline underline-offset-2 text-xs font-semibold" href="${this.escapeHtml(inspectUrl)}" data-horizon-href="${this.escapeHtml(inspectUrl)}">Inspect in Horizon</a></div>`,
+            `</div>`,
+          ]
+            .filter(Boolean)
+            .join("")
+        })()
+      : ""
+
     const detailLines = [
       `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(node.label || "node")}</span><span class="inline-flex items-center justify-end gap-1 min-w-4">${typeIcon ? `<span class="${this.escapeHtml(typeIcon)} size-4 text-base-content/70" title="${this.escapeHtml(typeLabel || "unknown")}"></span>` : ""}<button type="button" class="btn btn-ghost btn-xs btn-square" data-close-details aria-label="Close details">×</button></span></div>`,
       idLine,
@@ -214,6 +319,7 @@ export const godViewRenderingSelectionMethods = {
       `<div>Geo: ${this.escapeHtml([d.geo_city, d.geo_country].filter(Boolean).join(", ") || "unknown")}</div>`,
       cameraAvailability ? `<div>Camera Availability: ${this.escapeHtml(cameraAvailability)}</div>` : "",
       cameraEventSummary ? `<div>Camera Activity: ${this.escapeHtml(cameraEventSummary)}</div>` : "",
+      egressSection,
       clusterAction,
       clusterCameraAction,
       cameraActions,
@@ -346,9 +452,31 @@ export const godViewRenderingSelectionMethods = {
   },
   handlePick(info) {
     const layerId = info?.layer?.id || ""
+    if (typeof this.horizonEgressLayerId === "function" && this.horizonEgressLayerId(layerId)) {
+      const entity = info?.object
+      if (entity && typeof entity === "object") {
+        const key = typeof entity.interactionKey === "string" ? entity.interactionKey : null
+        const same = key && this.state.selectedHorizonEntity?.interactionKey === key
+        this.state.selectedNodeIndex = null
+        this.state.selectedEdgeKey = null
+        this.state.selectedHorizonEntity = same ? null : entity
+        if (this.state.lastGraph && typeof this.refreshInteraction === "function") {
+          this.refreshInteraction()
+        } else if (!same && typeof this.renderHorizonSelectionDetails === "function") {
+          this.renderHorizonSelectionDetails(entity)
+        } else {
+          this.hideSelectionDetails()
+        }
+        this.forceDeckRedraw()
+        return
+      }
+      this.clearSelection()
+      return
+    }
     if (this.edgeLayerId(layerId)) {
       const key = typeof info?.object?.interactionKey === "string" ? info.object.interactionKey : null
       if (key) {
+        this.state.selectedHorizonEntity = null
         this.state.selectedEdgeKey = this.state.selectedEdgeKey === key ? null : key
         if (this.state.lastGraph) this.refreshInteraction()
         this.forceDeckRedraw()
@@ -413,6 +541,7 @@ export const godViewRenderingSelectionMethods = {
       return
     }
 
+    this.state.selectedHorizonEntity = null
     this.state.selectedNodeIndex = this.state.selectedNodeIndex === picked ? null : picked
     this.scheduleSelectionRefresh()
   },

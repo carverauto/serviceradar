@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
   alias ServiceRadarWebNGWeb.FeatureFlags
   alias ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay
   alias ServiceRadarWebNGWeb.TopologyLive.GodViewControlState
+  alias ServiceRadarWebNGWeb.TopologyLive.GodViewHorizonEgressOverlay
   alias ServiceRadarWebNGWeb.TopologyLive.GodViewMtrOverlay
   alias ServiceRadarWebNGWeb.TopologyLive.GodViewStreamState
   alias ServiceRadarWebNGWeb.TopologyLive.GodViewTemplate
@@ -49,7 +50,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
           backbone: true,
           inferred: false,
           endpoints: false,
-          mtr_paths: true
+          mtr_paths: true,
+          horizon_egress: false
         })
         |> assign(:selected_camera_context, nil)
         |> assign(:active_camera_relay_session, nil)
@@ -58,12 +60,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         |> assign(:camera_relay_tiles, [])
         |> assign(:camera_relay_tile_notice, nil)
         |> assign(:mtr_paths_cache, nil)
+        |> assign(:horizon_egress_cache, nil)
         |> assign(:pipeline_stats, %{})
         |> assign(:controls_collapsed, true)
 
       socket =
         if connected?(socket) do
-          GodViewMtrOverlay.push_path_data(socket)
+          socket = GodViewMtrOverlay.push_path_data(socket)
+
+          if socket.assigns.topology_layers.horizon_egress do
+            GodViewHorizonEgressOverlay.push_egress_data(socket)
+          else
+            socket
+          end
         else
           socket
         end

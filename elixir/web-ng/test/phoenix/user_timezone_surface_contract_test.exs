@@ -78,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
         visual_layers: %{mantle: true, crust: true, atmosphere: true, security: true},
         zoom_mode: "local",
         causal_filters: %{root_cause: true, affected: true, healthy: true, unknown: true},
-        topology_layers: %{backbone: true, inferred: false, endpoints: false, mtr_paths: true},
+        topology_layers: %{backbone: true, inferred: false, endpoints: false, mtr_paths: true, horizon_egress: false},
         timezone: @timezone
       )
 
@@ -825,7 +825,7 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
       visual_layers: %{mantle: true, crust: true, atmosphere: true, security: true},
       zoom_mode: "local",
       causal_filters: %{root_cause: true, affected: true, healthy: true, unknown: true},
-      topology_layers: %{backbone: true, inferred: false, endpoints: false, mtr_paths: true},
+      topology_layers: %{backbone: true, inferred: false, endpoints: false, mtr_paths: true, horizon_egress: false},
       selected_camera_context: nil,
       active_camera_relay_session: nil,
       last_camera_relay_session: nil,

@@ -47,6 +47,15 @@ export const godViewRenderingGraphLayerTransportMethods = {
           getLineColor: [...this.state.visual.pulse.slice(0, 3), Math.floor(255 * (1.0 - pulse))],
         })
       }
+      case "god-view-horizon-egress-pulse": {
+        const pulse = (phase * 1.5) % 1.0
+        const pulseColor = this.state.visual?.pulse || [255, 42, 122]
+        return layer.clone({
+          getRadius: 12 + (pulse * 36),
+          getLineWidth: Math.max(1, 3 - (pulse * 2)),
+          getLineColor: [pulseColor[0], pulseColor[1], pulseColor[2], Math.floor(240 * (1.0 - pulse))],
+        })
+      }
       case "god-view-nodes-ring":
         return layer.clone({
           updateTriggers: {...layer.props.updateTriggers, getRadius: [phase, ...(layer.props.updateTriggers?.getRadius || []).slice(1)]},

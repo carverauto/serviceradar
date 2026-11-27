@@ -128,7 +128,9 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.wasmReady = false
     this.state.selectedNodeIndex = null
     this.state.hoveredEdgeKey = null
+    this.state.hoveredHorizonKey = null
     this.state.selectedEdgeKey = null
+    this.state.selectedHorizonEntity = null
     this.state.pendingAnimationFrame = null
     this.state.zoomMode = "local"
     this.state.zoomTier = "local"
@@ -159,8 +161,15 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     // census bubble invented new edges". Default it on so an attachment edge
     // between two visible glyphs always draws; collapsed cluster members stay
     // hidden, so this does not reintroduce the endpoint hairball.
-    this.state.topologyLayers = {backbone: true, inferred: false, endpoints: true, mtr_paths: true}
+    this.state.topologyLayers = {
+      backbone: true,
+      inferred: false,
+      endpoints: true,
+      mtr_paths: true,
+      horizon_egress: false,
+    }
     this.state.mtrPathData = []
+    this.state.horizonEgressData = null
     this.state.lastPipelineStats = null
     this.state.packetFlowEnabled = true
     this.state.atmosphereSuppressUntil = 0

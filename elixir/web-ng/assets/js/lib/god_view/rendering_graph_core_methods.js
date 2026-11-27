@@ -87,7 +87,14 @@ export const godViewRenderingGraphCoreMethods = {
     frame.edgeLabelData = this.selectEdgeLabels(frame.edgeData, effective.shape)
     const selected = this.state.selectedNodeIndex
     const record = effective.shape === "local" && Number.isInteger(selected) ? nodeFrame.records[selected] : null
-    this.renderSelectionDetails(record?.visible ? record : null)
+    const horizonEgressEnabled = this.state.topologyLayers?.horizon_egress === true
+    if (record?.visible) {
+      this.renderSelectionDetails(record)
+    } else if (horizonEgressEnabled && this.state.selectedHorizonEntity && typeof this.renderHorizonSelectionDetails === "function") {
+      this.renderHorizonSelectionDetails(this.state.selectedHorizonEntity)
+    } else {
+      this.renderSelectionDetails(null)
+    }
     this.refreshGraphLayersForViewState()
   },
   renderGraph(graph) {
@@ -99,7 +106,14 @@ export const godViewRenderingGraphCoreMethods = {
 
     const {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode, nodeFrame} =
       this.buildVisibleGraphData(effective)
-    this.renderSelectionDetails(selectedVisibleNode)
+    const horizonEgressEnabled = this.state.topologyLayers?.horizon_egress === true
+    if (selectedVisibleNode) {
+      this.renderSelectionDetails(selectedVisibleNode)
+    } else if (horizonEgressEnabled && this.state.selectedHorizonEntity && typeof this.renderHorizonSelectionDetails === "function") {
+      this.renderHorizonSelectionDetails(this.state.selectedHorizonEntity)
+    } else {
+      this.renderSelectionDetails(null)
+    }
     this.state.lastGraphLayerFrame = {graph, effective, nodeData, edgeData, edgeLabelData, rootPulseNodes, nodeFrame}
 
     let layers

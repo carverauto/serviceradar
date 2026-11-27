@@ -102,10 +102,39 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     view |> element(~s(button[phx-click="toggle_visual_layer"][phx-value-layer="mantle"])) |> render_click()
     assert_push_event(view, "god_view:set_layers", %{layers: %{"mantle" => false, "atmosphere" => true}})
     refute has_element?(view, ~s(button[phx-value-state="root_cause"]))
-    # Only the Inferred topology layer has a world control (restored in 8771c35338);
+    # Only Inferred and Internet Egress / Horizon topology layers have world controls;
     # backbone, endpoints and MTR paths stay without toggles.
     assert has_element?(view, ~s(button[phx-click="toggle_topology_layer"][phx-value-layer="inferred"]))
-    refute has_element?(view, ~s{button[phx-click="toggle_topology_layer"]:not([phx-value-layer="inferred"])})
+    assert has_element?(view, ~s(button[phx-click="toggle_topology_layer"][phx-value-layer="horizon_egress"]))
+
+    refute has_element?(
+             view,
+             ~s{button[phx-click="toggle_topology_layer"]:not([phx-value-layer="inferred"]):not([phx-value-layer="horizon_egress"])}
+           )
+
+    view |> element(~s([data-testid="toggle-horizon-egress-layer"])) |> render_click()
+
+    assert_push_event(view, "god_view:set_topology_layers", %{
+      layers: %{"horizon_egress" => true}
+    })
+
+    assert_push_event(view, "god_view:horizon_egress_data", %{
+      egress_devices: [],
+      external_nodes: [],
+      edges: []
+    })
+
+    view |> element(~s([data-testid="toggle-horizon-egress-layer"])) |> render_click()
+
+    assert_push_event(view, "god_view:set_topology_layers", %{
+      layers: %{"horizon_egress" => false}
+    })
+
+    assert_push_event(view, "god_view:horizon_egress_data", %{
+      egress_devices: [],
+      external_nodes: [],
+      edges: []
+    })
   end
 
   test "shows the backbone-empty warning without hiding the remaining topology", %{conn: conn} do

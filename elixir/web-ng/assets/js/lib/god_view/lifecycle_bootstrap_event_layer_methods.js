@@ -15,12 +15,21 @@ export const godViewLifecycleBootstrapEventLayerMethods = {
     this.state.handleEvent("god_view:set_topology_layers", ({layers}) => {
       if (layers && typeof layers === "object") {
         const prev = this.state.topologyLayers || {}
+        const nextHorizonEgress =
+          typeof layers.horizon_egress === "boolean"
+            ? layers.horizon_egress
+            : prev.horizon_egress === true
         this.state.topologyLayers = {
           backbone: layers.backbone !== false,
           inferred: layers.inferred === true,
           endpoints: layers.endpoints === true,
           mtr_paths:
             typeof layers.mtr_paths === "boolean" ? layers.mtr_paths : prev.mtr_paths !== false,
+          horizon_egress: nextHorizonEgress,
+        }
+        if (!nextHorizonEgress) {
+          this.state.selectedHorizonEntity = null
+          this.state.hoveredHorizonKey = null
         }
         // Turning the endpoints layer off hides attachment geometry; it does not discard which
         // clusters the operator opened. Collapsing here meant any layer push that omitted
@@ -32,6 +41,11 @@ export const godViewLifecycleBootstrapEventLayerMethods = {
 
     this.state.handleEvent("god_view:mtr_path_data", ({paths}) => {
       this.state.mtrPathData = Array.isArray(paths) ? paths : []
+      if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
+    })
+
+    this.state.handleEvent("god_view:horizon_egress_data", (payload) => {
+      this.state.horizonEgressData = payload && typeof payload === "object" ? payload : null
       if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
     })
   },
