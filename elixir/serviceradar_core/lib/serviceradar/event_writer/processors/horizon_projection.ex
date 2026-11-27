@@ -13,27 +13,38 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
 
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.NATS.Connection
 
   require Logger
 
+  @status_ttl_secs 900
+
   @doc """
-  Projects any Horizon OCSF rows in `rows` into StarRocks.
+  Projects any Horizon OCSF rows in `rows` into StarRocks and forwards
+  `horizon.outage` and `horizon.bgp_anomaly` status updates onto local NATS
+  for `HorizonTopologyConsumer`.
 
   Always returns `:ok` (fail-open). Test options:
 
     * `:starrocks_enabled` - boolean override for `Destination.enabled?/0`
     * `:load` - `(dataset, rows -> {:ok, map()} | {:error, term()})`, defaults to
       `&Destination.persist_warehouse/2`
+    * `:publish_nats` - `(subject, payload, opts -> :ok | {:error, term()})`, defaults to
+      `&ServiceRadar.NATS.Connection.publish/3`
   """
   @spec project_rows([map()], keyword()) :: :ok
   def project_rows(rows, opts \\ []) when is_list(rows) do
     horizon_rows = Enum.filter(rows, &horizon_event?/1)
 
-    if horizon_rows == [] or not starrocks_enabled?(opts) do
-      :ok
-    else
-      do_project(horizon_rows, opts)
+    if horizon_rows != [] do
+      if starrocks_enabled?(opts) do
+        safe_do_project(horizon_rows, opts)
+      end
+
+      forward_status_events(horizon_rows, opts)
     end
+
+    :ok
   rescue
     error ->
       Logger.warning("Horizon OCSF projection failed (fail-open): #{Exception.message(error)}")
@@ -77,6 +88,14 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
 
   defp starrocks_enabled?(opts) do
     Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0)
+  end
+
+  defp safe_do_project(horizon_rows, opts) do
+    do_project(horizon_rows, opts)
+  rescue
+    error ->
+      Logger.warning("Horizon OCSF projection failed (fail-open): #{Exception.message(error)}")
+      :ok
   end
 
   defp do_project(horizon_rows, opts) do
@@ -353,6 +372,197 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   defp parse_bool("true"), do: true
   defp parse_bool("1"), do: true
   defp parse_bool(_), do: false
+
+  defp forward_status_events(horizon_rows, opts) do
+    publish_fn = Keyword.get(opts, :publish_nats, &Connection.publish/3)
+
+    Enum.each(horizon_rows, fn row ->
+      case build_nats_status_event(row) do
+        {:ok, subject, payload, msg_id} ->
+          publish_status_event(publish_fn, subject, payload, msg_id)
+
+        :ignore ->
+          :ok
+      end
+    end)
+  rescue
+    error ->
+      Logger.warning(
+        "Horizon NATS status forwarding failed (fail-open): #{Exception.message(error)}"
+      )
+
+      :ok
+  end
+
+  defp publish_status_event(publish_fn, subject, payload, msg_id) do
+    encoded = Jason.encode!(payload)
+    headers = [{"Nats-Msg-Id", msg_id}]
+
+    case publish_fn.(subject, encoded, headers: headers) do
+      :ok ->
+        :ok
+
+      {:error, {:nats_not_connected, _reason}} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Horizon NATS status publish failed for #{subject} (fail-open): #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "Horizon NATS status publish raised for #{subject} (fail-open): #{Exception.message(error)}"
+      )
+
+      :ok
+  end
+
+  defp build_nats_status_event(%{log_name: "horizon.outage", time: time} = row) do
+    unmapped = unmapped_map(row)
+    outage_id = non_empty_string(unmapped["outage_id"])
+    entity_type = non_empty_string(unmapped["entity_type"])
+    raw_status = non_empty_string(unmapped["status"])
+    outage_state = normalize_outage_status(raw_status)
+    {entity_id, node_kind, origin_asn} = map_outage_entity(entity_type, unmapped)
+
+    if is_binary(outage_id) and is_binary(entity_id) and is_binary(outage_state) do
+      timestamp = time |> normalize_time() |> DateTime.to_iso8601()
+      subject = "serviceradar.horizon.outages.#{subject_token(entity_type || "unknown")}"
+      msg_id = status_msg_id("outage", outage_id, timestamp, outage_state)
+
+      payload =
+        %{
+          "entity_id" => entity_id,
+          "kind" => node_kind,
+          "outage_state" => outage_state,
+          "covering_prefix" => non_empty_string(unmapped["covering_prefix"]),
+          "origin_asn" => origin_asn,
+          "event_type" => "horizon.outage",
+          "timestamp" => timestamp,
+          "ttl_secs" => @status_ttl_secs
+        }
+        |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+        |> Map.new()
+
+      {:ok, subject, payload, msg_id}
+    else
+      :ignore
+    end
+  end
+
+  defp build_nats_status_event(%{log_name: "horizon.bgp_anomaly", time: time} = row) do
+    unmapped = unmapped_map(row)
+    event_id = non_empty_string(unmapped["event_id"])
+    kind = non_empty_string(unmapped["kind"]) || "anomaly"
+    covering_prefix = non_empty_string(unmapped["covering_prefix"])
+    origin_asn = parse_asn(unmapped["origin_asn"])
+
+    entity_id =
+      cond do
+        is_binary(covering_prefix) -> covering_prefix
+        is_integer(origin_asn) and origin_asn > 0 -> "asn:#{origin_asn}"
+        true -> nil
+      end
+
+    if is_binary(event_id) and is_binary(entity_id) do
+      timestamp = time |> normalize_time() |> DateTime.to_iso8601()
+      subject = "serviceradar.horizon.bgp.#{subject_token(kind)}"
+      msg_id = status_msg_id("bgp", event_id, timestamp, kind)
+      node_kind = if(String.contains?(entity_id, "/"), do: "Prefix", else: "ASN")
+      rtbh_active = parse_bool(unmapped["rtbh_blackhole"]) or kind == "rtbh_blackhole"
+
+      payload =
+        %{
+          "entity_id" => entity_id,
+          "kind" => node_kind,
+          "covering_prefix" => covering_prefix,
+          "origin_asn" => origin_asn,
+          "rpki_state" => non_empty_string(unmapped["rpki_status"]),
+          "rtbh_active" => rtbh_active,
+          "event_type" => kind,
+          "timestamp" => timestamp,
+          "ttl_secs" => @status_ttl_secs
+        }
+        |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+        |> Map.new()
+
+      {:ok, subject, payload, msg_id}
+    else
+      :ignore
+    end
+  end
+
+  defp build_nats_status_event(_row), do: :ignore
+
+  defp map_outage_entity(entity_type, unmapped) do
+    entity_type_down = entity_type && String.downcase(entity_type)
+    entity_key = non_empty_string(unmapped["entity_key"])
+    affected_asn = parse_asn(unmapped["affected_asn"])
+
+    case entity_type_down do
+      "asn" ->
+        asn = affected_asn || parse_asn(entity_key)
+        if is_integer(asn) and asn > 0, do: {"asn:#{asn}", "ASN", asn}, else: {nil, nil, nil}
+
+      "saas" ->
+        id = non_empty_string(unmapped["saas_service"]) || entity_key
+        {prefix_entity_id("saas:", id), "SaasTarget", affected_asn}
+
+      "ixp" ->
+        id = non_empty_string(unmapped["ixp"]) || entity_key
+        {prefix_entity_id("ixp:", id), "IXP", affected_asn}
+
+      type when type in ["pop", "vantage"] ->
+        {prefix_entity_id("vantage:", entity_key), "Vantage", affected_asn}
+
+      "prefix" ->
+        cidr = non_empty_string(unmapped["covering_prefix"]) || entity_key
+        {cidr, "Prefix", affected_asn}
+
+      _ ->
+        {entity_key, entity_type, affected_asn}
+    end
+  end
+
+  defp prefix_entity_id(_prefix, nil), do: nil
+
+  defp prefix_entity_id(prefix, id) do
+    if String.starts_with?(id, prefix), do: id, else: prefix <> id
+  end
+
+  defp normalize_outage_status(nil), do: nil
+
+  defp normalize_outage_status(status) do
+    case String.downcase(status) do
+      "cleared" -> "up"
+      _ -> status
+    end
+  end
+
+  defp subject_token(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_-]+/, "_")
+    |> String.trim("_")
+    |> case do
+      "" -> "unknown"
+      token -> token
+    end
+  end
+
+  defp status_msg_id(kind, id, timestamp, state) do
+    digest =
+      :sha256
+      |> :crypto.hash("horizon.status:" <> kind <> ":" <> id <> ":" <> timestamp <> ":" <> state)
+      |> Base.encode16(case: :lower)
+
+    "horizon-status-" <> digest
+  end
 
   defp list_or_empty(list) when is_list(list), do: list
   defp list_or_empty(_), do: []

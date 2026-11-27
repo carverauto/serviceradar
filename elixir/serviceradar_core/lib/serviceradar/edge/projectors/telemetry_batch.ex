@@ -55,6 +55,8 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
   @schema "serviceradar.metric.v1"
   @producer_type_key "serviceradar.producer_type"
   @producer_id_key "serviceradar.producer_id"
+  @external_topology_subject "serviceradar.horizon.topology.snapshot"
+  @raw_hop_keys ["raw_hops", "path_hops", "rounds", "probes", "round_id"]
 
   # The payload kinds this contract routes. The OTLP relay kinds ride their
   # own contract; anything else is refused at decode, never dropped silently
@@ -63,6 +65,13 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
     :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
     :TELEMETRY_PAYLOAD_KIND_OTEL_LOG,
     :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
+    :TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1,
+    :TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1
+  ]
+
+  @status_ingestor_kinds [
+    :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+    :TELEMETRY_PAYLOAD_KIND_OTEL_LOG,
     :TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1
   ]
 
@@ -106,18 +115,20 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
   def publish(%EdgeRecordV1{} = record, {%Batch{} = batch, body, producer}, opts) do
     context = record.producer_context
     agent_id = context.origin_principal_id
+    check_grant_fn = Keyword.get(opts, :check_grant_fn, &OutputGrants.check_current/5)
 
     with :ok <-
-           OutputGrants.check_current(
+           check_grant_fn.(
              Ecto.UUID.load!(context.producer_assignment_id),
              agent_id,
              record.output_contract.contract_id,
              Ecto.UUID.load!(record.network_scope_id),
              context.authority_epoch
            ),
-         {:ok, partition} <- partition(record.network_scope_id),
+         {:ok, partition} <- partition(record.network_scope_id, opts),
          :ok <- publish_metrics(record, batch, producer, agent_id, partition, opts),
-         :ok <- route_via_status_ingestor(body, producer, agent_id, partition) do
+         :ok <- publish_external_topology(record, batch, producer, agent_id, opts),
+         :ok <- maybe_route_via_status_ingestor(batch, body, producer, agent_id, partition) do
       emit_spool_counters(batch, producer, agent_id)
     else
       {:error, :output_grant_not_current} -> {:refused, :output_grant_not_current}
@@ -224,6 +235,102 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
     }
   end
 
+  defp maybe_route_via_status_ingestor(
+         %Batch{records: records},
+         body,
+         producer,
+         agent_id,
+         partition
+       ) do
+    if Enum.any?(records, &(&1.payload_kind in @status_ingestor_kinds)) do
+      route_via_status_ingestor(body, producer, agent_id, partition)
+    else
+      :ok
+    end
+  end
+
+  defp publish_external_topology(record, batch, producer, agent_id, opts) do
+    event_id = Ecto.UUID.load!(record.event_id)
+
+    batch.records
+    |> Enum.with_index()
+    |> Enum.filter(
+      &match?(
+        {%TelemetryRecord{payload_kind: :TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1}, _},
+        &1
+      )
+    )
+    |> Enum.reduce_while(:ok, fn {telemetry_record, index}, :ok ->
+      case publish_external_topology_record(
+             telemetry_record,
+             producer,
+             agent_id,
+             event_id,
+             index,
+             opts
+           ) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp publish_external_topology_record(
+         telemetry_record,
+         producer,
+         agent_id,
+         event_id,
+         index,
+         opts
+       ) do
+    payload = telemetry_record.payload || ""
+
+    if valid_external_topology_payload?(payload) do
+      msg_id = derived_msg_id(event_id, index)
+      publish_opts = [msg_id: msg_id] ++ Keyword.take(opts, [:request])
+
+      case JetStreamPublish.publish(@external_topology_subject, payload, publish_opts) do
+        :ok -> :ok
+        {:error, reason} -> {:error, {:telemetry_external_topology_publish_failed, reason}}
+      end
+    else
+      :telemetry.execute([:serviceradar, :plugin_topology, :decode_failed], %{count: 1}, %{
+        agent_id: agent_id,
+        producer_id: producer.id
+      })
+
+      Logger.warning("Plugin external topology validation failed for telemetry batch record",
+        agent_id: agent_id,
+        producer_id: producer.id
+      )
+
+      :ok
+    end
+  end
+
+  defp valid_external_topology_payload?(payload) when is_binary(payload) do
+    if payload != "" and String.valid?(payload) do
+      case Jason.decode(payload) do
+        {:ok, %{"schema_version" => 1, "generated_at" => generated_at} = map}
+        when is_binary(generated_at) ->
+          String.trim(generated_at) != "" and
+            optional_list?(map["nodes"]) and
+            optional_list?(map["edges"]) and
+            not Enum.any?(@raw_hop_keys, &Map.has_key?(map, &1))
+
+        _ ->
+          false
+      end
+    else
+      false
+    end
+  end
+
+  defp valid_external_topology_payload?(_payload), do: false
+
+  defp optional_list?(nil), do: true
+  defp optional_list?(val), do: is_list(val)
+
   defp route_via_status_ingestor(body, producer, agent_id, partition) do
     {service_name, service_type} = legacy_service(producer)
 
@@ -305,11 +412,16 @@ defmodule ServiceRadar.Edge.Projectors.TelemetryBatch do
     Ecto.UUID.load!(bytes)
   end
 
-  defp partition(network_scope_id) do
+  defp partition(network_scope_id, opts) do
+    lookup_fn =
+      Keyword.get(opts, :partition_lookup_fn, fn scope_id ->
+        Partition.get_by_id(scope_id, actor: SystemActor.system(:telemetry_batch_projector))
+      end)
+
     case Ecto.UUID.load(network_scope_id) do
       {:ok, scope_id} ->
         scope_id
-        |> Partition.get_by_id(actor: SystemActor.system(:telemetry_batch_projector))
+        |> lookup_fn.()
         |> classify_partition_lookup()
 
       :error ->

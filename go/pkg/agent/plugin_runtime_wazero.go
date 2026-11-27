@@ -359,15 +359,18 @@ func verifiedPluginModule(data []byte, expected string) (pluginModule, error) {
 func (m *PluginManager) refreshAssignmentStates(assignments []*pluginAssignment) {
 	now := m.stateNow()
 	states := make(map[string]*assignmentState, len(assignments))
+	activeIDs := make(map[string]struct{}, len(assignments))
 
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 
 	for _, assignment := range assignments {
+		activeIDs[assignment.AssignmentID] = struct{}{}
 		state := m.states[assignment.AssignmentID]
 		contentHash := assignmentStateContentHash(assignment)
 		if state == nil || state.contentHash != contentHash {
 			state = &assignmentState{firstSeen: now, contentHash: contentHash}
+			m.httpETags.deleteAssignment(assignment.AssignmentID)
 		}
 		state.generation = assignment.generation
 		if !state.ready && m.cacheExists(assignment) {
@@ -377,6 +380,7 @@ func (m *PluginManager) refreshAssignmentStates(assignments []*pluginAssignment)
 	}
 
 	m.states = states
+	m.httpETags.retainAssignments(activeIDs)
 }
 
 func (m *PluginManager) cacheExists(assignment *pluginAssignment) bool {

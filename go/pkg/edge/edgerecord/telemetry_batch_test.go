@@ -91,9 +91,11 @@ func TestValidateTelemetryBatchRecord(t *testing.T) {
 			addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
 			addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
 			addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTEL_LOG,
+			addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1,
 		}},
 		{TelemetryProducerAddon, "addon-1", []addonpb.TelemetryPayloadKind{
 			addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1,
+			addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1,
 		}},
 	}
 	for _, tc := range valid {

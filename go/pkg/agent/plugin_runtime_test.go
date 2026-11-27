@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1891,6 +1892,69 @@ func TestTelemetryPayloadKindRefusesDiscoveryFromPlugins(t *testing.T) {
 
 		if kind != addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED {
 			t.Fatalf("telemetryPayloadKind(%v) = %v, want UNSPECIFIED on refusal", value, kind)
+		}
+	}
+}
+
+func TestDecodePluginTelemetryAcceptsExternalTopologyV1(t *testing.T) {
+	t.Parallel()
+
+	assignment := &pluginAssignment{
+		AssignmentID: testPluginAssignmentID,
+		PluginID:     "horizon-feed",
+		Name:         "Horizon Feed",
+	}
+
+	rawSnapshot := `{"schema_version":1,"generated_at":"2026-11-27T00:00:00Z","nodes":[{"id":"asn:64496","kind":"ASN"}],"edges":[]}`
+
+	for _, kindVal := range []any{
+		"external_topology_v1",
+		"telemetry_payload_kind_external_topology_v1",
+		9,
+	} {
+		wrapper, err := json.Marshal(map[string]any{
+			"source": map[string]any{"source_type": "horizon-feed"},
+			"records": []map[string]any{
+				{
+					"event_id":     "topo-1",
+					"payload_kind": kindVal,
+					"payload":      json.RawMessage(rawSnapshot),
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal wrapper: %v", err)
+		}
+
+		signal, err := decodePluginTelemetry(wrapper, assignment)
+		if err != nil {
+			t.Fatalf("decodePluginTelemetry(%v) error = %v", kindVal, err)
+		}
+		if len(signal.Batch.GetRecords()) != 1 {
+			t.Fatalf("records len = %d, want 1", len(signal.Batch.GetRecords()))
+		}
+		rec := signal.Batch.GetRecords()[0]
+		if rec.GetPayloadKind() != addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1 {
+			t.Fatalf("payload_kind = %v, want EXTERNAL_TOPOLOGY_V1", rec.GetPayloadKind())
+		}
+		if string(rec.GetPayload()) != rawSnapshot {
+			t.Fatalf("payload = %s, want verbatim %s", string(rec.GetPayload()), rawSnapshot)
+		}
+	}
+
+	for _, invalidPayload := range []string{
+		`"{\"schema_version\":1}"`,
+		`[1,2,3]`,
+		`null`,
+		`123`,
+		`{invalid`,
+	} {
+		payload := fmt.Sprintf(
+			`{"records":[{"event_id":"bad","payload_kind":"external_topology_v1","payload":%s}]}`,
+			invalidPayload,
+		)
+		if _, err := decodePluginTelemetry([]byte(payload), assignment); err == nil {
+			t.Fatalf("expected invalid external_topology_v1 payload %s to be rejected", invalidPayload)
 		}
 	}
 }

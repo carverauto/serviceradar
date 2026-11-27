@@ -50,6 +50,7 @@ type httpRequestPayload struct {
 	TimeoutMS           int                        `json:"timeout_ms"`
 	InsecureSkipVerify  bool                       `json:"insecure_skip_verify"`
 	FollowRedirects     *bool                      `json:"follow_redirects,omitempty"`
+	ConditionalETag     bool                       `json:"conditional_etag,omitempty"`
 	CredentialInjection *credentialInjectionIntent `json:"credential_injection,omitempty"`
 }
 
@@ -135,32 +136,158 @@ type pluginHTTPTransportCache struct {
 	transports map[pluginHTTPTransportKey]*http.Transport
 }
 
+const (
+	pluginHTTPETagMaxEntries    = 256
+	pluginHTTPETagMaxValueBytes = 512
+)
+
+type pluginHTTPETagKey struct {
+	assignmentID string
+	url          string
+}
+
+type pluginHTTPETagEntry struct {
+	etag     string
+	lastUsed uint64
+}
+
+// pluginHTTPETagCache stores bounded per-(assignmentID, canonicalURL) ETag
+// strings (never response bodies) so stateless Wasm plugins can opt into
+// conditional GET / 304 Not Modified polling across ticks.
+type pluginHTTPETagCache struct {
+	mu      sync.Mutex
+	seq     uint64
+	entries map[pluginHTTPETagKey]pluginHTTPETagEntry
+}
+
+func (c *pluginHTTPETagCache) get(assignmentID, canonicalURL string) (string, bool) {
+	if c == nil || assignmentID == "" || canonicalURL == "" {
+		return "", false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := pluginHTTPETagKey{assignmentID: assignmentID, url: canonicalURL}
+	entry, ok := c.entries[key]
+	if !ok || entry.etag == "" {
+		return "", false
+	}
+	c.seq++
+	entry.lastUsed = c.seq
+	c.entries[key] = entry
+	return entry.etag, true
+}
+
+func (c *pluginHTTPETagCache) put(assignmentID, canonicalURL, etag string) {
+	if c == nil || assignmentID == "" || canonicalURL == "" {
+		return
+	}
+	etag = strings.TrimSpace(etag)
+	if etag == "" || len(etag) > pluginHTTPETagMaxValueBytes || strings.ContainsAny(etag, "\r\n\x00") {
+		c.delete(assignmentID, canonicalURL)
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[pluginHTTPETagKey]pluginHTTPETagEntry)
+	}
+	key := pluginHTTPETagKey{assignmentID: assignmentID, url: canonicalURL}
+	if _, exists := c.entries[key]; !exists && len(c.entries) >= pluginHTTPETagMaxEntries {
+		var oldestKey pluginHTTPETagKey
+		var oldestSeq uint64
+		first := true
+		for k, v := range c.entries {
+			if first || v.lastUsed < oldestSeq {
+				oldestKey = k
+				oldestSeq = v.lastUsed
+				first = false
+			}
+		}
+		if !first {
+			delete(c.entries, oldestKey)
+		}
+	}
+	c.seq++
+	c.entries[key] = pluginHTTPETagEntry{etag: etag, lastUsed: c.seq}
+}
+
+func (c *pluginHTTPETagCache) delete(assignmentID, canonicalURL string) {
+	if c == nil || assignmentID == "" || canonicalURL == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, pluginHTTPETagKey{assignmentID: assignmentID, url: canonicalURL})
+}
+
+func (c *pluginHTTPETagCache) deleteAssignment(assignmentID string) {
+	if c == nil || assignmentID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.entries {
+		if k.assignmentID == assignmentID {
+			delete(c.entries, k)
+		}
+	}
+}
+
+func (c *pluginHTTPETagCache) retainAssignments(activeIDs map[string]struct{}) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.entries {
+		if _, ok := activeIDs[k.assignmentID]; !ok {
+			delete(c.entries, k)
+		}
+	}
+}
+
+func (c *pluginHTTPETagCache) clear() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.entries)
+}
+
+func canonicalHTTPETagURL(reqURL *url.URL) string {
+	if reqURL == nil {
+		return ""
+	}
+	cloned := *reqURL
+	cloned.Scheme = strings.ToLower(strings.TrimSpace(cloned.Scheme))
+	host := strings.ToLower(strings.TrimSuffix(cloned.Hostname(), "."))
+	if port := cloned.Port(); port != "" {
+		defaultPort := ""
+		switch cloned.Scheme {
+		case httpScheme:
+			defaultPort = "80"
+		case httpsScheme:
+			defaultPort = "443"
+		}
+		if port != defaultPort {
+			host = net.JoinHostPort(host, port)
+		}
+	}
+	cloned.Host = host
+	cloned.Fragment = ""
+	cloned.RawFragment = ""
+	return cloned.String()
+}
+
 func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, reqPtr, reqLen, respPtr, respLen uint32) int32 {
 	if !e.hasCapability("http_request") {
 		return pluginErrDenied
 	}
 
-	reqBytes, ok := readMemory(mod, reqPtr, reqLen)
-	if !ok {
-		return pluginErrInvalid
-	}
-	if len(reqBytes) > pluginMaxPayloadBytes {
-		return pluginErrTooLarge
-	}
-
-	var payload httpRequestPayload
-	if err := json.Unmarshal(reqBytes, &payload); err != nil {
-		return pluginErrInvalid
-	}
-
-	reqURL, err := url.Parse(strings.TrimSpace(payload.URL))
-	if err != nil || reqURL.Host == "" {
-		return pluginErrInvalid
-	}
-
-	method := strings.ToUpper(strings.TrimSpace(payload.Method))
-	if method == "" {
-		method = http.MethodGet
+	payload, reqURL, method, errCode := decodePluginHTTPRequest(mod, reqPtr, reqLen)
+	if errCode != 0 {
+		return errCode
 	}
 
 	pluginBody, err := decodeBody(payload)
@@ -223,41 +350,19 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		timeout = time.Duration(payload.TimeoutMS) * time.Millisecond
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL.String(), bytes.NewReader(authorizedBody))
-	if err != nil {
-		return pluginErrInvalid
-	}
-
-	for key, value := range payload.Headers {
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-		httpReq.Header.Set(key, value)
-	}
-	enforceCredentialBrokerContentType(httpReq, authorizedContentType)
-	hostCredentialBound, err := e.applyAWXInventoryHostCredential(
-		httpReq,
-		payload.InsecureSkipVerify,
-	)
-	if err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
-		return pluginErrDenied
-	}
-	if err := e.applyProxmoxHostAuthorityCredential(ctx, httpReq, proxmoxBinding); err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
-		return pluginErrDenied
-	}
-	hostCredentialBound = hostCredentialBound || proxmoxBinding != nil
-
-	if err := e.applyCredentialBrokerInjectionWithinBudget(
+	httpReq, hostCredentialBound, errCode := e.buildPluginHTTPRequest(
 		ctx,
-		httpReq,
+		payload,
+		reqURL,
+		method,
+		authorizedBody,
+		authorizedContentType,
+		proxmoxBinding,
 		grant,
-		payload.InsecureSkipVerify,
 		timeout,
-	); err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
-		return pluginErrDenied
+	)
+	if errCode != 0 {
+		return errCode
 	}
 
 	envelopeMode := strings.EqualFold(strings.TrimSpace(payload.ResponseMode), "envelope")
@@ -287,6 +392,9 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	if trace != nil {
 		trace.markStart()
 	}
+
+	conditionalETagURL := e.applyPluginHTTPConditionalETag(httpReq, payload, reqURL, method)
+
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -300,8 +408,125 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		_ = resp.Body.Close()
 	}()
 	e.invalidateRejectedOAuth2Token(httpReq, grant, resp.StatusCode)
+	e.updatePluginHTTPConditionalETag(conditionalETagURL, resp)
 
 	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL, trace)
+}
+
+func decodePluginHTTPRequest(mod api.Module, reqPtr, reqLen uint32) (httpRequestPayload, *url.URL, string, int32) {
+	reqBytes, ok := readMemory(mod, reqPtr, reqLen)
+	if !ok {
+		return httpRequestPayload{}, nil, "", pluginErrInvalid
+	}
+	if len(reqBytes) > pluginMaxPayloadBytes {
+		return httpRequestPayload{}, nil, "", pluginErrTooLarge
+	}
+
+	var payload httpRequestPayload
+	if err := json.Unmarshal(reqBytes, &payload); err != nil {
+		return httpRequestPayload{}, nil, "", pluginErrInvalid
+	}
+
+	reqURL, err := url.Parse(strings.TrimSpace(payload.URL))
+	if err != nil || reqURL.Host == "" {
+		return httpRequestPayload{}, nil, "", pluginErrInvalid
+	}
+
+	method := strings.ToUpper(strings.TrimSpace(payload.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	return payload, reqURL, method, 0
+}
+
+func (e *pluginExecution) buildPluginHTTPRequest(
+	ctx context.Context,
+	payload httpRequestPayload,
+	reqURL *url.URL,
+	method string,
+	authorizedBody []byte,
+	authorizedContentType string,
+	proxmoxBinding *pluginHostAuthorityBinding,
+	grant *credentialBrokerGrant,
+	timeout time.Duration,
+) (*http.Request, bool, int32) {
+	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL.String(), bytes.NewReader(authorizedBody))
+	if err != nil {
+		return nil, false, pluginErrInvalid
+	}
+
+	for key, value := range payload.Headers {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		httpReq.Header.Set(key, value)
+	}
+	enforceCredentialBrokerContentType(httpReq, authorizedContentType)
+	hostCredentialBound, err := e.applyAWXInventoryHostCredential(
+		httpReq,
+		payload.InsecureSkipVerify,
+	)
+	if err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
+		return nil, false, pluginErrDenied
+	}
+	if err := e.applyProxmoxHostAuthorityCredential(ctx, httpReq, proxmoxBinding); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
+		return nil, false, pluginErrDenied
+	}
+	hostCredentialBound = hostCredentialBound || proxmoxBinding != nil
+
+	if err := e.applyCredentialBrokerInjectionWithinBudget(
+		ctx,
+		httpReq,
+		grant,
+		payload.InsecureSkipVerify,
+		timeout,
+	); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
+		return nil, false, pluginErrDenied
+	}
+
+	return httpReq, hostCredentialBound, 0
+}
+
+func (e *pluginExecution) applyPluginHTTPConditionalETag(
+	httpReq *http.Request,
+	payload httpRequestPayload,
+	reqURL *url.URL,
+	method string,
+) string {
+	if !payload.ConditionalETag || method != http.MethodGet ||
+		strings.TrimSpace(httpReq.Header.Get("If-None-Match")) != "" ||
+		e.manager == nil || e.assignment == nil || e.assignment.AssignmentID == "" {
+		return ""
+	}
+	conditionalETagURL := canonicalHTTPETagURL(reqURL)
+	if cachedETag, ok := e.manager.httpETags.get(e.assignment.AssignmentID, conditionalETagURL); ok {
+		httpReq.Header.Set("If-None-Match", cachedETag)
+	}
+	return conditionalETagURL
+}
+
+func (e *pluginExecution) updatePluginHTTPConditionalETag(conditionalETagURL string, resp *http.Response) {
+	if conditionalETagURL == "" {
+		return
+	}
+	switch {
+	case resp.StatusCode == http.StatusNotModified:
+		if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
+			e.manager.httpETags.put(e.assignment.AssignmentID, conditionalETagURL, etag)
+		}
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
+			e.manager.httpETags.put(e.assignment.AssignmentID, conditionalETagURL, etag)
+		} else {
+			e.manager.httpETags.delete(e.assignment.AssignmentID, conditionalETagURL)
+		}
+	case resp.StatusCode >= 400:
+		e.manager.httpETags.delete(e.assignment.AssignmentID, conditionalETagURL)
+	}
 }
 
 // applyPluginHTTPRedirectPolicy layers the per-request redirect rules on top

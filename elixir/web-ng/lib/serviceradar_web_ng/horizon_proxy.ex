@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   @receive_timeout_ms 15_000
   @connect_timeout_ms 5_000
-  @get_max_retries 1
+  @get_max_retries 2
   @get_retry_delay_ms 50
 
   @read_permission "observability.events.view"
@@ -129,16 +129,32 @@ defmodule ServiceRadarWebNG.HorizonProxy do
         body
       )
 
+    finch_opt =
+      if Process.whereis(ServiceRadarWebNG.HorizonFinch) do
+        [finch: [name: ServiceRadarWebNG.HorizonFinch]]
+      else
+        [
+          finch: [
+            conn_opts: [transport_opts: [timeout: @connect_timeout_ms]],
+            conn_max_idle_time: 30_000,
+            http2: [
+              ping_interval: 30_000,
+              max_connection_age: 300_000,
+              max_connection_age_jitter: 30_000
+            ]
+          ]
+        ]
+      end
+
     base_opts =
       [
         method: route.method,
         url: url,
         headers: headers,
         receive_timeout: @receive_timeout_ms,
-        connect_options: [timeout: @connect_timeout_ms],
         redirect: false,
         decode_body: false
-      ] ++ retry_opts(route.method)
+      ] ++ finch_opt ++ retry_opts(route.method)
 
     req_opts = maybe_put_body(base_opts, route.method, body)
 
@@ -178,7 +194,7 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   defp match_allowlisted_route(:get, "v1", ["weathermap", "timeline"]),
     do: {:ok, "/api/v1/weathermap/timeline", @read_permission}
 
-  defp match_allowlisted_route(:get, "v1", ["pops", "map"]), do: {:ok, "/api/v1/pops/map", @write_permission}
+  defp match_allowlisted_route(:get, "v1", ["pops", "map"]), do: {:ok, "/api/v1/pops/map", @read_permission}
 
   defp match_allowlisted_route(:get, "v1", ["topology", "snapshot"]),
     do: {:ok, "/api/v1/topology/snapshot", @read_permission}
@@ -503,10 +519,18 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   defp retry_opts(_method), do: [retry: false]
 
   defp retry_stale_get?(%Req.Request{method: :get}, %Req.TransportError{reason: reason})
-       when reason in [:closed, :econnreset], do: true
+       when reason in [:closed, :econnreset, :epipe, :etimedout], do: true
 
   defp retry_stale_get?(%Req.Request{method: :get}, %Req.HTTPError{protocol: :http2, reason: reason})
-       when reason in [:unprocessed, :pool_not_available], do: true
+       when reason in [:unprocessed, :pool_not_available, :connection_not_ready, :closed, :closed_for_writing], do: true
+
+  defp retry_stale_get?(%Req.Request{method: :get}, %Req.HTTPError{protocol: :http2, reason: {kind, _}})
+       when kind in [:server_closed_connection, :server_closed_request], do: true
+
+  defp retry_stale_get?(%Req.Request{method: :get}, %Req.HTTPError{
+         protocol: :http2,
+         reason: {:server_closed_connection, _, _}
+       }), do: true
 
   defp retry_stale_get?(_request, _response_or_error), do: false
 

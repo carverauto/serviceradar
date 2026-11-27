@@ -172,6 +172,8 @@ defmodule ServiceRadar.Ingestion.StatusIngestor do
     kind in [
       :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
       7,
+      :TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1,
+      9,
       :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
       3,
       :TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,

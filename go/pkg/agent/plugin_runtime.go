@@ -36,7 +36,7 @@ const (
 	pluginMaxPayloadBytes            = 2 * 1024 * 1024
 	pluginMaxActionIngestResultBytes = 12 * 1024 * 1024
 	pluginMaxWasmBytes               = 64 * 1024 * 1024
-	pluginMaxHTTPBodyBytes           = 2 * 1024 * 1024
+	pluginMaxHTTPBodyBytes           = 16 * 1024 * 1024
 	pluginDefaultHTTPTimeout         = 15 * time.Second
 	pluginWarmupGrace                = 2 * time.Minute
 	pluginLoadRetryBase              = time.Minute
@@ -132,6 +132,7 @@ type PluginManager struct {
 	credentialNow                 func() time.Time
 	oauth2Tokens                  oauth2TokenCache
 	httpTransports                pluginHTTPTransportCache
+	httpETags                     pluginHTTPETagCache
 	credentialMu                  sync.Mutex
 	awxCallbackCredentialMu       sync.Mutex
 	artifactMu                    sync.Mutex

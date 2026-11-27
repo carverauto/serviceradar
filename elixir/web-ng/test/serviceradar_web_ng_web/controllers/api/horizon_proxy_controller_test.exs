@@ -384,10 +384,12 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
       assert req_opts[:redirect] == false
       assert is_function(req_opts[:retry], 2)
-      assert req_opts[:max_retries] == 1
+      assert req_opts[:max_retries] == 2
       assert req_opts[:retry_delay].(0) == 50
       assert req_opts[:retry_log_level] == :debug
       assert req_opts[:decode_body] == false
+      assert is_list(req_opts[:finch])
+      refute Keyword.has_key?(req_opts, :connect_options)
     end
 
     test "proxies POST /api/horizon/v1/bgp/watchlist to /api/v2/bgp/watchlist and preserves 201", %{
@@ -601,10 +603,12 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert {"accept", "application/json"} in req_opts[:headers]
       assert req_opts[:redirect] == false
       assert is_function(req_opts[:retry], 2)
-      assert req_opts[:max_retries] == 1
+      assert req_opts[:max_retries] == 2
       assert req_opts[:retry_delay].(0) == 50
       assert req_opts[:retry_log_level] == :debug
       assert req_opts[:decode_body] == false
+      assert is_list(req_opts[:finch])
+      refute Keyword.has_key?(req_opts, :connect_options)
 
       ipv6_conn =
         dispatch_router(
@@ -698,21 +702,29 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       %{admin_scope: scope_for_role(:admin)}
     end
 
-    test "retries GET once on closed, econnreset, and HTTP/2 unprocessed or pool_not_available errors", %{
+    test "retries GET up to twice on stale transport and HTTP/2 close/GOAWAY errors", %{
       admin_scope: admin_scope
     } do
       for transient_error <- [
             %Req.TransportError{reason: :closed},
             %Req.TransportError{reason: :econnreset},
+            %Req.TransportError{reason: :epipe},
+            %Req.TransportError{reason: :etimedout},
             %Req.HTTPError{protocol: :http2, reason: :unprocessed},
-            %Req.HTTPError{protocol: :http2, reason: :pool_not_available}
+            %Req.HTTPError{protocol: :http2, reason: :pool_not_available},
+            %Req.HTTPError{protocol: :http2, reason: :connection_not_ready},
+            %Req.HTTPError{protocol: :http2, reason: :closed},
+            %Req.HTTPError{protocol: :http2, reason: :closed_for_writing},
+            %Req.HTTPError{protocol: :http2, reason: {:server_closed_connection, :no_error}},
+            %Req.HTTPError{protocol: :http2, reason: {:server_closed_request, :refused_stream}},
+            %Req.HTTPError{protocol: :http2, reason: {:server_closed_connection, :no_error, ""}}
           ] do
         attempts = :counters.new(1, [])
 
         stub_req_adapter(fn req ->
           :counters.add(attempts, 1, 1)
 
-          if :counters.get(attempts, 1) == 1 do
+          if :counters.get(attempts, 1) <= 2 do
             {req, transient_error}
           else
             {req,
@@ -730,12 +742,12 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
             assert json_response(conn, 200) == %{"ok" => true}
           end)
 
-        assert :counters.get(attempts, 1) == 2
+        assert :counters.get(attempts, 1) == 3
         assert warning_log == ""
       end
     end
 
-    test "stops GET after one retry and returns 502 when stale connection persists", %{admin_scope: admin_scope} do
+    test "stops GET after two retries and returns 502 when stale connection persists", %{admin_scope: admin_scope} do
       attempts = :counters.new(1, [])
 
       stub_req_adapter(fn req ->
@@ -746,7 +758,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       conn = call_proxy(:get, "/api/horizon/v1/bgp/watchlist", admin_scope)
 
       assert json_response(conn, 502) == %{"error" => "horizon_upstream_unavailable"}
-      assert :counters.get(attempts, 1) == 2
+      assert :counters.get(attempts, 1) == 3
     end
 
     test "does not retry GET on timeout, econnrefused, HTTP/1 errors, or upstream 4xx/5xx responses", %{
@@ -891,6 +903,45 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
         assert Enum.all?(summary.auth_headers, &(&1 == "Bearer #{@secret_api_key}"))
       end
     end
+
+    test "uses HorizonFinch named pool without connect_options when started, and inline finch fallback otherwise", %{
+      admin_scope: admin_scope
+    } do
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+        {:ok, %Req.Response{status: 200, headers: %{"content-type" => ["application/json"]}, body: "{}"}}
+      end)
+
+      assert is_nil(Process.whereis(ServiceRadarWebNG.HorizonFinch))
+      conn_fallback = call_proxy(:get, "/api/horizon/v1/outages", admin_scope)
+      assert conn_fallback.status == 200
+      assert_receive {:upstream_request, fallback_opts}
+      refute Keyword.has_key?(fallback_opts, :connect_options)
+      assert fallback_opts[:finch][:conn_max_idle_time] == 30_000
+      assert fallback_opts[:finch][:http2][:ping_interval] == 30_000
+
+      start_supervised!(
+        {Finch,
+         name: ServiceRadarWebNG.HorizonFinch,
+         pools: %{
+           default: [
+             conn_opts: [transport_opts: [timeout: 5_000]],
+             conn_max_idle_time: 30_000,
+             http2: [
+               ping_interval: 30_000,
+               max_connection_age: 300_000,
+               max_connection_age_jitter: 30_000
+             ]
+           ]
+         }}
+      )
+
+      conn_named = call_proxy(:get, "/api/horizon/v1/outages", admin_scope)
+      assert conn_named.status == 200
+      assert_receive {:upstream_request, named_opts}
+      refute Keyword.has_key?(named_opts, :connect_options)
+      assert named_opts[:finch] == [name: ServiceRadarWebNG.HorizonFinch]
+    end
   end
 
   describe "GET /api/horizon/v1/vendor-status and /api/horizon/v1/statuspages" do
@@ -947,7 +998,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
         assert req_opts[:url] == "#{@upstream_base}#{expected_upstream_path}"
         assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
         assert is_function(req_opts[:retry], 2)
-        assert req_opts[:max_retries] == 1
+        assert req_opts[:max_retries] == 2
         assert req_opts[:retry_delay].(0) == 50
         assert req_opts[:retry_log_level] == :debug
       end
@@ -1186,7 +1237,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       forbidden_conn =
         dispatch_router(
           :get,
-          "/api/horizon/v1/pops/map",
+          "/api/horizon/v1/webhooks",
           viewer_scope,
           nil,
           "application/vnd.apache.arrow.stream"
@@ -1237,6 +1288,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
         {"/api/horizon/v1/outages/search?q=example", "/api/v1/outages/search?q=example", true},
         {"/api/horizon/v1/providers/health", "/api/v1/providers/health", true},
         {"/api/horizon/v1/weathermap", "/api/v1/weathermap", true},
+        {"/api/horizon/v1/pops/map", "/api/v1/pops/map", true},
         {"/api/horizon/v1/topology/snapshot?ttl_secs=300", "/api/v1/topology/snapshot?ttl_secs=300", true},
         {"/api/horizon/v1/bgp/anomalies", "/api/v1/bgp/anomalies", true},
         {"/api/horizon/v1/feeds/sav", "/api/v1/feeds/sav", true},
@@ -1298,7 +1350,6 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       operator_scope: operator_scope
     } do
       operator_routes = [
-        {:get, "/api/horizon/v1/pops/map", "/api/v1/pops/map", nil},
         {:post, "/api/horizon/v1/sav/findings", "/api/v1/sav/findings", %{"pop_id" => "pop-1"}},
         {:post, "/api/horizon/v2/targets", "/api/v2/targets", %{"host" => "198.51.100.10"}},
         {:post, "/api/horizon/v2/targets/verify-ownership", "/api/v2/targets/verify-ownership",

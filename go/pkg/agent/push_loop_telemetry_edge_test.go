@@ -526,6 +526,43 @@ func TestAddonTelemetryWithoutAGrantIsHeldAndCountedUntilAGrantIsHeld(t *testing
 	require.Equal(t, [][]byte{newer.GetPayload()}, telemetryPayloads(spooledTelemetryBatches(t, sp)))
 }
 
+func TestPluginTelemetryExternalTopologySpoolsUnderPluginStamp(t *testing.T) {
+	sp := openTestEdgeSpool(t)
+	loop := telemetryLoop(t, sp)
+	telemetryCapability(t, loop)
+
+	snapshot := `{"schema_version":1,"generated_at":"2026-11-27T00:00:00Z","nodes":[{"id":"asn:64496","kind":"ASN"}],"edges":[]}`
+	batch := &addonpb.TelemetryBatch{
+		Records: []*addonpb.TelemetryRecord{
+			{
+				EventId:     "topo-shard-1",
+				PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1,
+				Payload:     []byte(snapshot),
+			},
+		},
+	}
+
+	manager := &PluginManager{signals: make(chan PluginSignalTelemetry, 1)}
+	manager.signals <- PluginSignalTelemetry{
+		AssignmentID: "assignment-horizon-1",
+		PluginID:     "horizon-feed",
+		Batch:        batch,
+	}
+	loop.server.pluginManager = manager
+
+	require.True(t, loop.pushPluginSignals())
+
+	batches := spooledTelemetryBatches(t, sp)
+	require.Len(t, batches, 1)
+	producerType, producerID, ok := edgerecord.TelemetryBatchProducer(batches[0])
+	require.True(t, ok)
+	require.Equal(t, "plugin", producerType)
+	require.Equal(t, "assignment-horizon-1", producerID)
+	require.Len(t, batches[0].GetRecords(), 1)
+	require.Equal(t, addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1, batches[0].GetRecords()[0].GetPayloadKind())
+	require.Equal(t, []byte(snapshot), batches[0].GetRecords()[0].GetPayload())
+}
+
 func incompressiblePayload(size int, seed byte) []byte {
 	out := make([]byte, 0, size)
 	for len(out) < size {
