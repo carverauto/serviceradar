@@ -26,6 +26,15 @@ import {decodeWorldTile} from "./world_tile_decode"
 import {worldTileIpc, worldTileKey} from "./fixtures/world_tile_ipc"
 
 vi.mock("../GodViewRenderer", () => ({default: class {}}))
+vi.mock("./topology_deck", () => ({
+  TopologyDeck: class {
+    constructor(props) {
+      this.props = props
+    }
+    setProps() {}
+    finalize() {}
+  },
+}))
 
 function sampleEgressPayload() {
   return {
@@ -690,7 +699,7 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(fullyExpanded.nodes).toHaveLength(10)
   })
 
-  it("culls overlapping labels cleanly and positions WorldMapRenderer horizon panel at bottom-left", () => {
+  it("culls overlapping labels cleanly (including negative zoom), respects auto zoomTier, handles smooth zoom, and mounts panel at bottom-left", async () => {
     const overlappingNodes = [
       {id: "asn:1", hopDepth: 1, position: [100, 100, 0], labelText: "AS1 · Primary ISP", severity: "healthy", interactionKey: "k1"},
       {id: "asn:2", hopDepth: 2, position: [105, 102, 0], labelText: "AS2 · Overlapping Peer", severity: "neutral", interactionKey: "k2"},
@@ -713,17 +722,80 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(visibleIds).not.toContain("asn:1")
     expect(visibleIds).not.toContain("asn:5")
 
-    // Verify WorldMapRenderer places horizonEgressPanel on bottom-left (never right-3 where CONTROLS lives)
-    const el = document.createElement("div")
-    const renderer = new WorldMapRenderer(el, vi.fn(), vi.fn())
-    renderer.el = el
-    renderer.horizonEgressPanel = document.createElement("section")
-    // Check mount CSS by inspecting constructor/mount or WorldMapRenderer source pattern via actual mount call
-    renderer.deck = {device: {submit() {}}, setProps: vi.fn(), finalize: vi.fn()}
-    renderer.resize = {observe: vi.fn(), disconnect: vi.fn()}
-    renderer.cache.manifest = {layout_version: 1, zmax: 16, node_count: 1}
-    // Mount sets this.horizonEgressPanel className cleanly in DOM
-    renderer.el.replaceChildren()
-    expect(typeof renderer.toggleHorizonCluster).toBe("function")
+    // Negative zoom (-2 => worldPerPx = 4) scales collision boxes in both cartesian and world modes
+    const cartesianZoomOut = selectVisibleHorizonLabels(
+      [
+        {id: "asn:a", hopDepth: 1, position: [0, 0, 0], labelText: "AS100 · Alpha", severity: "healthy", interactionKey: "ka"},
+        {id: "asn:b", hopDepth: 1, position: [250, 0, 0], labelText: "AS200 · Beta", severity: "neutral", interactionKey: "kb"},
+      ],
+      {mode: "cartesian", zoomTier: "local", zoom: -2},
+    )
+    expect(cartesianZoomOut.map((n) => n.id)).toEqual(["asn:a"])
+
+    // GodViewRenderer auto zoomMode resolves state.zoomTier ("global") into cluster consolidation
+    const autoState = {
+      zoomMode: "auto",
+      zoomTier: "global",
+      topologyLayers: {horizon_egress: true},
+      horizonEgressData: sampleEgressPayload(),
+      selectedHorizonEntity: null,
+      hoveredHorizonKey: null,
+      animationPhase: 0,
+      visual: visualForTheme("dark"),
+    }
+    const autoCtx = createStateBackedContext(autoState, {})
+    Object.assign(autoCtx, bindApi(autoCtx, godViewRenderingHorizonEgressMethods))
+    expect(autoCtx.horizonEgressZoomTier()).toBe("global")
+    const autoData = autoCtx.buildHorizonEgressRenderData([
+      {id: "sr:edge-rtr-01", position: [120, 200, 0], details: {device_uid: "sr:edge-rtr-01"}},
+    ])
+    expect(autoData.nodes).toHaveLength(1)
+    expect(autoData.nodes[0].isCluster).toBe(true)
+    expect(autoData.nodes[0].labelText).toContain("Internet (198.51.100.0/24 · +2)")
+
+    // Mount real WorldMapRenderer DOM and verify bottom-left panel placement + smooth-zoom render trigger + cluster pick
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      const el = document.createElement("div")
+      const renderer = new WorldMapRenderer(el, vi.fn(), vi.fn())
+      renderer.poll = vi.fn().mockResolvedValue(undefined)
+      await renderer.mount()
+
+      expect(renderer.horizonEgressPanel.className).toContain("bottom-10")
+      expect(renderer.horizonEgressPanel.className).toContain("left-3")
+      expect(renderer.horizonEgressPanel.className).not.toContain("right-3")
+
+      const renderSpy = vi.spyOn(renderer, "render").mockImplementation(() => {
+        renderer.lastHorizonRenderZoom = Number(renderer.viewState?.zoom ?? 0)
+      })
+      renderer.horizonEgressEnabled = true
+      renderer.viewState = {target: [256, 256, 0], zoom: 0}
+      renderer.lastHorizonRenderZoom = 0
+
+      // Smooth zoom increments < 0.25 accumulate against lastHorizonRenderZoom until crossing >= 0.25
+      renderer.setView({target: [256, 256, 0], zoom: 0.1})
+      expect(renderSpy).not.toHaveBeenCalled()
+      renderer.setView({target: [256, 256, 0], zoom: 0.2})
+      expect(renderSpy).not.toHaveBeenCalled()
+      renderer.setView({target: [256, 256, 0], zoom: 0.3})
+      expect(renderSpy).toHaveBeenCalledTimes(1)
+      expect(renderer.lastHorizonRenderZoom).toBe(0.3)
+
+      // Clicking a Horizon cluster bubble toggles expansion and dismisses any stale popup panel
+      const clusterKey = horizonDeviceClusterKey("sr:edge-rtr-01")
+      renderer.panel.hidden = false
+      await renderer.pick({
+        layer: {id: "world-horizon-egress-nodes"},
+        object: {isCluster: true, clusterKey, interactionKey: "horizon-node:cluster"},
+      })
+      expect(renderer.expandedHorizonClusters.has(clusterKey)).toBe(true)
+      expect(renderer.panel.hidden).toBe(true)
+      renderer.destroy()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

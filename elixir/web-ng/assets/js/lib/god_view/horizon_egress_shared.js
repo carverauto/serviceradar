@@ -771,8 +771,8 @@ export function selectVisibleHorizonLabels(nodes, options = {}) {
   const mode = options.mode || "cartesian"
   const zoomTier = options.zoomTier || "local"
   const zoom = Number(options.zoom ?? 0)
-  const clampedZoom = Math.max(0, Math.min(8, Number.isFinite(zoom) ? zoom : 0))
-  const worldPerPx = mode === "world" ? 2 ** -clampedZoom : 1
+  const clampedZoom = Math.max(-6, Math.min(8, Number.isFinite(zoom) ? zoom : 0))
+  const worldPerPx = 2 ** -clampedZoom
   const selectedKey = options.selectedKey || null
   const hoveredKey = options.hoveredKey || null
   const maxLabels = Number.isFinite(Number(options.maxLabels)) ? Number(options.maxLabels) : 16

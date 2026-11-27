@@ -85,6 +85,7 @@ export default class WorldMapRenderer {
     this.expandedHorizonClusters = new Set()
     this.selectedHorizonKey = null
     this.hoveredHorizonKey = null
+    this.lastHorizonRenderZoom = null
     this.zoomMode = "auto"
     this.filters = {}
     this.destroyed = false
@@ -350,8 +351,9 @@ export default class WorldMapRenderer {
   setView(viewState) {
     const prevZoom = Number(this.viewState?.zoom ?? 0)
     const nextZoom = Number(viewState?.zoom ?? 0)
-    const tierChanged = worldZoomTier(prevZoom) !== worldZoomTier(nextZoom)
-    const zoomShifted = Math.abs(prevZoom - nextZoom) >= 0.25
+    const refZoom = Number.isFinite(this.lastHorizonRenderZoom) ? this.lastHorizonRenderZoom : prevZoom
+    const tierChanged = worldZoomTier(refZoom) !== worldZoomTier(nextZoom)
+    const zoomShifted = Math.abs(refZoom - nextZoom) >= 0.25
     this.viewState = viewState
     this.flushPendingCommands()
     this.deck?.setProps({viewState})
@@ -748,6 +750,7 @@ export default class WorldMapRenderer {
     if (!this.horizonEgressEnabled || this.detailRenderer || !this.horizonEgressData) return []
     const anchors = this.visibleWorldEgressAnchors()
     const zoom = Number(this.viewState?.zoom ?? 0)
+    this.lastHorizonRenderZoom = zoom
     const zoomTier = worldZoomTier(zoom)
     const worldOffset = 42 * (2 ** -Math.max(0, Math.min(8, Number.isFinite(zoom) ? zoom : 0)))
     const layout = buildHorizonEgressGraphLayout(this.horizonEgressData, anchors, {
@@ -1020,7 +1023,7 @@ export default class WorldMapRenderer {
     if (String(info?.layer?.id || "").startsWith("world-horizon-egress-") && info?.object) {
       if (info.object.isCluster && typeof info.object.clusterKey === "string") {
         this.toggleHorizonCluster(info.object.clusterKey)
-        this.showHorizonEgressSelection(info.object)
+        this.dismissPanel()
         return
       }
       this.showHorizonEgressSelection(info.object)

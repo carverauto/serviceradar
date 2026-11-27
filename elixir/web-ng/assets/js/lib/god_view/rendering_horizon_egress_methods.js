@@ -36,10 +36,8 @@ export const godViewRenderingHorizonEgressMethods = {
     return this.state.expandedHorizonClusters.has(clusterKey)
   },
   horizonEgressZoomTier() {
-    const tier = this.state.lastZoomTier
-    if (tier === "global" || tier === "regional" || tier === "local") return tier
-    if (this.state.zoomMode === "global" || this.state.zoomMode === "regional") return this.state.zoomMode
-    return "local"
+    const raw = this.state.zoomMode === "auto" ? this.state.zoomTier : this.state.zoomMode
+    return raw === "global" || raw === "regional" || raw === "local" ? raw : "local"
   },
   buildHorizonEgressRenderData(nodeData) {
     const enabled = this.state.topologyLayers?.horizon_egress === true
