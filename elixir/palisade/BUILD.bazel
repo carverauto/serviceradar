@@ -20,6 +20,7 @@ filegroup(
 )
 
 PALISADE_DEPS = [
+    "@hexpm//:plug",
     "@hexpm//:req",
     "@rules_elixir//elixir",
 ]
@@ -33,14 +34,18 @@ mix_app(
     deps = PALISADE_DEPS,
 )
 
-# The policy tests use literal addresses and build requests without sending them,
-# so they need no network, database or other application.
+# The tests use literal addresses, build requests with Plug.Test without sending them,
+# and start the limiters under ExUnit's own supervisor, so they need no network,
+# database or other application. StreamData is a test-only dependency.
 ex_unit_tests(
     name = "unit_tests",
     srcs = glob(["test/palisade/*_test.exs"]),
     load_config = False,
     test_helper = "test/test_helper.exs",
-    deps = [":erlang_app"],
+    deps = [
+        ":erlang_app",
+        "@hexpm//:stream_data",
+    ],
 )
 
 # `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.

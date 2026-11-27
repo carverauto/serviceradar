@@ -16,6 +16,7 @@ defmodule ServiceRadar.Identity.AliasPolicy do
 
   import Bitwise
 
+  alias Palisade.NetworkAddressPolicy
   alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Repo
 
@@ -338,16 +339,11 @@ defmodule ServiceRadar.Identity.AliasPolicy do
 
   defp directed_broadcast_in_cidr?(_ip4, _cidr), do: false
 
-  defp cidr_contains_ip?(ip4, cidr) when is_binary(cidr) do
-    case parse_ipv4_value(cidr) do
-      {:ok, net4, prefix_len} when is_integer(prefix_len) and prefix_len in 0..32 ->
-        mask = ipv4_netmask_u32(prefix_len)
-        (ipv4_to_u32(ip4) &&& mask) == (ipv4_to_u32(net4) &&& mask)
-
-      _ ->
-        false
-    end
+  defp cidr_contains_ip?(ip4, cidr) when is_tuple(ip4) and is_binary(cidr) do
+    NetworkAddressPolicy.cidr_contains?(ip4, cidr)
   end
+
+  defp cidr_contains_ip?(_ip4, _cidr), do: false
 
   defp directed_broadcast_for_prefix?(ip4, net4, prefix_len)
        when prefix_len in 0..@max_broadcast_prefix do
@@ -360,8 +356,6 @@ defmodule ServiceRadar.Identity.AliasPolicy do
   defp ipv4_hostmask_u32(0), do: @ipv4_max_u32
   defp ipv4_hostmask_u32(prefix_len) when prefix_len in 1..31, do: (1 <<< (32 - prefix_len)) - 1
   defp ipv4_hostmask_u32(32), do: 0
-
-  defp ipv4_netmask_u32(prefix_len), do: bxor(@ipv4_max_u32, ipv4_hostmask_u32(prefix_len))
 
   defp ipv4_to_u32({a, b, c, d}) do
     a <<< 24 ||| b <<< 16 ||| c <<< 8 ||| d

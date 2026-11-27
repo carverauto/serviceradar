@@ -1,7 +1,7 @@
 defmodule Palisade.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/carverauto/serviceradar/tree/staging/elixir/palisade"
 
   def project do
@@ -21,19 +21,18 @@ defmodule Palisade.MixProject do
   end
 
   def application do
-    # No supervision tree in v0.1 — everything's pure / per-call.
-    # OIDC discovery + JWKS caching will need a GenServer-owned ETS
-    # in a later version; we'll add an `Application` module then.
+    # No application callback. The processes palisade provides
+    # (Palisade.RateLimit.ETS, Palisade.ConnectionLimiter) are started
+    # by the consumer from its own supervision tree via child_spec/1.
     [extra_applications: [:logger]]
   end
 
   defp description do
     """
-    Shared trust-boundary primitives for CarverAutomation services
-    (currently CRM + ServiceRadar). Outbound URL / network address
-    policy (SSRF defense), HTTP fetch with resolved-IP binding to
-    defeat DNS rebinding, and — in later versions — OIDC
-    primitives needed to make federated identity safe.
+    Trust-boundary primitives for Elixir web services: SSRF-safe
+    outbound URL policy and fetch, plus plugs for security headers,
+    trusted-proxy client IP, rate limiting, connection caps and
+    malformed-request rejection.
     """
   end
 
@@ -41,12 +40,10 @@ defmodule Palisade.MixProject do
     [
       maintainers: ["CarverAutomation"],
       licenses: ["Apache-2.0"],
-      links: %{
-        "Source" => "https://github.com/carverauto/serviceradar/tree/staging/elixir/palisade"
-      },
+      links: %{"Source" => @source_url},
       # Hex publish uploads these files (relative to the project
       # root). Excluded by default: _build, deps, .git, etc.
-      files: ~w(lib mix.exs README.md LICENSE .formatter.exs)
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs)
     ]
   end
 
@@ -56,8 +53,11 @@ defmodule Palisade.MixProject do
       # already pull Req in transitively; pinning here so palisade
       # builds standalone.
       {:req, "~> 0.6"},
+      # Plug behaviour and Plug.Conn for the web-edge plugs.
+      {:plug, "~> 1.14"},
       # Dev / test tooling.
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:stream_data, "~> 1.1", only: :test}
     ]
   end
 

@@ -4,6 +4,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Coverage do
   and returns the compiled scan settings those groups would use.
   """
 
+  alias Palisade.NetworkAddressPolicy
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SRQLQuery
@@ -132,29 +133,11 @@ defmodule ServiceRadar.CompositeChecks.Validation.Coverage do
   defp timeout_ms(_), do: 3_000
 
   defp cidr_contains?(target, ip) do
-    case String.split(target, "/", parts: 2) do
-      [base, prefix] ->
-        with {bits, ""} <- Integer.parse(prefix),
-             {:ok, net} <- :inet.parse_strict_address(String.to_charlist(base)),
-             {:ok, addr} <- :inet.parse_strict_address(String.to_charlist(ip)) do
-          same_prefix?(net, addr, bits)
-        else
-          _ -> false
-        end
-
-      _ ->
-        false
+    case :inet.parse_strict_address(String.to_charlist(ip)) do
+      {:ok, addr} -> NetworkAddressPolicy.cidr_contains?(addr, target)
+      {:error, _} -> false
     end
   end
-
-  defp same_prefix?({a, b, c, d}, {e, f, g, h}, bits) when bits in 0..32 do
-    net = :binary.decode_unsigned(<<a, b, c, d>>)
-    addr = :binary.decode_unsigned(<<e, f, g, h>>)
-    mask = if bits == 0, do: 0, else: Bitwise.bsl(0xFFFFFFFF, 32 - bits)
-    Bitwise.band(net, mask) == Bitwise.band(addr, mask)
-  end
-
-  defp same_prefix?(_, _, _), do: false
 
   defp system_actor, do: ServiceRadar.Actors.SystemActor.system(:validation_coverage)
 end
