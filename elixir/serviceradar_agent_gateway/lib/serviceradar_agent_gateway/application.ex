@@ -414,6 +414,20 @@ defmodule ServiceRadarAgentGateway.Application do
       cred: cred,
       idle_timeout: positive_integer_env("GATEWAY_GRPC_IDLE_TIMEOUT_MS", 30_000),
       inactivity_timeout: positive_integer_env("GATEWAY_GRPC_INACTIVITY_TIMEOUT_MS", 10_000),
+      initial_connection_window_size:
+        bounded_integer_env(
+          "GATEWAY_GRPC_INITIAL_CONNECTION_WINDOW_SIZE_BYTES",
+          4_194_304,
+          65_535,
+          2_147_483_647
+        ),
+      initial_stream_window_size:
+        bounded_integer_env(
+          "GATEWAY_GRPC_INITIAL_STREAM_WINDOW_SIZE_BYTES",
+          1_048_576,
+          65_535,
+          2_147_483_647
+        ),
       max_concurrent_streams: positive_integer_env("GATEWAY_GRPC_MAX_CONCURRENT_STREAMS", 100),
       max_connections: positive_integer_env("GATEWAY_GRPC_MAX_CONNECTIONS", 1_000),
       max_frame_size_received: positive_integer_env("GATEWAY_GRPC_MAX_FRAME_SIZE_BYTES", 16_777_215),
@@ -427,11 +441,30 @@ defmodule ServiceRadarAgentGateway.Application do
     |> parse_positive_integer(default, name)
   end
 
+  defp bounded_integer_env(name, default, min_value, max_value) do
+    name
+    |> System.get_env()
+    |> parse_bounded_integer(default, min_value, max_value, name)
+  end
+
   defp parse_positive_integer(nil, default, _name), do: default
 
   defp parse_positive_integer(value, default, name) do
     case Integer.parse(value) do
       {parsed, ""} when parsed > 0 ->
+        parsed
+
+      _ ->
+        Logger.warning("Invalid #{name}=#{inspect(value)}; defaulting to #{default}")
+        default
+    end
+  end
+
+  defp parse_bounded_integer(nil, default, _min_value, _max_value, _name), do: default
+
+  defp parse_bounded_integer(value, default, min_value, max_value, name) do
+    case Integer.parse(value) do
+      {parsed, ""} when parsed >= min_value and parsed <= max_value ->
         parsed
 
       _ ->
