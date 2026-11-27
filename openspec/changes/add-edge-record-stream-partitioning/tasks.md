@@ -166,7 +166,8 @@ when it moved.
   not the chronological range-`DROP` retirement job this task requires.
   Retired (#7069): the sweep projector no longer writes `edge_sweep_projected_rows`.
   Exactly-once for a sweep batch is `event_ledger` plus `edge_sweep_batch_slots`; the
-  retention worker drains the old rows for one horizon, then a migration drops the table.
+  table is no longer pruned and is dropped in the next PR, once this change is deployed
+  everywhere.
   It is no longer a partitioning target.
 - [ ] 1.9 (was `unify-sweep-results-proto` 5.3) Implement horizontally partitioned sweep consumers that preserve each
   micro-batch as an independent idempotency unit while adaptively grouping

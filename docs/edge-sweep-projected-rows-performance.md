@@ -8,7 +8,8 @@ Issue: https://github.com/carverauto/serviceradar/issues/7069
 coordinate of each primary `SweepObservationBatchV1` delivery, keyed by
 `(network_scope_id, row_key)` with `row_key = sha256(len || semantic_digest || ordinal)` and
 inserted `ON CONFLICT DO NOTHING`. Since the change described under "Writer stopped" below,
-nothing writes it; the retention worker drains what is left.
+nothing writes or prunes the table, and a migration in the next PR drops it once this
+change is deployed everywhere.
 
 ## Measured on demo (2026-11-26)
 
@@ -148,12 +149,19 @@ After the writer stops: the projected-rows `INSERT` disappears from `pg_stat_sta
 `n_tup_ins` on the table stops rising, and WAL volume falls by roughly the 4 KB per
 projected row measured above.
 
-After the prune index:
+After the prune index (historical):
 
-- The index exists and is valid: `\d platform.edge_sweep_projected_rows`.
-- `pg_stat_statements` for the projected-rows DELETE: mean time in milliseconds and
-  `shared_blks_read` per call in the tens, not 500k+, while nothing has expired.
-- Insert statement: `shared_blks_dirtied` and `wal_bytes` per call unchanged within noise.
-- From about 2026-12-04, when the oldest rows pass 30 days: `n_tup_del` on the table rises
-  and the worker's `deleted_sweep_projected_rows` log field is non-zero, and the heap
-  stops growing.
+The projected-rows DELETE no longer runs. Nothing writes or prunes the table, and the next
+PR drops it once this change is deployed everywhere. The checks below are what operators
+saw after the `inserted_at` index landed, before this change removed the prune:
+
+- The index existed and was valid: `\d platform.edge_sweep_projected_rows`.
+- Historical: `pg_stat_statements` for the projected-rows DELETE showed mean time in
+  milliseconds and `shared_blks_read` per call in the tens, not 500k+, while nothing had
+  expired.
+- Insert statement, while the writer still ran: `shared_blks_dirtied` and `wal_bytes` per
+  call unchanged within noise.
+- Historical, and never reached: from about 2026-12-04, when the oldest rows would have
+  passed 30 days, `n_tup_del` would have risen and the worker's
+  `deleted_sweep_projected_rows` log field would have been non-zero, and the heap would
+  have stopped growing. The prune was removed before any row aged out.
