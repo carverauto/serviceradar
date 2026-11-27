@@ -17,6 +17,8 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -32,13 +34,17 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
 const pluginHTTPTestStartPath = "/start"
@@ -751,4 +757,289 @@ func TestPluginHTTPRedirectSameHostCanonicalizesDefaultPorts(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, tc.same, pluginHTTPRedirectSameHost(next, origin), "%s -> %s", tc.origin, tc.next)
 	}
+}
+
+func newSizedPluginHTTPHostTestExecution(
+	t *testing.T,
+	permissions pluginPermissions,
+	memoryPages uint32,
+) (*pluginExecution, api.Module) {
+	t.Helper()
+
+	permissions.normalize()
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger: logger.NewTestLogger(),
+	})
+	t.Cleanup(manager.Stop)
+
+	assignment := &pluginAssignment{
+		AssignmentID: "http-large-test",
+		PluginID:     "http-large-test",
+		Capabilities: map[string]bool{"http_request": true},
+		Permissions:  permissions,
+		Timeout:      5 * time.Second,
+	}
+
+	rt := wazero.NewRuntime(t.Context())
+	t.Cleanup(func() {
+		_ = rt.Close(t.Context())
+	})
+
+	// Encode unsigned LEB128 initial memory page count for a single Wasm memory export.
+	var pageLEB []byte
+	v := memoryPages
+	for {
+		b := byte(v & 0x7f)
+		v >>= 7
+		if v != 0 {
+			b |= 0x80
+		}
+		pageLEB = append(pageLEB, b)
+		if v == 0 {
+			break
+		}
+	}
+
+	wasm := []byte{
+		0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+		0x05, byte(2 + len(pageLEB)), 0x01, 0x00,
+	}
+	wasm = append(wasm, pageLEB...)
+	wasm = append(wasm, 0x07, 0x0a, 0x01, 0x06, 'm', 'e', 'm', 'o', 'r', 'y', 0x02, 0x00)
+
+	mod, err := rt.Instantiate(t.Context(), wasm)
+	require.NoError(t, err)
+
+	return newPluginExecution(manager, assignment), mod
+}
+
+func TestPluginHostHTTPAllowsLargeBodyAndTransparentGzip(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 16*1024*1024, pluginMaxHTTPBodyBytes)
+
+	largeBody := bytes.Repeat([]byte("a"), 3*1024*1024)
+	var gzBuf bytes.Buffer
+	gzw := gzip.NewWriter(&gzBuf)
+	_, err := gzw.Write(largeBody)
+	require.NoError(t, err)
+	require.NoError(t, gzw.Close())
+	gzBytes := gzBuf.Bytes()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/raw":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(largeBody)
+		case "/gzip":
+			assert.Contains(t, r.Header.Get("Accept-Encoding"), "gzip")
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Encoding", "gzip")
+			_, _ = w.Write(gzBytes)
+		}
+	}))
+	defer srv.Close()
+
+	port := serverPortFromURL(t, srv.URL)
+	// 160 pages = 10 MiB Wasm linear memory so 3 MiB raw + 4 MiB base64 envelope fits easily.
+	exec, mod := newSizedPluginHTTPHostTestExecution(t, pluginPermissions{
+		AllowedNetworks: []string{"127.0.0.0/8"},
+		AllowedPorts:    []int{port},
+	}, 160)
+
+	const (
+		reqPtr  = uint32(0)
+		respPtr = uint32(64 * 1024)
+		respLen = uint32(6 * 1024 * 1024)
+	)
+
+	// 1. Raw >2 MiB body in status_body mode.
+	reqBytes, err := json.Marshal(httpRequestPayload{
+		Method:       http.MethodGet,
+		URL:          srv.URL + "/raw",
+		ResponseMode: "status_body",
+	})
+	require.NoError(t, err)
+	require.True(t, mod.Memory().Write(reqPtr, reqBytes))
+
+	n := exec.hostHTTPRequest(t.Context(), mod, reqPtr, uint32(len(reqBytes)), respPtr, respLen)
+	require.Positive(t, n)
+	gotRaw, ok := mod.Memory().Read(respPtr, uint32(n))
+	require.True(t, ok)
+	require.Equal(t, "200\n", string(gotRaw[:4]))
+	require.Equal(t, largeBody, gotRaw[4:])
+
+	// 2. Transparent gzip decompression >2 MiB in envelope mode (caller omits Accept-Encoding).
+	reqBytes, err = json.Marshal(httpRequestPayload{
+		Method:       http.MethodGet,
+		URL:          srv.URL + "/gzip",
+		ResponseMode: "envelope",
+	})
+	require.NoError(t, err)
+	require.True(t, mod.Memory().Write(reqPtr, reqBytes))
+
+	n = exec.hostHTTPRequest(t.Context(), mod, reqPtr, uint32(len(reqBytes)), respPtr, respLen)
+	require.Positive(t, n)
+	gotEnv, ok := mod.Memory().Read(respPtr, uint32(n))
+	require.True(t, ok)
+
+	var respEnv httpResponsePayload
+	require.NoError(t, json.Unmarshal(gotEnv, &respEnv))
+	assert.Equal(t, http.StatusOK, respEnv.Status)
+	decodedBody, err := base64.StdEncoding.DecodeString(respEnv.BodyBase64)
+	require.NoError(t, err)
+	assert.Equal(t, largeBody, decodedBody)
+}
+
+func TestPluginHostHTTPConditionalETag(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu              sync.Mutex
+		seenIfNoneMatch []string
+		currentETag     = `"snap-v1"`
+		currentBody     = `{"version":1}`
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		inm := r.Header.Get("If-None-Match")
+		seenIfNoneMatch = append(seenIfNoneMatch, inm)
+		etag := currentETag
+		body := currentBody
+		mu.Unlock()
+
+		if etag != "" && inm == etag {
+			w.Header().Set("ETag", etag)
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		if etag != "" {
+			w.Header().Set("ETag", etag)
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	port := serverPortFromURL(t, srv.URL)
+	exec, mod := newPluginHTTPHostTestExecution(t, pluginPermissions{
+		AllowedNetworks: []string{"127.0.0.0/8"},
+		AllowedPorts:    []int{port},
+	}, nil, nil)
+
+	// Disabled by default: subsequent GET does not send If-None-Match.
+	code, raw := callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
+		Method:       http.MethodGet,
+		URL:          srv.URL + "/snapshot?compact=1",
+		ResponseMode: "envelope",
+	})
+	require.Positive(t, code)
+	var firstDefault httpResponsePayload
+	require.NoError(t, json.Unmarshal(raw, &firstDefault))
+	assert.Equal(t, http.StatusOK, firstDefault.Status)
+
+	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
+		Method:       http.MethodGet,
+		URL:          srv.URL + "/snapshot?compact=1",
+		ResponseMode: "envelope",
+	})
+	require.Positive(t, code)
+	var secondDefault httpResponsePayload
+	require.NoError(t, json.Unmarshal(raw, &secondDefault))
+	assert.Equal(t, http.StatusOK, secondDefault.Status)
+
+	// Opt-in conditional_etag: 1st GET caches ETag, 2nd GET injects If-None-Match and gets 304.
+	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
+		Method:          http.MethodGet,
+		URL:             srv.URL + "/snapshot?compact=1",
+		ResponseMode:    "envelope",
+		ConditionalETag: true,
+	})
+	require.Positive(t, code)
+	var optFirst httpResponsePayload
+	require.NoError(t, json.Unmarshal(raw, &optFirst))
+	assert.Equal(t, http.StatusOK, optFirst.Status)
+
+	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
+		Method:          http.MethodGet,
+		URL:             srv.URL + "/snapshot?compact=1",
+		ResponseMode:    "envelope",
+		ConditionalETag: true,
+	})
+	require.Positive(t, code)
+	var optNotModified httpResponsePayload
+	require.NoError(t, json.Unmarshal(raw, &optNotModified))
+	assert.Equal(t, http.StatusNotModified, optNotModified.Status)
+	assert.Empty(t, optNotModified.BodyBase64)
+
+	// Server rotates ETag -> next GET sends old ETag, gets 200 and updates cache to snap-v2.
+	mu.Lock()
+	currentETag = `"snap-v2"`
+	currentBody = `{"version":2}`
+	mu.Unlock()
+
+	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
+		Method:          http.MethodGet,
+		URL:             srv.URL + "/snapshot?compact=1",
+		ResponseMode:    "envelope",
+		ConditionalETag: true,
+	})
+	require.Positive(t, code)
+	var rotated httpResponsePayload
+	require.NoError(t, json.Unmarshal(raw, &rotated))
+	assert.Equal(t, http.StatusOK, rotated.Status)
+
+	// Explicit caller If-None-Match is preserved rather than overwritten.
+	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
+		Method:          http.MethodGet,
+		URL:             srv.URL + "/snapshot?compact=1",
+		Headers:         map[string]string{"If-None-Match": `"caller-etag"`},
+		ResponseMode:    "envelope",
+		ConditionalETag: true,
+	})
+	require.Positive(t, code)
+	var callerInm httpResponsePayload
+	require.NoError(t, json.Unmarshal(raw, &callerInm))
+	assert.Equal(t, http.StatusOK, callerInm.Status)
+
+	// Removing assignment via refreshAssignmentStates clears cached ETag.
+	exec.manager.refreshAssignmentStates(nil)
+	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
+		Method:          http.MethodGet,
+		URL:             srv.URL + "/snapshot?compact=1",
+		ResponseMode:    "envelope",
+		ConditionalETag: true,
+	})
+	require.Positive(t, code)
+	var afterRemoval httpResponsePayload
+	require.NoError(t, json.Unmarshal(raw, &afterRemoval))
+	assert.Equal(t, http.StatusOK, afterRemoval.Status)
+
+	mu.Lock()
+	gotHeaders := append([]string(nil), seenIfNoneMatch...)
+	mu.Unlock()
+	assert.Equal(t, []string{
+		"",
+		"",
+		"",
+		`"snap-v1"`,
+		`"snap-v1"`,
+		`"caller-etag"`,
+		"",
+	}, gotHeaders)
+
+	// Cache size remains bounded at pluginHTTPETagMaxEntries.
+	var bounded pluginHTTPETagCache
+	for i := range pluginHTTPETagMaxEntries + 16 {
+		bounded.put("assign-1", fmt.Sprintf("https://example.test/snap/%d", i), fmt.Sprintf(`"e-%d"`, i))
+	}
+	assert.Len(t, bounded.entries, pluginHTTPETagMaxEntries)
+	// Control-character ETag is refused and never stored.
+	bounded.put("assign-1", "https://example.test/bad", "\"bad\r\n\"")
+	_, ok := bounded.get("assign-1", "https://example.test/bad")
+	assert.False(t, ok)
+	// Oversized ETag is refused.
+	bounded.put("assign-1", "https://example.test/big", strings.Repeat("x", pluginHTTPETagMaxValueBytes+1))
+	_, ok = bounded.get("assign-1", "https://example.test/big")
+	assert.False(t, ok)
 }

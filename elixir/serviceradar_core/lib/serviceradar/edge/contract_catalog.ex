@@ -112,7 +112,7 @@ defmodule ServiceRadar.Edge.ContractCatalog do
     %{
       ref: {"serviceradar.telemetry.batch", 1},
       payload: Serviceradar.Agent.Addon.V1.TelemetryBatch,
-      projection_revision: 2,
+      projection_revision: 3,
       authority: :standing_grant,
       projector: TelemetryBatch,
       max_projected_rows: 10_000,

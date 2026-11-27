@@ -130,6 +130,60 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert_receive {:unpublished, %{count: 1}, %{reason: :handled_elsewhere}}
     end
 
+    test "EXTERNAL_TOPOLOGY_V1 is handled off this path without warning and does not block OCSF" do
+      attach_unpublished_counter("unpublished-external-topology")
+
+      ocsf_event =
+        Jason.encode!(%{
+          "id" => "5cc2b0d9-2f02-437c-83ec-df0d53ebdb48",
+          "time" => "2026-11-27T00:00:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "severity_id" => 2
+        })
+
+      status =
+        addon_status_with([
+          %TelemetryRecord{
+            event_id: "topo-1",
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1,
+            payload: ~s({"schema_version":1,"generated_at":"2026-11-27T00:00:00Z"})
+          },
+          %TelemetryRecord{
+            event_id: "topo-numeric",
+            payload_kind: 9,
+            payload: ~s({"schema_version":1,"generated_at":"2026-11-27T00:00:00Z"})
+          },
+          %TelemetryRecord{
+            event_id: "ocsf-1",
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+            payload: ocsf_event
+          }
+        ])
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = StatusIngestor.ingest(status)
+        end)
+
+      assert_receive {:unpublished, %{count: 1},
+                      %{
+                        reason: :handled_elsewhere,
+                        payload_kind: :TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1
+                      }}
+
+      assert_receive {:unpublished, %{count: 1},
+                      %{
+                        reason: :handled_elsewhere,
+                        payload_kind: :TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1
+                      }}
+
+      assert_receive {:published, "events.ocsf.processed", _payload}
+      refute log =~ "unrecognized payload kind"
+    end
+
     test "publishes OCSF add-on telemetry records to pdns.ocsf with trusted metadata" do
       ocsf_event =
         Jason.encode!(%{

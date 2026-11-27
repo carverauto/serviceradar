@@ -18,6 +18,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.HorizonProjection
   alias ServiceRadar.EventWriter.Producer
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.ExternalProjection
   alias ServiceRadar.TestSupport.ExposureBroker
   alias ServiceRadar.TestSupport.StreamLoadFE
   alias ServiceRadarSRQL.Native
@@ -729,6 +730,184 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert_received {:loaded, :horizon_bgp_events, 1}
       assert_received {:loaded, :horizon_bgp_zombies, 1}
       assert_received {:loaded, :horizon_path_hops, 1}
+    end
+
+    test "forwards horizon.outage and horizon.bgp_anomaly to NATS independent of starrocks_enabled and normalizes via ExternalProjection" do
+      parent = self()
+
+      publish_nats = fn subject, payload, opts ->
+        send(parent, {:nats_status, subject, Jason.decode!(payload), opts})
+        :ok
+      end
+
+      asn_outage =
+        ocsf_row(%{
+          "id" => "out-asn-1",
+          "time" => "2026-11-27T01:00:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.outage",
+          "unmapped" => %{
+            "outage_id" => "out-asn-1",
+            "status" => "active",
+            "entity_type" => "asn",
+            "entity_key" => "AS13335",
+            "affected_asn" => 13_335
+          }
+        })
+
+      saas_cleared =
+        ocsf_row(%{
+          "id" => "out-saas-1",
+          "time" => "2026-11-27T01:05:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.outage",
+          "unmapped" => %{
+            "outage_id" => "out-saas-1",
+            "status" => "cleared",
+            "entity_type" => "saas",
+            "entity_key" => "cloud-akamai-us-east"
+          }
+        })
+
+      bgp_rtbh =
+        ocsf_row(%{
+          "id" => "bgp-rtbh-1",
+          "time" => "2026-11-27T01:10:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.bgp_anomaly",
+          "unmapped" => %{
+            "event_id" => "bgp-rtbh-1",
+            "kind" => "rtbh_blackhole",
+            "covering_prefix" => "198.51.100.0/24",
+            "origin_asn" => 64_512,
+            "rpki_status" => "invalid",
+            "rtbh_blackhole" => true
+          }
+        })
+
+      bgp_asn_only =
+        ocsf_row(%{
+          "id" => "bgp-leak-1",
+          "time" => "2026-11-27T01:12:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.bgp_anomaly",
+          "unmapped" => %{
+            "event_id" => "bgp-leak-1",
+            "kind" => "leak",
+            "origin_asn" => 64_513,
+            "rpki_status" => "valid",
+            "rtbh_blackhole" => false
+          }
+        })
+
+      load_fn = fn _dataset, _rows ->
+        flunk("load_fn must not be called when starrocks_enabled is false")
+      end
+
+      assert :ok ==
+               HorizonProjection.project_rows([asn_outage, saas_cleared, bgp_rtbh, bgp_asn_only],
+                 starrocks_enabled: false,
+                 load: load_fn,
+                 publish_nats: publish_nats
+               )
+
+      assert_received {:nats_status, "serviceradar.horizon.outages.asn", asn_payload, asn_opts}
+      assert {"Nats-Msg-Id", _} = List.keyfind(asn_opts[:headers], "Nats-Msg-Id", 0)
+
+      assert {:ok,
+              %{
+                entity_id: "asn:13335",
+                kind: "ASN",
+                outage_state: "confirmed_outage"
+              }} =
+               ExternalProjection.normalize_status_event(
+                 "serviceradar.horizon.outages.asn",
+                 asn_payload
+               )
+
+      assert_received {:nats_status, "serviceradar.horizon.outages.saas", saas_payload, _}
+
+      assert {:ok,
+              %{
+                entity_id: "saas:cloud-akamai-us-east",
+                kind: "SaasTarget",
+                outage_state: "up"
+              }} =
+               ExternalProjection.normalize_status_event(
+                 "serviceradar.horizon.outages.saas",
+                 saas_payload
+               )
+
+      assert_received {:nats_status, "serviceradar.horizon.bgp.rtbh_blackhole", bgp_payload, _}
+
+      assert {:ok,
+              %{
+                entity_id: "198.51.100.0/24",
+                kind: "Prefix",
+                rpki_state: "invalid",
+                rtbh_active: true
+              }} =
+               ExternalProjection.normalize_status_event(
+                 "serviceradar.horizon.bgp.rtbh_blackhole",
+                 bgp_payload
+               )
+
+      assert_received {:nats_status, "serviceradar.horizon.bgp.leak", leak_payload, _}
+
+      assert {:ok,
+              %{
+                entity_id: "asn:64513",
+                kind: "ASN",
+                rpki_state: "valid",
+                rtbh_active: false
+              }} =
+               ExternalProjection.normalize_status_event(
+                 "serviceradar.horizon.bgp.leak",
+                 leak_payload
+               )
+    end
+
+    test "NATS forwarding failures are fail-open and never block StarRocks loads" do
+      parent = self()
+
+      load_fn = fn dataset, rows ->
+        send(parent, {:loaded, dataset, length(rows)})
+        {:ok, %{loaded: length(rows)}}
+      end
+
+      log =
+        capture_log(fn ->
+          assert :ok ==
+                   HorizonProjection.project_rows([outage_row()],
+                     starrocks_enabled: true,
+                     load: load_fn,
+                     publish_nats: fn _subject, _payload, _opts -> {:error, :timeout} end
+                   )
+
+          assert :ok ==
+                   HorizonProjection.project_rows([outage_row()],
+                     starrocks_enabled: true,
+                     load: load_fn,
+                     publish_nats: fn _subject, _payload, _opts -> raise "nats crashed" end
+                   )
+        end)
+
+      assert log =~ "Horizon NATS status publish failed"
+      assert log =~ "Horizon NATS status publish raised"
+      assert_received {:loaded, :horizon_outages, 1}
+      assert_received {:loaded, :horizon_outages, 1}
     end
   end
 

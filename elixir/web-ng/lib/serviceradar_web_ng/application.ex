@@ -71,6 +71,19 @@ defmodule ServiceRadarWebNG.Application do
       pubsub_children ++
         base_children ++
         [
+          {Finch,
+           name: ServiceRadarWebNG.HorizonFinch,
+           pools: %{
+             default: [
+               conn_opts: [transport_opts: [timeout: 5_000]],
+               conn_max_idle_time: 30_000,
+               http2: [
+                 ping_interval: 30_000,
+                 max_connection_age: 300_000,
+                 max_connection_age_jitter: 30_000
+               ]
+             ]
+           }},
           ServiceRadarWebNG.CameraTimelineAdmission,
           ServiceRadarWebNG.FieldSurveyStreamLimiter,
           {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor},

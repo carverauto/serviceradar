@@ -779,6 +779,8 @@ func (m *PluginManager) Stop() {
 		runner.stop()
 	}
 
+	m.httpETags.clear()
+
 	m.cacheCloseOnce.Do(func() {
 		if m.compilationCache != nil {
 			_ = m.compilationCache.Close(context.Background())

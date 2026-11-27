@@ -16,6 +16,7 @@ defmodule Serviceradar.Agent.Addon.V1.TelemetryPayloadKind do
   field :TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC, 6
   field :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS, 7
   field :TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1, 8
+  field :TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1, 9
 end
 
 defmodule Serviceradar.Agent.Addon.V1.HealthResponse.Status do

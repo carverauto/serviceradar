@@ -192,6 +192,9 @@ func telemetryRecordPayload(raw json.RawMessage, kind addonpb.TelemetryPayloadKi
 	if kind == addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS {
 		return telemetryMetricPayload(raw)
 	}
+	if kind == addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1 {
+		return telemetryExternalTopologyPayload(raw)
+	}
 
 	if raw[0] != '"' {
 		return append([]byte(nil), raw...), nil
@@ -235,6 +238,15 @@ func telemetryMetricPayload(raw json.RawMessage) ([]byte, error) {
 	return payload, nil
 }
 
+func telemetryExternalTopologyPayload(raw json.RawMessage) ([]byte, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
+		return nil, fmt.Errorf("%w: external_topology_v1 payload must be a JSON object", errPluginTelemetryInvalidPayload)
+	}
+
+	return append([]byte(nil), trimmed...), nil
+}
+
 func telemetryPayloadKind(value any) (addonpb.TelemetryPayloadKind, error) {
 	switch v := value.(type) {
 	case string:
@@ -246,6 +258,8 @@ func telemetryPayloadKind(value any) (addonpb.TelemetryPayloadKind, error) {
 		case "serviceradar_metrics", "serviceradar_metric", "serviceradar.metric.v1",
 			"telemetry_payload_kind_serviceradar_metrics":
 			return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS, nil
+		case "external_topology_v1", "telemetry_payload_kind_external_topology_v1":
+			return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1, nil
 		}
 	case json.Number:
 		i, err := v.Int64()
@@ -276,6 +290,8 @@ func telemetryPayloadKindFromInt(value int64) (addonpb.TelemetryPayloadKind, err
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC, nil
 	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS:
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS, nil
+	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1:
+		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1, nil
 	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1:
 		// Refused deliberately, and named rather than left to the default so the
 		// refusal is a decision rather than an oversight.

@@ -215,6 +215,10 @@ enum TelemetryPayloadKind {
   // string, a new observation type is one registry entry in core and nothing
   // else. Add a schema, never a kind.
   TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1 = 8;
+  // External topology snapshots/shards emitted by WASI plugins or add-ons.
+  // TelemetryRecord.payload is a UTF-8 JSON object conforming to
+  // schema_version 1 of the external topology snapshot contract.
+  TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1 = 9;
 }
 
 message TelemetrySource {

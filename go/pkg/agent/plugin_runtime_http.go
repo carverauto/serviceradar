@@ -50,6 +50,7 @@ type httpRequestPayload struct {
 	TimeoutMS           int                        `json:"timeout_ms"`
 	InsecureSkipVerify  bool                       `json:"insecure_skip_verify"`
 	FollowRedirects     *bool                      `json:"follow_redirects,omitempty"`
+	ConditionalETag     bool                       `json:"conditional_etag,omitempty"`
 	CredentialInjection *credentialInjectionIntent `json:"credential_injection,omitempty"`
 }
 
@@ -133,6 +134,150 @@ var errPluginHTTPTooManyRedirects = errors.New("stopped after 10 redirects")
 type pluginHTTPTransportCache struct {
 	mu         sync.Mutex
 	transports map[pluginHTTPTransportKey]*http.Transport
+}
+
+const (
+	pluginHTTPETagMaxEntries    = 256
+	pluginHTTPETagMaxValueBytes = 512
+)
+
+type pluginHTTPETagKey struct {
+	assignmentID string
+	url          string
+}
+
+type pluginHTTPETagEntry struct {
+	etag     string
+	lastUsed uint64
+}
+
+// pluginHTTPETagCache stores bounded per-(assignmentID, canonicalURL) ETag
+// strings (never response bodies) so stateless Wasm plugins can opt into
+// conditional GET / 304 Not Modified polling across ticks.
+type pluginHTTPETagCache struct {
+	mu      sync.Mutex
+	seq     uint64
+	entries map[pluginHTTPETagKey]pluginHTTPETagEntry
+}
+
+func (c *pluginHTTPETagCache) get(assignmentID, canonicalURL string) (string, bool) {
+	if c == nil || assignmentID == "" || canonicalURL == "" {
+		return "", false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := pluginHTTPETagKey{assignmentID: assignmentID, url: canonicalURL}
+	entry, ok := c.entries[key]
+	if !ok || entry.etag == "" {
+		return "", false
+	}
+	c.seq++
+	entry.lastUsed = c.seq
+	c.entries[key] = entry
+	return entry.etag, true
+}
+
+func (c *pluginHTTPETagCache) put(assignmentID, canonicalURL, etag string) {
+	if c == nil || assignmentID == "" || canonicalURL == "" {
+		return
+	}
+	etag = strings.TrimSpace(etag)
+	if etag == "" || len(etag) > pluginHTTPETagMaxValueBytes || strings.ContainsAny(etag, "\r\n\x00") {
+		c.delete(assignmentID, canonicalURL)
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[pluginHTTPETagKey]pluginHTTPETagEntry)
+	}
+	key := pluginHTTPETagKey{assignmentID: assignmentID, url: canonicalURL}
+	if _, exists := c.entries[key]; !exists && len(c.entries) >= pluginHTTPETagMaxEntries {
+		var oldestKey pluginHTTPETagKey
+		var oldestSeq uint64
+		first := true
+		for k, v := range c.entries {
+			if first || v.lastUsed < oldestSeq {
+				oldestKey = k
+				oldestSeq = v.lastUsed
+				first = false
+			}
+		}
+		if !first {
+			delete(c.entries, oldestKey)
+		}
+	}
+	c.seq++
+	c.entries[key] = pluginHTTPETagEntry{etag: etag, lastUsed: c.seq}
+}
+
+func (c *pluginHTTPETagCache) delete(assignmentID, canonicalURL string) {
+	if c == nil || assignmentID == "" || canonicalURL == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, pluginHTTPETagKey{assignmentID: assignmentID, url: canonicalURL})
+}
+
+func (c *pluginHTTPETagCache) deleteAssignment(assignmentID string) {
+	if c == nil || assignmentID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.entries {
+		if k.assignmentID == assignmentID {
+			delete(c.entries, k)
+		}
+	}
+}
+
+func (c *pluginHTTPETagCache) retainAssignments(activeIDs map[string]struct{}) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.entries {
+		if _, ok := activeIDs[k.assignmentID]; !ok {
+			delete(c.entries, k)
+		}
+	}
+}
+
+func (c *pluginHTTPETagCache) clear() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.entries)
+}
+
+func canonicalHTTPETagURL(reqURL *url.URL) string {
+	if reqURL == nil {
+		return ""
+	}
+	cloned := *reqURL
+	cloned.Scheme = strings.ToLower(strings.TrimSpace(cloned.Scheme))
+	host := strings.ToLower(strings.TrimSuffix(cloned.Hostname(), "."))
+	if port := cloned.Port(); port != "" {
+		defaultPort := ""
+		switch cloned.Scheme {
+		case httpScheme:
+			defaultPort = "80"
+		case httpsScheme:
+			defaultPort = "443"
+		}
+		if port != defaultPort {
+			host = net.JoinHostPort(host, port)
+		}
+	}
+	cloned.Host = host
+	cloned.Fragment = ""
+	cloned.RawFragment = ""
+	return cloned.String()
 }
 
 func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, reqPtr, reqLen, respPtr, respLen uint32) int32 {
@@ -287,6 +432,17 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	if trace != nil {
 		trace.markStart()
 	}
+
+	var conditionalETagURL string
+	if payload.ConditionalETag && method == http.MethodGet &&
+		strings.TrimSpace(httpReq.Header.Get("If-None-Match")) == "" &&
+		e.manager != nil && e.assignment != nil && e.assignment.AssignmentID != "" {
+		conditionalETagURL = canonicalHTTPETagURL(reqURL)
+		if cachedETag, ok := e.manager.httpETags.get(e.assignment.AssignmentID, conditionalETagURL); ok {
+			httpReq.Header.Set("If-None-Match", cachedETag)
+		}
+	}
+
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -300,6 +456,23 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		_ = resp.Body.Close()
 	}()
 	e.invalidateRejectedOAuth2Token(httpReq, grant, resp.StatusCode)
+
+	if conditionalETagURL != "" {
+		switch {
+		case resp.StatusCode == http.StatusNotModified:
+			if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
+				e.manager.httpETags.put(e.assignment.AssignmentID, conditionalETagURL, etag)
+			}
+		case resp.StatusCode >= 200 && resp.StatusCode < 300:
+			if etag := strings.TrimSpace(resp.Header.Get("ETag")); etag != "" {
+				e.manager.httpETags.put(e.assignment.AssignmentID, conditionalETagURL, etag)
+			} else {
+				e.manager.httpETags.delete(e.assignment.AssignmentID, conditionalETagURL)
+			}
+		case resp.StatusCode >= 400:
+			e.manager.httpETags.delete(e.assignment.AssignmentID, conditionalETagURL)
+		}
+	}
 
 	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL, trace)
 }

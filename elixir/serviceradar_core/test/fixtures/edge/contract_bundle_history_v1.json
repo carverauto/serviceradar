@@ -181,6 +181,10 @@
         {
           "contract_bundle_sha256": "2415130484a8150f8d6aad0fb632aeb984a2be7f3fa68b85d979f6e8ee4fe9b2",
           "projection_revision": 2
+        },
+        {
+          "contract_bundle_sha256": "ad649a71f373b07f5f9e54fc78475898f916aa096de39be0b2ae30454e49b569",
+          "projection_revision": 3
         }
       ]
     },
@@ -209,5 +213,5 @@
       ]
     }
   ],
-  "registry_snapshot_sha256": "fa1dc9a0a8526d1c88f1716045db7f2d9864cbfd5d05ee8989b2e5740f6742b4"
+  "registry_snapshot_sha256": "4b68ad42c4f40ec74090b511ca663696e72d717ac000508ccfd57b6ebd3a815a"
 }

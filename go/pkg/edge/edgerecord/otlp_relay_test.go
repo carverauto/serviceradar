@@ -130,4 +130,13 @@ func TestValidateOtlpRelayFrameInvariants(t *testing.T) {
 	if err := ValidateOtlpRelayFrame(emptyPayload); !errors.Is(err, ErrOtlpRelayFrame) {
 		t.Fatalf("expected ErrOtlpRelayFrame for empty payload, got %v", err)
 	}
+
+	if ValidOtlpRelayPayloadKind(addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1) {
+		t.Fatal("expected EXTERNAL_TOPOLOGY_V1 to be rejected by ValidOtlpRelayPayloadKind")
+	}
+	extTopo := validOtlpRelayFrameFixture()
+	extTopo.Batch.Records[0].PayloadKind = addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_EXTERNAL_TOPOLOGY_V1
+	if err := ValidateOtlpRelayFrame(extTopo); !errors.Is(err, ErrOtlpRelayFrame) {
+		t.Fatalf("expected ErrOtlpRelayFrame for EXTERNAL_TOPOLOGY_V1, got %v", err)
+	}
 }
