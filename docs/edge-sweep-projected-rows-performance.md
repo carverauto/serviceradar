@@ -7,9 +7,9 @@ Issue: https://github.com/carverauto/serviceradar/issues/7069
 `platform.edge_sweep_projected_rows` held one row per `(kind, batch_index, element_index)`
 coordinate of each primary `SweepObservationBatchV1` delivery, keyed by
 `(network_scope_id, row_key)` with `row_key = sha256(len || semantic_digest || ordinal)` and
-inserted `ON CONFLICT DO NOTHING`. Since the change described under "Writer stopped" below,
-nothing writes or prunes the table. `20261127090000` drops it and leaves an `UNLOGGED`
-stub; see "Dropping the table".
+inserted `ON CONFLICT DO NOTHING`. Current cores neither write nor prune it; see
+"Writer stopped". `20261127090000` drops the real table and leaves an `UNLOGGED`
+stub that only a not-yet-upgraded core writes; see "Dropping the table".
 
 ## Measured on demo (2026-11-26)
 
@@ -157,9 +157,9 @@ projected row measured above.
 
 After the prune index (historical):
 
-The projected-rows DELETE no longer runs. Nothing writes or prunes the table, and the next
-PR drops it once this change is deployed everywhere. The checks below are what operators
-saw after the `inserted_at` index landed, before this change removed the prune:
+The projected-rows DELETE no longer runs. `20261127090000` drops the real table and its
+indexes and leaves the stub described under "Dropping the table". The checks below are
+what operators saw after the `inserted_at` index landed, before the prune was removed:
 
 - The index existed and was valid: `\d platform.edge_sweep_projected_rows`.
 - Historical: `pg_stat_statements` for the projected-rows DELETE showed mean time in

@@ -166,9 +166,9 @@ when it moved.
   `edge_sweep_batch_slots` tables by bounded batched `DELETE`. It is
   not the chronological range-`DROP` retirement job this task requires.
   Retired (#7069): the sweep projector no longer writes `edge_sweep_projected_rows`.
-  Exactly-once for a sweep batch is `event_ledger` plus `edge_sweep_batch_slots`; the
-  table is no longer pruned and is dropped in the next PR, once this change is deployed
-  everywhere.
+  Exactly-once for a sweep batch is `event_ledger` plus `edge_sweep_batch_slots`.
+  `20261127090000` replaces the table with an UNLOGGED stub
+  (`docs/edge-sweep-projected-rows-performance.md`).
   It is no longer a partitioning target.
 - [ ] 1.9 (was `unify-sweep-results-proto` 5.3) Implement horizontally partitioned sweep consumers that preserve each
   micro-batch as an independent idempotency unit while adaptively grouping
