@@ -13,13 +13,14 @@ defmodule ServiceRadarWebNG.CameraRelayHealth do
   @default_event_limit 6
   @default_alert_limit 6
   @default_scan_multiplier 5
+  @default_event_lookback_days 7
 
   def overview(opts \\ []) do
     scope = Keyword.fetch!(opts, :scope)
     event_limit = parse_limit(Keyword.get(opts, :event_limit), @default_event_limit)
     alert_limit = parse_limit(Keyword.get(opts, :alert_limit), @default_alert_limit)
 
-    with {:ok, recent_events} <- list_recent_events(scope, event_limit * @default_scan_multiplier),
+    with {:ok, recent_events} <- list_recent_events(scope, event_limit, opts),
          {:ok, active_alerts} <- list_active_alerts(scope, alert_limit * @default_scan_multiplier) do
       {:ok,
        %{
@@ -37,14 +38,24 @@ defmodule ServiceRadarWebNG.CameraRelayHealth do
     end
   end
 
-  defp list_recent_events(scope, limit) do
-    query =
-      OcsfEvent
-      |> Ash.Query.for_read(:read, %{}, scope: scope)
-      |> Ash.Query.sort(time: :desc)
-      |> Ash.Query.limit(limit)
+  @doc false
+  def recent_events_query(scope, limit, opts \\ []) do
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    lookback_days = parse_limit(Keyword.get(opts, :lookback_days), @default_event_lookback_days)
+    cutoff = DateTime.shift(now, day: -lookback_days)
+    log_names = RelayHealthEventRouter.relay_health_log_names()
 
-    Ash.read(query, scope: scope, domain: ServiceRadar.Monitoring)
+    OcsfEvent
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(log_name in ^log_names and time >= ^cutoff)
+    |> Ash.Query.sort(time: :desc)
+    |> Ash.Query.limit(limit)
+  end
+
+  defp list_recent_events(scope, limit, opts) do
+    scope
+    |> recent_events_query(limit, opts)
+    |> Ash.read(scope: scope, domain: ServiceRadar.Monitoring)
   end
 
   defp list_active_alerts(scope, limit) do

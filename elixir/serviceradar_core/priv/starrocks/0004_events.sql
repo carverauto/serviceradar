@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS serviceradar.events (
   src_endpoint VARCHAR(1048576),
   dst_endpoint VARCHAR(1048576),
   raw_data VARCHAR(1048576),
-  created_at DATETIME
+  created_at DATETIME,
+  event_type VARCHAR(128) NULL
 )
 PRIMARY KEY (id, `time`)
 PARTITION BY date_trunc('day', `time`)
@@ -45,5 +46,6 @@ ORDER BY (`time`, id)
 PROPERTIES (
   "replication_num" = "3",
   "enable_persistent_index" = "true",
-  "partition_live_number" = "365"
+  "partition_live_number" = "365",
+  "bloom_filter_columns" = "event_type"
 );

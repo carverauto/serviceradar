@@ -861,11 +861,6 @@ fn event_json_text(document: &str, path: &[&str]) -> Result<String> {
 // and query/events/rollup.rs one for one.
 type EventPath = (&'static str, &'static [&'static str]);
 
-const EVENT_TYPE_PATHS: &[EventPath] = &[
-    ("metadata", &["event_type"]),
-    ("metadata", &["service_radar", "event_type"]),
-    ("unmapped", &["event_type"]),
-];
 const EVENT_FINDING_UID_PATHS: &[EventPath] = &[
     ("metadata", &["finding_info", "uid"]),
     ("metadata", &["security_signal", "finding_uid"]),
@@ -1294,6 +1289,7 @@ const LOG_TEXT_FILTER_FIELDS: &[&str] = &[
 ];
 const EVENT_TEXT_FILTER_FIELDS: &[&str] = &[
     "activity_name",
+    "event_type",
     "severity",
     "message",
     "log_name",
@@ -1318,7 +1314,6 @@ fn dataset_filter_sql(dataset: Dataset, filter: &Filter) -> Result<Option<String
     Ok(Some(match (dataset.raw_table, field) {
         ("logs", "severity_text" | "severity" | "level") => logs_severity_text_filter_sql(filter)?,
         ("logs", "device_id" | "uid") => logs_device_identity_filter_sql(filter)?,
-        ("events", "event_type") => event_exact_filter_sql(filter, EVENT_TYPE_PATHS, field)?,
         ("events", "finding_uid") => {
             event_exact_filter_sql(filter, EVENT_FINDING_UID_PATHS, field)?
         }
@@ -6278,20 +6273,31 @@ AND milliseconds_diff({home}, start_time) > 0)"
     }
 
     #[test]
-    fn event_type_reads_every_document_path_cnpg_reads() {
+    fn event_type_queries_materialized_column_directly() {
+        let exact = translate(
+            &plan("in:events event_type:anomaly time:last_1h"),
+            "serviceradar",
+        )
+        .expect("event_type exact");
+        assert!(
+            exact.sql.contains("AND event_type = 'anomaly'"),
+            "{}",
+            exact.sql
+        );
+        assert!(!exact.sql.contains("get_json_string("), "{}", exact.sql);
+
         let compiled = translate(
             &plan("in:events event_type:(anomaly,anomaly_detection) time:last_1h"),
             "serviceradar",
         )
-        .expect("event_type");
+        .expect("event_type list");
         let sql = &compiled.sql;
 
         assert!(
-            sql.contains(
-                "((get_json_string(metadata, '$.\"event_type\"') = 'anomaly' OR get_json_string(metadata, '$.\"service_radar\".\"event_type\"') = 'anomaly' OR get_json_string(unmapped, '$.\"event_type\"') = 'anomaly') OR (get_json_string(metadata, '$.\"event_type\"') = 'anomaly_detection'"
-            ),
+            sql.contains("AND event_type IN ('anomaly', 'anomaly_detection')"),
             "{sql}"
         );
+        assert!(!sql.contains("get_json_string("), "{sql}");
         assert!(!sql.contains("->>"), "{sql}");
 
         let negated = translate(
@@ -6300,13 +6306,31 @@ AND milliseconds_diff({home}, start_time) > 0)"
         )
         .expect("negated");
         assert!(
-            negated.sql.contains("AND NOT ((get_json_string("),
+            negated
+                .sql
+                .contains("AND (event_type IS NULL OR event_type != 'anomaly')"),
             "{}",
             negated.sql
         );
 
+        let negated_list = translate(
+            &plan("in:events !event_type:(anomaly,anomaly_detection) time:last_1h"),
+            "serviceradar",
+        )
+        .expect("negated list");
+        assert!(
+            negated_list.sql.contains(
+                "AND (event_type IS NULL OR event_type NOT IN ('anomaly', 'anomaly_detection'))"
+            ),
+            "{}",
+            negated_list.sql
+        );
+
         let message = refused("in:events event_type:>anomaly time:last_1h");
-        assert!(message.contains("equality and IN/NOT IN"), "{message}");
+        assert!(
+            message.contains("unsupported operator for text filter"),
+            "{message}"
+        );
     }
 
     #[test]
