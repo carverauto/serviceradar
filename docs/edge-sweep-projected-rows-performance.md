@@ -107,28 +107,28 @@ What changed:
   every `sweep_host_results` tuple version (`ctid`, `xmin`) unchanged. A re-applied upsert
   keeps the row count but always writes a new tuple version, so this fails where a row
   count cannot. `edge_record_db_test.exs` asserts the same on forced redelivery.
-- The table, its indexes and the prune stay, so rows written before the change age out
-  under retention.
+- The retention prune of this table is removed in the same change: nothing reads the rows,
+  so there is nothing to age out. The table and its indexes stay only until the drop below.
 
-### Dropping the table later
+### Dropping the table (next release)
 
-After the new build has run everywhere for one retention horizon
-(`retention_horizon_seconds/2`: 30 days plus 4500 s by default, or longer where
-`edge_pipeline_settings` raises the sweep horizon ceiling), the table holds nothing anyone
-needs. Then, in one change:
+Operator decision (2026-11-27): drop the table as soon as this change is rolled out
+everywhere, not after a retention horizon. Nothing reads the rows, so waiting buys nothing.
+
+It cannot ship in this same change: migrations run before the new pods start
+(`wait-migrations`), so during a rolling upgrade a core still running the old projector
+would fail every sweep batch transaction on the missing table, and those edge records
+would retry or dead-letter until the old pods were gone. So, in the next change, once this
+one is deployed on every installation:
 
 1. A migration that runs `DROP TABLE IF EXISTS platform.edge_sweep_projected_rows` (the
    indexes go with it), with a `down` that recreates the empty table as
    `20260910120000_create_edge_record_ledger.exs` and
    `20261126070000_index_edge_sweep_projected_rows_inserted_at.exs` define it.
-2. Remove `@delete_sweep_projected_rows_sql`, its `delete_in_batches` step and the
-   `deleted_sweep_projected_rows` log field from `EdgeLedgerRetentionWorker`, and the
-   table from `edge_ledger_retention_worker_db_test.exs`.
-3. Regenerate the baseline schema.
+2. Regenerate the baseline schema.
 
-Dropping it earlier would not break exactly-once, since no code reads the rows, but the
-rollout must be complete first: a core still running the old projector would fail every
-sweep batch transaction on the missing table.
+On demo the drop frees about 13 GB (7.4 GB heap, 5.9 GB primary key, plus the
+`inserted_at` index).
 
 Rejected, before the decision:
 

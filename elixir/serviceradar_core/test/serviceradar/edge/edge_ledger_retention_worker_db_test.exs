@@ -55,7 +55,6 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     seed = :erlang.term_to_binary({network_scope_id, event_id, sequence})
     semantic_sha256 = :crypto.hash(:sha256, "semantic:" <> seed)
     record_sha256 = :crypto.hash(:sha256, "record:" <> seed)
-    row_key = :crypto.hash(:sha256, "row:" <> seed)
 
     Repo.query!(
       """
@@ -95,22 +94,12 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
       [network_scope_id, execution_id, sequence, event_id, semantic_sha256, inserted_at]
     )
 
-    Repo.query!(
-      """
-      INSERT INTO platform.edge_sweep_projected_rows
-        (network_scope_id, row_key, event_id, kind, batch_index, element_index, inserted_at)
-      VALUES ($1::uuid, $2::bytea, $3::uuid, 'host_summary', 0, 0, $4)
-      """,
-      [network_scope_id, row_key, event_id, inserted_at]
-    )
-
     %{
       network_scope_id: network_scope_id,
       event_id: event_id,
       spool_id: spool_id,
       execution_id: execution_id,
-      sequence: sequence,
-      row_key: row_key
+      sequence: sequence
     }
   end
 
@@ -129,11 +118,6 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
       edge_sweep_batch_slots:
         row_exists?(
           "SELECT 1 FROM platform.edge_sweep_batch_slots WHERE network_scope_id = $1::uuid AND event_id = $2::uuid",
-          [scope_id, event_id]
-        ),
-      edge_sweep_projected_rows:
-        row_exists?(
-          "SELECT 1 FROM platform.edge_sweep_projected_rows WHERE network_scope_id = $1::uuid AND event_id = $2::uuid",
           [scope_id, event_id]
         )
     }
@@ -186,7 +170,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     slot_uuid
   end
 
-  test "deletes rows past the horizon and keeps rows inside the horizon across all four tables" do
+  test "deletes rows past the horizon and keeps rows inside the horizon across all three tables" do
     now = DateTime.utc_now()
     horizon = EdgeLedgerRetentionWorker.retention_horizon_seconds()
 
@@ -201,15 +185,13 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     assert bundle_exists?(expired) == %{
              event_ledger: false,
              edge_delivery_slots: false,
-             edge_sweep_batch_slots: false,
-             edge_sweep_projected_rows: false
+             edge_sweep_batch_slots: false
            }
 
     assert bundle_exists?(fresh) == %{
              event_ledger: true,
              edge_delivery_slots: true,
-             edge_sweep_batch_slots: true,
-             edge_sweep_projected_rows: true
+             edge_sweep_batch_slots: true
            }
   end
 
@@ -271,22 +253,19 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     assert bundle_exists?(draining_bundle) == %{
              event_ledger: true,
              edge_delivery_slots: true,
-             edge_sweep_batch_slots: true,
-             edge_sweep_projected_rows: true
+             edge_sweep_batch_slots: true
            }
 
     assert bundle_exists?(unrelated_expired) == %{
              event_ledger: false,
              edge_delivery_slots: false,
-             edge_sweep_batch_slots: false,
-             edge_sweep_projected_rows: false
+             edge_sweep_batch_slots: false
            }
 
     assert bundle_exists?(closed_slot_expired) == %{
              event_ledger: false,
              edge_delivery_slots: false,
-             edge_sweep_batch_slots: false,
-             edge_sweep_projected_rows: false
+             edge_sweep_batch_slots: false
            }
 
     # Once the slot's collection window closes and the epoch retires, retention deletes the rows.
@@ -307,8 +286,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     assert bundle_exists?(draining_bundle) == %{
              event_ledger: false,
              edge_delivery_slots: false,
-             edge_sweep_batch_slots: false,
-             edge_sweep_projected_rows: false
+             edge_sweep_batch_slots: false
            }
   end
 
@@ -330,11 +308,10 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     s2 = bundle_exists?(b2)
 
     # Exactly one of the two batch slots was deleted on the first pass, and whichever
-    # batch slot survived kept its projected row, delivery slot, and event ledger row.
+    # batch slot survived kept its delivery slot and event ledger row.
     assert Enum.count([s1.edge_sweep_batch_slots, s2.edge_sweep_batch_slots], & &1) == 1
 
     for s <- [s1, s2], s.edge_sweep_batch_slots do
-      assert s.edge_sweep_projected_rows
       assert s.edge_delivery_slots
       assert s.event_ledger
     end
@@ -348,15 +325,13 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
     assert bundle_exists?(b1) == %{
              event_ledger: false,
              edge_delivery_slots: false,
-             edge_sweep_batch_slots: false,
-             edge_sweep_projected_rows: false
+             edge_sweep_batch_slots: false
            }
 
     assert bundle_exists?(b2) == %{
              event_ledger: false,
              edge_delivery_slots: false,
-             edge_sweep_batch_slots: false,
-             edge_sweep_projected_rows: false
+             edge_sweep_batch_slots: false
            }
   end
 
