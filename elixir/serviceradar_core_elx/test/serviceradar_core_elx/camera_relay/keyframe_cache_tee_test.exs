@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTeeTest do
 
   alias Membrane.Buffer
   alias Membrane.H264
+  alias Membrane.KeyframeRequestEvent
   alias Membrane.Pad
   alias Membrane.Testing
   alias ServiceRadarCoreElx.CameraRelay.AnnexBToNALU
@@ -20,6 +21,59 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTeeTest do
   @p_frame_2 <<0, 0, 0, 1, 0x41, 0x9A, 0x02, 0x02>>
   @p_frame_3 <<0, 0, 0, 1, 0x41, 0x9A, 0x03, 0x03>>
 
+  defmodule PliPassthrough do
+    @moduledoc false
+    use Membrane.Filter
+
+    def_input_pad(:input, accepted_format: _any, flow_control: :auto)
+    def_output_pad(:output, accepted_format: _any, flow_control: :auto)
+
+    @impl true
+    def handle_init(_ctx, _opts), do: {[], %{}}
+
+    @impl true
+    def handle_buffer(:input, buffer, _ctx, state) do
+      {[buffer: {:output, buffer}], state}
+    end
+
+    @impl true
+    def handle_parent_notification(:request_keyframe, _ctx, state) do
+      {[event: {:input, %KeyframeRequestEvent{}}], state}
+    end
+  end
+
+  defmodule UpstreamEventProbe do
+    @moduledoc false
+    use Membrane.Filter
+
+    def_input_pad(:input, accepted_format: _any, flow_control: :auto)
+    def_output_pad(:output, accepted_format: _any, flow_control: :auto)
+
+    def_options(
+      test_pid: [
+        spec: pid() | nil,
+        default: nil
+      ]
+    )
+
+    @impl true
+    def handle_init(_ctx, opts), do: {[], %{test_pid: opts.test_pid}}
+
+    @impl true
+    def handle_buffer(:input, buffer, _ctx, state) do
+      {[buffer: {:output, buffer}], state}
+    end
+
+    @impl true
+    def handle_event(:output, event, _ctx, state) do
+      if is_pid(state.test_pid) do
+        send(state.test_pid, {:upstream_event, event})
+      end
+
+      {[event: {:input, event}], state}
+    end
+  end
+
   defmodule TestPipeline do
     @moduledoc false
     use Membrane.Pipeline
@@ -29,24 +83,27 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTeeTest do
       opts = opts || []
       tee_opts = Keyword.get(opts, :tee_opts, [])
       use_parser? = Keyword.get(opts, :use_parser?, true)
+      upstream_probe_pid = Keyword.get(opts, :upstream_probe_pid)
 
-      spec =
+      base_chain =
         if use_parser? do
-          [
-            :source
-            |> child(ChunkSource)
-            |> child(:parser, AnnexBToNALU)
-            |> child(:tee, struct(KeyframeCacheTee, tee_opts))
-          ]
+          :source
+          |> child(ChunkSource)
+          |> child(:parser, AnnexBToNALU)
         else
-          [
-            :source
-            |> child(ChunkSource)
-            |> child(:tee, struct(KeyframeCacheTee, tee_opts))
-          ]
+          child(:source, ChunkSource)
         end
 
-      {[spec: spec], %{}}
+      chain =
+        if is_pid(upstream_probe_pid) do
+          base_chain
+          |> child(:upstream_probe, %UpstreamEventProbe{test_pid: upstream_probe_pid})
+          |> child(:tee, struct(KeyframeCacheTee, tee_opts))
+        else
+          child(base_chain, :tee, struct(KeyframeCacheTee, tee_opts))
+        end
+
+      {[spec: [chain]], %{}}
     end
 
     @impl true
@@ -58,6 +115,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTeeTest do
       {[notify_child: {:source, :end_of_stream}], state}
     end
 
+    def handle_info({:send_pli, pad_id}, _ctx, state) do
+      {[notify_child: {{:pli, pad_id}, :request_keyframe}], state}
+    end
+
     @impl true
     def handle_call({:attach_sink, sink_name, pad_id}, _ctx, state) do
       spec =
@@ -67,6 +128,21 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTeeTest do
         |> child(sink_name, Testing.Sink)
 
       {[spec: spec, reply: :ok], state}
+    end
+
+    def handle_call({:attach_pli_sink, sink_name, pad_id}, _ctx, state) do
+      spec =
+        :tee
+        |> get_child()
+        |> via_out(Pad.ref(:push_output, pad_id))
+        |> child({:pli, pad_id}, PliPassthrough)
+        |> child(sink_name, Testing.Sink)
+
+      {[spec: spec, reply: :ok], state}
+    end
+
+    def handle_call({:detach_pli_sink, sink_name, pad_id}, _ctx, state) do
+      {[remove_children: [{:pli, pad_id}, sink_name], reply: :ok], state}
     end
 
     def handle_call({:attach_rtp_sink, sink_name, pad_id}, _ctx, state) do
@@ -297,6 +373,100 @@ defmodule ServiceRadarCoreElx.CameraRelay.KeyframeCacheTeeTest do
     assert_sink_buffer(pipeline, :late_sink, %Buffer{payload: @idr_1})
     assert_sink_buffer(pipeline, :late_sink, %Buffer{payload: @idr_2})
     refute_sink_buffer(pipeline, :late_sink, _, 100)
+  end
+
+  test "KeyframeRequestEvent replays cached SPS+PPS+IDR and GOP only to the requesting pad" do
+    pipeline =
+      Testing.Pipeline.start_link_supervised!(
+        module: TestPipeline,
+        custom_args: [upstream_probe_pid: self()]
+      )
+
+    assert :ok = Membrane.Pipeline.call(pipeline, {:attach_pli_sink, :viewer_a, :viewer_a})
+    assert :ok = Membrane.Pipeline.call(pipeline, {:attach_pli_sink, :viewer_b, :viewer_b})
+
+    send(pipeline, {:send_chunk, chunk(@sps <> @pps <> @idr_1, 90_000, keyframe: true)})
+    send(pipeline, {:send_chunk, chunk(@p_frame_1, 93_000, keyframe: false)})
+
+    for sink <- [:viewer_a, :viewer_b] do
+      assert_sink_buffer(pipeline, sink, %Buffer{payload: @sps})
+      assert_sink_buffer(pipeline, sink, %Buffer{payload: @pps})
+      assert_sink_buffer(pipeline, sink, %Buffer{payload: @idr_1})
+      assert_sink_buffer(pipeline, sink, %Buffer{payload: @p_frame_1})
+    end
+
+    # Request a keyframe (RTCP PLI) only on viewer_a
+    send(pipeline, {:send_pli, :viewer_a})
+
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @p_frame_1})
+
+    # viewer_b must not receive the replay and upstream must not be spammed
+    refute_sink_buffer(pipeline, :viewer_b, _, 100)
+    refute_receive {:upstream_event, %KeyframeRequestEvent{}}, 50
+  end
+
+  test "repeated KeyframeRequestEvents within pli_cooldown_ms are throttled and resume after cooldown" do
+    pipeline =
+      Testing.Pipeline.start_link_supervised!(
+        module: TestPipeline,
+        custom_args: [tee_opts: [pli_cooldown_ms: 80], upstream_probe_pid: self()]
+      )
+
+    assert :ok = Membrane.Pipeline.call(pipeline, {:attach_pli_sink, :viewer_a, :viewer_a})
+
+    send(pipeline, {:send_chunk, chunk(@sps <> @pps <> @idr_1, 90_000, keyframe: true)})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+
+    # First PLI replays immediately
+    send(pipeline, {:send_pli, :viewer_a})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+
+    # Immediate second PLI within cooldown is throttled (no replay, no upstream spam)
+    send(pipeline, {:send_pli, :viewer_a})
+    refute_sink_buffer(pipeline, :viewer_a, _, 40)
+    refute_receive {:upstream_event, %KeyframeRequestEvent{}}, 20
+
+    # After cooldown elapses, another PLI replays cleanly
+    Process.sleep(60)
+    send(pipeline, {:send_pli, :viewer_a})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
+
+    # Detaching the pad cleans up per-pad cooldown tracking cleanly
+    assert :ok = Membrane.Pipeline.call(pipeline, {:detach_pli_sink, :viewer_a, :viewer_a})
+  end
+
+  test "KeyframeRequestEvent before any IDR is cached does not crash and forwards upstream safely" do
+    pipeline =
+      Testing.Pipeline.start_link_supervised!(
+        module: TestPipeline,
+        custom_args: [upstream_probe_pid: self()]
+      )
+
+    assert :ok = Membrane.Pipeline.call(pipeline, {:attach_pli_sink, :viewer_a, :viewer_a})
+
+    # Send a non-keyframe first so stream format is established, but no IDR is cached
+    send(pipeline, {:send_chunk, chunk(@p_frame_1, 90_000, keyframe: false)})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @p_frame_1})
+
+    send(pipeline, {:send_pli, :viewer_a})
+
+    assert_receive {:upstream_event, %KeyframeRequestEvent{}}, 500
+    refute_sink_buffer(pipeline, :viewer_a, _, 100)
+
+    # Pipeline continues forwarding live frames normally after pre-IDR PLI
+    send(pipeline, {:send_chunk, chunk(@sps <> @pps <> @idr_1, 93_000, keyframe: true)})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @sps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @pps})
+    assert_sink_buffer(pipeline, :viewer_a, %Buffer{payload: @idr_1})
   end
 
   defp chunk(payload, pts, opts) do
