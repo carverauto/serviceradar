@@ -247,6 +247,20 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     end
   end
 
+  # When DTLS connects for a viewer, immediately replay the cached GOP burst to
+  # its tee pad so the browser can paint its first frame without waiting for an
+  # RTCP PLI or the camera's next IDR keyframe.
+  @impl true
+  def handle_child_notification(:connected, {:webrtc_sink, viewer_session_id}, _ctx, state) do
+    if Map.has_key?(state.viewers, viewer_session_id) do
+      {[notify_child: {@webrtc_tee, {:replay_keyframe, Pad.ref(:push_output, viewer_session_id)}}], state}
+    else
+      {[], state}
+    end
+  end
+
+  def handle_child_notification(_notification, _child, _ctx, state), do: {[], state}
+
   # A connected WebRTC bin loses its linked input as its internal crash group
   # shuts down, before the viewer crash-group notification reaches us. Membrane
   # already unlinks the tee; keep the relay alive for the existing cleanup.
