@@ -117,6 +117,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
 
     test "allows saving manual Internet egress designation and enforces viewer RBAC", %{
       conn: conn,
+      scope: scope,
       device_uid: device_uid,
       interface_uid: interface_uid
     } do
@@ -140,7 +141,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
       assert html =~ "AS174"
       assert html =~ "10 Gbps"
 
-      {:ok, saved} = ServiceRadar.Inventory.InterfaceSettings.get_by_interface(device_uid, interface_uid)
+      {:ok, saved} =
+        ServiceRadar.Inventory.InterfaceSettings.get_by_interface(device_uid, interface_uid, scope: scope)
+
       assert saved.internet_egress == true
       assert saved.egress_upstream_asn == 174
       assert saved.egress_vantage_id == "vantage-1b3a6111"
