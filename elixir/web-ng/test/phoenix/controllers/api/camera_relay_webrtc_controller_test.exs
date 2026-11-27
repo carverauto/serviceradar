@@ -170,6 +170,69 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
     assert opts[:scope]
   end
 
+  test "adds a batch of relay-scoped webrtc ice candidates in one request", %{
+    conn: conn,
+    relay_session_id: relay_session_id
+  } do
+    viewer_session_id = Ecto.UUID.generate()
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :camera_relay_webrtc_candidate_result,
+      {:ok, %{signaling_state: "candidate_buffered"}}
+    )
+
+    c1 = %{"candidate" => "candidate:1 1 UDP 1234 192.0.2.10 4000 typ host", "sdpMid" => "0"}
+    c2 = %{"candidate" => "candidate:2 1 UDP 5678 198.51.100.20 5000 typ relay", "sdpMid" => "0"}
+
+    conn =
+      post(
+        conn,
+        ~p"/api/camera-relay-sessions/#{relay_session_id}/webrtc/session/#{viewer_session_id}/candidates",
+        %{"candidates" => [c1, c2]}
+      )
+
+    body = json_response(conn, 200)
+
+    assert body["data"]["relay_session_id"] == relay_session_id
+    assert body["data"]["signaling_state"] == "candidate_buffered"
+
+    assert_receive {:webrtc_add_candidate, ^relay_session_id, ^viewer_session_id, ^c1, opts1}
+    assert_receive {:webrtc_add_candidate, ^relay_session_id, ^viewer_session_id, ^c2, opts2}
+    assert opts1[:scope]
+    assert opts2[:scope]
+  end
+
+  test "rejects empty or oversized webrtc ice candidate batches", %{
+    conn: conn,
+    relay_session_id: relay_session_id
+  } do
+    viewer_session_id = Ecto.UUID.generate()
+
+    empty_conn =
+      post(
+        conn,
+        ~p"/api/camera-relay-sessions/#{relay_session_id}/webrtc/session/#{viewer_session_id}/candidates",
+        %{"candidates" => []}
+      )
+
+    assert json_response(empty_conn, 400)["error"] == "invalid_request"
+
+    oversized =
+      for i <- 1..33 do
+        %{"candidate" => "candidate:#{i} 1 UDP 1234 192.0.2.10 #{4000 + i} typ host", "sdpMid" => "0"}
+      end
+
+    oversized_conn =
+      post(
+        conn,
+        ~p"/api/camera-relay-sessions/#{relay_session_id}/webrtc/session/#{viewer_session_id}/candidates",
+        %{"candidates" => oversized}
+      )
+
+    assert json_response(oversized_conn, 400)["error"] == "invalid_request"
+  end
+
   test "returns 422 when webrtc playback is disabled", %{conn: conn, relay_session_id: relay_session_id} do
     Application.put_env(:serviceradar_web_ng, :camera_relay_webrtc_enabled, false)
 
