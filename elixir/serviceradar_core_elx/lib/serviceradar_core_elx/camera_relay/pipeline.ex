@@ -17,6 +17,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   alias ServiceRadarCoreElx.CameraRelay.AnnexBToNALU
   alias ServiceRadarCoreElx.CameraRelay.BoomboxOutputBin
   alias ServiceRadarCoreElx.CameraRelay.ChunkSource
+  alias ServiceRadarCoreElx.CameraRelay.KeyframeCacheTee
   alias ServiceRadarCoreElx.CameraRelay.PubSubSink
   alias ServiceRadarCoreElx.CameraRelay.WebRTCViewerBin
   alias ServiceRadarRecording.Inbox
@@ -44,7 +45,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       |> get_child()
       |> via_out(Pad.ref(:push_output, :webrtc_annexb))
       |> child(@webrtc_parser, AnnexBToNALU)
-      |> child(@webrtc_tee, Membrane.Tee)
+      |> child(@webrtc_tee, KeyframeCacheTee)
     ]
 
     {[spec: spec],
