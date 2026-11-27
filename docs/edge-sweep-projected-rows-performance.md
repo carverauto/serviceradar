@@ -117,8 +117,18 @@ What changed:
 
 ### Dropping the table (next release)
 
-Done in `20261127090000_drop_edge_sweep_projected_rows.exs`, merged only after the
-writer-removal release was running on every installation.
+Done in `20261127090000_drop_edge_sweep_projected_rows.exs`, as a drop plus an empty stub.
+
+A plain `DROP TABLE` is unsafe for an installation that upgrades from a release older
+than #7096 straight to the drop release: migrations run first, its old-projector cores
+are still serving, and their insert would fail every sweep batch transaction on the
+missing table. So the migration drops the real table (freeing all of its space) and
+creates an `UNLOGGED` table with the same columns and no primary key, indexes or
+constraints. The old projector inserts with `ON CONFLICT DO NOTHING` and no conflict
+target, which such a table accepts, so a mixed-version rollout appends a few rows to a
+small heap with no WAL or index writes, and nothing fails. Nothing reads or prunes the
+stub. Drop it in a later release that enforces a minimum upgrade version at or after
+#7096.
 
 Operator decision (2026-11-27): drop the table as soon as this change is rolled out
 everywhere, not after a retention horizon. Nothing reads the rows, so waiting buys nothing.
