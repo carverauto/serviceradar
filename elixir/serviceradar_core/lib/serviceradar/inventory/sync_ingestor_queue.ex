@@ -82,7 +82,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
           _ -> %{}
         end
 
-      descriptor = %{bytes: bytes, key: run_key(headers)}
+      descriptor = %{
+        bytes: bytes,
+        key: run_key(headers),
+        is_final: headers[:is_final] == true
+      }
+
       result = reserve_and_submit(Directory.whereis(queue_server()), descriptor, message)
 
       case result do
@@ -156,7 +161,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   end
 
   @impl true
-  def handle_call({:reserve, %{bytes: bytes, key: key}}, {owner, _}, state)
+  def handle_call({:reserve, %{bytes: bytes, key: key} = descriptor}, {owner, _}, state)
       when is_integer(bytes) and bytes > 0 and bytes <= @max_bytes do
     per_run = Enum.count(state.jobs, fn {_id, job} -> job.key == key end)
 
@@ -172,6 +177,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       job = %{
         bytes: bytes,
         key: key,
+        is_final: Map.get(descriptor, :is_final, false) == true,
         phase: :reserved,
         message: nil,
         monitor: Process.monitor(owner),
@@ -331,10 +337,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     if :queue.is_empty(state.pending) do
       state
     else
-      {batch, rest} =
-        :queue.split(min(queue_max_chunks(), :queue.len(state.pending)), state.pending)
-
-      ids = :queue.to_list(batch)
+      {ids, rest} = take_next_batch(state.pending, state.jobs, queue_max_chunks())
       messages = Enum.map(ids, &state.jobs[&1].message)
       owner = self()
 
@@ -391,6 +394,43 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   catch
     :exit, _ -> arm(state)
+  end
+
+  # Drain non-final chunks of a multi-chunk sync run before its `is_final: true`
+  # chunk so concurrent EventWriter deliveries do not activate a run ahead of
+  # earlier chunks that are already queued or still arriving while this batch runs.
+  defp take_next_batch(pending, jobs, max_chunks) do
+    pending_ids = :queue.to_list(pending)
+
+    runs_with_non_final =
+      Enum.reduce(pending_ids, MapSet.new(), fn id, acc ->
+        case jobs[id] do
+          %{key: {source, run} = key, is_final: false}
+          when is_binary(source) and source != "" and is_binary(run) and run != "" ->
+            MapSet.put(acc, key)
+
+          _ ->
+            acc
+        end
+      end)
+
+    {deferred_finals, ready} =
+      Enum.split_with(pending_ids, fn id ->
+        case jobs[id] do
+          %{key: key, is_final: true} -> MapSet.member?(runs_with_non_final, key)
+          _ -> false
+        end
+      end)
+
+    case ready do
+      [] ->
+        {ids, rest_ids} = Enum.split(deferred_finals, max_chunks)
+        {ids, :queue.from_list(rest_ids)}
+
+      _ ->
+        {ids, rest_ready} = Enum.split(ready, max_chunks)
+        {ids, :queue.from_list(rest_ready ++ deferred_finals)}
+    end
   end
 
   defp arm(%{timer: timer} = state) when not is_nil(timer), do: state

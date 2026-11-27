@@ -467,6 +467,70 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+
+  test "drains non-final chunks of a sync run before its is_final chunk" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 50)
+    Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
+
+    source_id = "00000000-0000-0000-0000-000000000111"
+    run_id = "run-out-of-order"
+
+    final_chunk =
+      Jason.encode!([
+        %{
+          "device_id" => "dev-final",
+          "sync_meta" => %{
+            "sync_service_id" => source_id,
+            "sync_run_id" => run_id,
+            "chunk_index" => 2,
+            "total_chunks" => 3,
+            "is_final" => true
+          }
+        }
+      ])
+
+    chunk_0 =
+      Jason.encode!([
+        %{
+          "device_id" => "dev-0",
+          "sync_meta" => %{
+            "sync_service_id" => source_id,
+            "sync_run_id" => run_id,
+            "chunk_index" => 0,
+            "total_chunks" => 3,
+            "is_final" => false
+          }
+        }
+      ])
+
+    chunk_1 =
+      Jason.encode!([
+        %{
+          "device_id" => "dev-1",
+          "sync_meta" => %{
+            "sync_service_id" => source_id,
+            "sync_run_id" => run_id,
+            "chunk_index" => 1,
+            "total_chunks" => 3,
+            "is_final" => false
+          }
+        }
+      ])
+
+    # Enqueue final chunk first, simulating out-of-order delivery across concurrent workers.
+    assert :ok = SyncIngestorQueue.enqueue(final_chunk)
+    assert :ok = SyncIngestorQueue.enqueue(chunk_0)
+    assert :ok = SyncIngestorQueue.enqueue(chunk_1)
+
+    assert_receive {:ingest_started, first_batch}, 1_000
+    assert Enum.map(first_batch, & &1["device_id"]) == ["dev-0", "dev-1"]
+    assert_receive :ingest_finished, 1_000
+
+    assert_receive {:ingest_started, second_batch}, 1_000
+    assert Enum.map(second_batch, & &1["device_id"]) == ["dev-final"]
+    assert_receive :ingest_finished, 1_000
+  end
+
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 
   defp flush_mailbox do
