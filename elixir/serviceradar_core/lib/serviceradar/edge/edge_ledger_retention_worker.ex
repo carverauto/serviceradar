@@ -32,6 +32,11 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   for a generic plan; without it, a batch that finds no expired row, including the last
   batch of every run, reads the whole heap to prove there is none.
 
+  Nothing writes `edge_sweep_projected_rows` any more (#7069): exactly-once for a sweep
+  batch is `event_ledger` plus `edge_sweep_batch_slots`. This prune drains the rows written
+  before that change over one retention horizon, after which a migration drops the table
+  and this statement (`docs/edge-sweep-projected-rows-performance.md`).
+
   ## Ledger Coverage
 
   The statement that deletes `event_ledger` rows also advances

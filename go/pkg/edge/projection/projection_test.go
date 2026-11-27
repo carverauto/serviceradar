@@ -17,7 +17,6 @@
 package projection
 
 import (
-	"bytes"
 	"testing"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -84,20 +83,5 @@ func TestMtrRowsCountsTraceAndHops(t *testing.T) {
 	batch := &edgev1.MtrTraceBatchV1{Traces: []*edgev1.MtrTraceEventV1{tr, {}}}
 	if got := MtrRows(batch); got != 6 { // 5 + (1 trace + 0 hops)
 		t.Fatalf("MtrRows = %d, want 6", got)
-	}
-}
-
-func TestRowKeyStableAndDistinct(t *testing.T) {
-	digest := []byte("semantic-digest-32-bytes-example")
-	a := RowKey(digest, 0)
-	if !bytes.Equal(a, RowKey(digest, 0)) {
-		t.Fatal("row key must be stable for the same (digest, ordinal)")
-	}
-	if bytes.Equal(a, RowKey(digest, 1)) {
-		t.Fatal("row key must differ across ordinals")
-	}
-	other := []byte("different-digest-32-bytes-exampl")
-	if bytes.Equal(a, RowKey(other, 0)) {
-		t.Fatal("row key must differ across frames")
 	}
 }

@@ -4,18 +4,11 @@ Issue: https://github.com/carverauto/serviceradar/issues/7069
 
 ## What the table is
 
-`platform.edge_sweep_projected_rows` holds one row per `(kind, batch_index, element_index)`
-coordinate of each primary `SweepObservationBatchV1` delivery, written by
-`ServiceRadar.Edge.Projectors.SweepObservation.project_domain_rows/5` with
-`ON CONFLICT DO NOTHING` against the primary key `(network_scope_id, row_key)`, where
-`row_key = sha256(len || semantic_digest || ordinal)`.
-
-No production code reads it. Exactly-once is decided earlier, in the same transaction, by
-`event_ledger` and `edge_sweep_batch_slots`; this table is only written when the delivery
-is already primary. Its readers are the retention worker and the Go edge-record
-integration tests (`integration_tests/edge_record/vertical_slice_test.go`), which use it as
-the "no duplicate domain rows under redelivery" artifact introduced by the first vertical
-slice (`20260910120000_create_edge_record_ledger.exs`).
+`platform.edge_sweep_projected_rows` held one row per `(kind, batch_index, element_index)`
+coordinate of each primary `SweepObservationBatchV1` delivery, keyed by
+`(network_scope_id, row_key)` with `row_key = sha256(len || semantic_digest || ordinal)` and
+inserted `ON CONFLICT DO NOTHING`. Since the change described under "Writer stopped" below,
+nothing writes it; the retention worker drains what is left.
 
 ## Measured on demo (2026-11-26)
 
@@ -66,7 +59,7 @@ inserts). Its size is about 21 bytes per row (about 1.3 GB at today's size). Wit
 prune's no-candidate case reads 3 blocks; a batch of 5000 expired rows reads about 130 index
 blocks; a generic plan stays on the index because the query orders by `inserted_at`.
 
-## Done in this change
+## Prune index (#7076)
 
 1. `20261126070000_index_edge_sweep_projected_rows_inserted_at.exs`: concurrent B-tree on
    `inserted_at`. An interrupted build leaves an invalid index under that name; this
@@ -83,42 +76,79 @@ batch; that range is bounded by the expired range, not the table.
 full-scan shape at about 26k blocks per call. They are small today; the same index plus
 ORDER BY applies if they grow.
 
-## Insert cost: decided, outside this change
+## Writer stopped (#7069)
 
-The insert cost is the random primary key. Decision on
-[#7069](https://github.com/carverauto/serviceradar/issues/7069) (operator, 2026-11-26):
-verify, then stop writing the table. This change is the prune index. Stopping the writer
-is the next change.
+Decision on [#7069](https://github.com/carverauto/serviceradar/issues/7069) (operator,
+2026-11-26): verify, then stop writing the table. Verification found nothing that depends
+on its rows:
 
-After this index is on demo, confirm nothing else depends on the table: dedup, replay,
-and exactly-once paths, the Go vertical-slice tests, specs and docs, and ledger coverage.
-If that holds, stop `ServiceRadar.Edge.Projectors.SweepObservation` from writing it and
-drop the table after one retention horizon (30 days). Exactly-once is already
-`event_ledger` plus `edge_sweep_batch_slots`, and no production code reads the table.
-Stopping the writer removes the 61M rows, 13 GB, and about 250 GB of WAL from its first
-22 days. The Go vertical-slice test currently uses these rows as the "no duplicate domain
-rows" artifact; that assertion moves to the real sweep tables, or to the batch slot's
-`projected_row_count`, before the writer stops. `DROP TABLE` is then enough: the table
-holds nothing exactly-once still needs.
+- **Not the idempotency guard.** `EdgeRecord.run_transaction/7` upserts the delivery slot
+  and `event_ledger` first; a delivery is primary only when the ledger row was freshly
+  inserted (`primary?/2`). `SweepObservation.project/4` wrote the table only on a primary
+  delivery, after the batch slot claim and `SweepProjection.project/3`, so a redelivery
+  (`:replay`) never reached the insert and its `ON CONFLICT` never decided anything. The
+  domain writes themselves upsert (`sweep_host_results` on `(execution_id, ip)`,
+  `device_agent_availability` on `(device_uid, agent_id)`).
+- **No reader** in Elixir, Go or Rust production code, no view, function or trigger, and
+  no Ash resource. Its only readers were the retention worker and tests.
+- **No spec requirement** names it; the only OpenSpec mentions were task notes listing
+  the slice's tables.
+- **Retention, coverage, redrive.** The ledger, delivery-slot and batch-slot prunes and
+  `edge_ledger_coverage` never consult it. Dead-letter redrive and late admission go
+  through the same ledger decision.
 
-Rejected for now:
+What changed:
 
-- **Clustered re-key** to `(network_scope_id, event_id, kind, batch_index, element_index)`
-  (an `ordinal` column, or those three columns), with `row_key` kept as a plain column.
-  A batch then touches a handful of adjacent leaves: about 28x fewer dirtied pages and
-  15x less WAL in the benchmark. The `event_id` index becomes redundant. Swapping the
-  primary key of a 60-90M row table is a rebuild; the cheap path would be a new table
-  written by the projector, with the old one left to age out under retention.
-- **Time partitioning with partition drop.** A partition can be dropped only when none of
-  its rows is guarded, the unique key must include the partition key (so `ON CONFLICT`
-  on `row_key` alone no longer works), and it does not fix the random-key insert cost
-  by itself.
+- `SweepObservation` no longer writes the table. `ProjectionRows.row_key/2` and Go
+  `projection.RowKey`, which existed only to key it, are gone.
+- The tests that used its rows as the "no duplicate domain rows" artifact now check the
+  domain: the Go vertical slice asserts the batch slot's `projected_row_count` and
+  `committed_row_count`, the sweep execution and host rows, and that a redelivery leaves
+  every `sweep_host_results` tuple version (`ctid`, `xmin`) unchanged. A re-applied upsert
+  keeps the row count but always writes a new tuple version, so this fails where a row
+  count cannot. `edge_record_db_test.exs` asserts the same on forced redelivery.
+- The table, its indexes and the prune stay, so rows written before the change age out
+  under retention.
+
+### Dropping the table later
+
+After the new build has run everywhere for one retention horizon
+(`retention_horizon_seconds/2`: 30 days plus 4500 s by default, or longer where
+`edge_pipeline_settings` raises the sweep horizon ceiling), the table holds nothing anyone
+needs. Then, in one change:
+
+1. A migration that runs `DROP TABLE IF EXISTS platform.edge_sweep_projected_rows` (the
+   indexes go with it), with a `down` that recreates the empty table as
+   `20260910120000_create_edge_record_ledger.exs` and
+   `20261126070000_index_edge_sweep_projected_rows_inserted_at.exs` define it.
+2. Remove `@delete_sweep_projected_rows_sql`, its `delete_in_batches` step and the
+   `deleted_sweep_projected_rows` log field from `EdgeLedgerRetentionWorker`, and the
+   table from `edge_ledger_retention_worker_db_test.exs`.
+3. Regenerate the baseline schema.
+
+Dropping it earlier would not break exactly-once, since no code reads the rows, but the
+rollout must be complete first: a core still running the old projector would fail every
+sweep batch transaction on the missing table.
+
+Rejected, before the decision:
+
+- **Clustered re-key** to `(network_scope_id, event_id, kind, batch_index, element_index)`.
+  About 28x fewer dirtied pages and 15x less WAL in the benchmark, but still a write of
+  rows nothing reads.
+- **Time partitioning with partition drop.** The unique key must include the partition
+  key, and it does not fix the random-key insert cost by itself.
 
 Rejected earlier: BRIN on `inserted_at` (#7063; summaries only widen after delete plus
 space reuse), a narrower hash in `row_key` (any random key has the same one-leaf-per-row
 cost).
 
 ## Verify on demo after rollout
+
+After the writer stops: the projected-rows `INSERT` disappears from `pg_stat_statements`,
+`n_tup_ins` on the table stops rising, and WAL volume falls by roughly the 4 KB per
+projected row measured above.
+
+After the prune index:
 
 - The index exists and is valid: `\d platform.edge_sweep_projected_rows`.
 - `pg_stat_statements` for the projected-rows DELETE: mean time in milliseconds and
