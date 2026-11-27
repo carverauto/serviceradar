@@ -242,6 +242,10 @@ _INBOX.media-worker
       - "telemetry.edge-record-dlq.v1.bulk.>"
       - "telemetry.edge-record.v1.bulk.>"
       - "telemetry.edge-record-audit.v1.bulk.>"
+      {{- /* Horizon WASI plugin topology snapshots (TelemetryBatch) and outage/BGP
+           status updates (HorizonProjection) -> JetStream stream horizon_topology,
+           consumed by HorizonTopologyConsumer in core. */}}
+      - "serviceradar.horizon.>"
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
            the bucket through the JetStream API and writes each bundle here. */}}
       - "$KV.{{ $zenRuleBucket }}.>"
@@ -274,6 +278,7 @@ _INBOX.media-worker
       - "exposure.dimensions.cve"
       - "exposure.dimensions.package"
       - "falco.>"
+      - "serviceradar.horizon.>"
       - "$JS.API.>"
       - "$JS.ACK.>"
       - "_INBOX.>"
