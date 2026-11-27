@@ -565,4 +565,43 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(state.hoveredHorizonKey).toBeNull()
     expect(details.classList.contains("hidden")).toBe(true)
   })
+
+  it("walks upstream AS_REL_PROVIDER (dst -> src) and bidirectional AS_REL_PEER with cycle protection", () => {
+    const internalNodes = [
+      {id: "sr:tonka-gw", position: [200, 300, 0], details: {device_uid: "sr:tonka-gw"}},
+    ]
+    const payload = {
+      max_hops: 4,
+      truncated: false,
+      egress_devices: [{id: "sr:tonka-gw", kind: "Device", label: "unifi.tonka.carverauto.dev", egress_source: "manual", port_speed_mbps: 1000}],
+      external_nodes: [
+        {id: "asn:10242", kind: "ASN", label: "US Internet Corp", asn: 10242, outage_state: "up"},
+        {id: "asn:174", kind: "ASN", label: "Cogent Communications, Inc.", asn: 174, outage_state: "up"},
+        {id: "asn:15267", kind: "ASN", label: "702 Communications", asn: 15267, outage_state: "up"},
+        {id: "asn:209", kind: "ASN", label: "CenturyLink", asn: 209, outage_state: "up"},
+        {id: "ixp:14", kind: "IXP", label: "NYIIX", port_speed_mbps: 100000, outage_state: "up"},
+        {id: "saas:github", kind: "SaasTarget", label: "GitHub", outage_state: "up"},
+      ],
+      edges: [
+        {src_id: "sr:tonka-gw", dst_id: "asn:10242", kind: "EGRESSES_TO", egress_source: "manual", port_speed_mbps: 1000},
+        // provider -> customer orientation from Horizon
+        {src_id: "asn:174", dst_id: "asn:10242", kind: "AS_REL_PROVIDER"},
+        // bidirectional peers + cycle back to asn:174
+        {src_id: "asn:174", dst_id: "asn:15267", kind: "AS_REL_PEER"},
+        {src_id: "asn:209", dst_id: "asn:174", kind: "AS_REL_PEER"},
+        {src_id: "asn:15267", dst_id: "asn:174", kind: "AS_REL_PEER"},
+        {src_id: "asn:174", dst_id: "ixp:14", kind: "IXP_MEMBER"},
+        {src_id: "asn:15267", dst_id: "saas:github", kind: "ANYCAST_SERVES"},
+      ],
+    }
+
+    const layout = buildHorizonEgressGraphLayout(payload, internalNodes, {mode: "cartesian"})
+    expect(layout.nodes.find((n) => n.id === "asn:10242")?.hopDepth).toBe(1)
+    expect(layout.nodes.find((n) => n.id === "asn:174")?.hopDepth).toBe(2)
+    expect(layout.nodes.find((n) => n.id === "asn:15267")?.hopDepth).toBe(3)
+    expect(layout.nodes.find((n) => n.id === "asn:209")?.hopDepth).toBe(3)
+    expect(layout.nodes.find((n) => n.id === "ixp:14")?.hopDepth).toBe(3)
+    expect(layout.nodes.find((n) => n.id === "saas:github")?.hopDepth).toBe(4)
+    expect(layout.edges).toHaveLength(7)
+  })
 })

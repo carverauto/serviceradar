@@ -392,7 +392,7 @@ impl TopologyClient {
             }
             let uids = frontier.join(", ");
             let expand_query = format!(
-                "{{\n  q(func: uid({uids})) {{\n    uid\n    ~topo.src @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\", \"AS_REL_PROVIDER\", \"AS_REL_PEER\", \"IXP_MEMBER\", \"TRACEROUTE_HOP\", \"ANYCAST_SERVES\"])) {{ {EDGE_BODY} topo.dst {{ {NODE_FIELDS} }} }}\n  }}\n}}"
+                "{{\n  q(func: uid({uids})) {{\n    uid\n    ~topo.src @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\", \"AS_REL_PROVIDER\", \"AS_REL_PEER\", \"IXP_MEMBER\", \"TRACEROUTE_HOP\", \"ANYCAST_SERVES\"])) {{ {EDGE_BODY} topo.dst {{ {NODE_FIELDS} }} }}\n    ~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"AS_REL_PROVIDER\", \"AS_REL_PEER\"])) {{ {EDGE_BODY} topo.src {{ {NODE_FIELDS} }} }}\n  }}\n}}"
             );
             let parsed: HopExpandBlock = ro_query(&mut txn, &expand_query).await?;
             let mut next_frontier = Vec::new();
@@ -419,6 +419,34 @@ impl TopologyClient {
                             record_edge(
                                 &src_id,
                                 &dst_id,
+                                &e.kind,
+                                &e,
+                                &mut seen_edges,
+                                &mut edges,
+                                cap,
+                                &mut truncated,
+                            );
+                        }
+                    }
+                }
+                for e in row.in_edges {
+                    for far_node in e
+                        .src
+                        .iter()
+                        .filter(|n| !n.stale && !n.is_internal_device())
+                        .cloned()
+                    {
+                        let far_id = far_node.canonical_id();
+                        if add_node(
+                            far_node,
+                            &mut ext_nodes,
+                            &mut next_frontier,
+                            cap,
+                            &mut truncated,
+                        ) {
+                            record_edge(
+                                &far_id,
+                                &src_id,
                                 &e.kind,
                                 &e,
                                 &mut seen_edges,
