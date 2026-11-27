@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.CameraArchiveWindow
   alias ServiceRadarWebNG.CameraRecordingSettings
+  alias ServiceRadarWebNG.CameraRelayWebRTC
   alias ServiceRadarWebNG.CameraTimelineReader
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Vantage.Client, as: VantageClient
@@ -127,6 +128,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         live_mode?: false,
         live_tile: nil,
         live_relay_subscriptions: MapSet.new(),
+        pending_deferred_timeline_load?: false,
         roi_drawer_open?: false,
         roi_paint_mode: "focus",
         roi_focus_cells: MapSet.new(),
@@ -1276,29 +1278,30 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   @impl true
+  def handle_async(:camera_live_open, {:ok, {tile, preloaded_webrtc}}, socket) do
+    handle_camera_live_open_ok(socket, tile, preloaded_webrtc)
+  end
+
   def handle_async(:camera_live_open, {:ok, tile}, socket) do
-    if socket.assigns.live_mode? do
-      schedule_live_relay_refresh(tile)
-      {:noreply, socket |> assign(:live_tile, tile) |> subscribe_live_tile(tile)}
-    else
-      {:noreply, socket}
-    end
+    handle_camera_live_open_ok(socket, tile, nil)
   end
 
   def handle_async(:camera_live_open, {:exit, reason}, socket) do
     Logger.warning("Camera workspace live relay open failed: #{inspect(reason, limit: 20, printable_limit: 200)}")
 
-    if socket.assigns.live_mode? do
-      {:noreply,
-       assign(socket, :live_tile, %{
-         label: (socket.assigns.source && socket.assigns.source.display_name) || "Camera",
-         detail: "Primary stream",
-         session: nil,
-         error: "Camera relay session could not be opened"
-       })}
-    else
-      {:noreply, socket}
-    end
+    socket =
+      if socket.assigns.live_mode? do
+        assign(socket, :live_tile, %{
+          label: (socket.assigns.source && socket.assigns.source.display_name) || "Camera",
+          detail: "Primary stream",
+          session: nil,
+          error: "Camera relay session could not be opened"
+        })
+      else
+        socket
+      end
+
+    {:noreply, maybe_start_pending_timeline_load(socket)}
   end
 
   def handle_async(:load_timeline_data, {:ok, {source_id, switcher_assigns, timeline_result}}, socket) do
@@ -1389,6 +1392,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     case authorize_timeline_view(socket) do
       {:ok, scope, source} ->
         profiles = deps(socket).list_relay_profiles.(scope, source.id)
+        defer_until_live_open? = RBAC.can?(scope, "devices.cameras.view")
 
         socket =
           socket
@@ -1399,12 +1403,17 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
             source: source,
             mode: :timeline,
             stream_profiles: profiles,
+            pending_deferred_timeline_load?: defer_until_live_open?,
             error: nil,
             loading: false
           )
           |> start_live_stream()
 
-        start_deferred_timeline_load(socket, scope, source)
+        if defer_until_live_open? do
+          socket
+        else
+          start_deferred_timeline_load(socket, scope, source)
+        end
 
       {:error, reason} ->
         unavailable(socket, reason)
@@ -2647,6 +2656,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       list_window_overlays: &default_list_window_overlays/5,
       get_frame_overlay: &default_get_frame_overlay/3,
       open_source_preview: &CameraMultiview.open_source_preview/3,
+      create_webrtc_session: &default_create_webrtc_session/2,
       save_roi_grid: &default_save_roi_grid/3,
       subscribe: &RecordingPubSub.subscribe/1,
       unsubscribe: &RecordingPubSub.unsubscribe/1,
@@ -3888,6 +3898,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     if RBAC.can?(scope, "devices.cameras.view") do
       profile_id = blank_to_nil(socket.assigns.timeline_profile_id)
       open_fn = deps(socket).open_source_preview
+      create_webrtc_fn = deps(socket).create_webrtc_session
 
       socket
       |> assign(:live_tile, %{
@@ -3897,7 +3908,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         error: "Opening camera relay"
       })
       |> start_async(:camera_live_open, fn ->
-        open_fn.(scope, source_id, quality: "high", stream_profile_id: profile_id)
+        tile = open_fn.(scope, source_id, quality: "high", stream_profile_id: profile_id)
+        preloaded_webrtc = maybe_preload_webrtc_session(tile, scope, create_webrtc_fn)
+        {tile, preloaded_webrtc}
       end)
     else
       assign(socket, :live_tile, %{
@@ -3908,6 +3921,92 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       })
     end
   end
+
+  defp handle_camera_live_open_ok(socket, tile, preloaded_webrtc) do
+    socket =
+      if socket.assigns.live_mode? do
+        schedule_live_relay_refresh(tile)
+
+        socket
+        |> assign(:live_tile, tile)
+        |> subscribe_live_tile(tile)
+        |> maybe_push_preloaded_webrtc_offer(preloaded_webrtc)
+      else
+        maybe_release_preloaded_webrtc_offer(preloaded_webrtc, socket.assigns[:current_scope])
+        socket
+      end
+
+    {:noreply, maybe_start_pending_timeline_load(socket)}
+  end
+
+  defp maybe_start_pending_timeline_load(socket) do
+    if socket.assigns[:pending_deferred_timeline_load?] and
+         socket.assigns[:mode] == :timeline and
+         not is_nil(socket.assigns[:source]) and
+         not is_nil(socket.assigns[:current_scope]) do
+      socket
+      |> assign(:pending_deferred_timeline_load?, false)
+      |> start_deferred_timeline_load(socket.assigns.current_scope, socket.assigns.source)
+    else
+      assign(socket, :pending_deferred_timeline_load?, false)
+    end
+  end
+
+  defp default_create_webrtc_session(relay_session_id, scope) do
+    if CameraRelayWebRTC.enabled?() do
+      CameraRelayWebRTC.create_session(relay_session_id, scope: scope)
+    else
+      :disabled
+    end
+  end
+
+  defp maybe_preload_webrtc_session(%{session: %{id: relay_session_id, status: status}}, scope, create_webrtc_fn)
+       when is_binary(relay_session_id) and status in [:active, "active"] and is_function(create_webrtc_fn, 2) do
+    case create_webrtc_fn.(relay_session_id, scope) do
+      {:ok, %{viewer_session_id: viewer_session_id, offer_sdp: offer_sdp} = signal_session}
+      when is_binary(viewer_session_id) and viewer_session_id != "" and is_binary(offer_sdp) and offer_sdp != "" ->
+        signal_session
+        |> Map.new(fn {key, value} -> {to_string(key), value} end)
+        |> Map.merge(%{
+          "relay_session_id" => relay_session_id,
+          "transport" => CameraRelayWebRTC.transport_name(),
+          "signaling_path" => CameraRelayWebRTC.signaling_path(relay_session_id)
+        })
+
+      _other ->
+        nil
+    end
+  rescue
+    _error -> nil
+  end
+
+  defp maybe_preload_webrtc_session(_tile, _scope, _create_webrtc_fn), do: nil
+
+  defp maybe_push_preloaded_webrtc_offer(socket, %{"signaling_path" => signaling_path} = offer)
+       when is_binary(signaling_path) do
+    push_event(socket, "camera-relay:webrtc-offer", %{
+      "signaling_path" => signaling_path,
+      "data" => offer
+    })
+  end
+
+  defp maybe_push_preloaded_webrtc_offer(socket, _other), do: socket
+
+  defp maybe_release_preloaded_webrtc_offer(
+         %{"relay_session_id" => relay_session_id, "viewer_session_id" => viewer_session_id},
+         scope
+       )
+       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
+    if CameraRelayWebRTC.enabled?() do
+      Task.start(fn ->
+        CameraRelayWebRTC.close_session(relay_session_id, viewer_session_id, scope: scope)
+      end)
+    end
+
+    :ok
+  end
+
+  defp maybe_release_preloaded_webrtc_offer(_offer, _scope), do: :ok
 
   defp refresh_live_tile(socket, relay_session_id, rearm: rearm?) do
     tile = socket.assigns[:live_tile]

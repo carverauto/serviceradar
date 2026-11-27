@@ -2501,25 +2501,58 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       refute_received :clips_called_sync
       refute_received :cameras_called_sync
 
-      # Both async tasks (:camera_live_open first, then :load_timeline_data) are queued on the socket.
+      # Only :camera_live_open is queued initially so timeline DB queries do not contend with WebRTC startup.
       async_names =
         socket.private
         |> Map.get(:live_async, %{})
         |> Map.keys()
 
       assert :camera_live_open in async_names
-      assert :load_timeline_data in async_names
+      refute :load_timeline_data in async_names
 
-      # Completing :load_timeline_data populates switcher + timeline without clobbering live_mode? or live_tile.
+      # Completing :camera_live_open pushes any preloaded WebRTC offer via push_event and then starts :load_timeline_data.
+      relay_session_id = Ecto.UUID.generate()
+      viewer_session_id = Ecto.UUID.generate()
+
       live_tile = %{
         label: "Camera",
         detail: "High",
-        session: %{id: Ecto.UUID.generate(), status: :active, media_ingest_id: "ingest-1"},
+        session: %{id: relay_session_id, status: :active, media_ingest_id: "ingest-1"},
         error: nil
       }
 
-      {:noreply, with_live_tile} = Recordings.handle_async(:camera_live_open, {:ok, live_tile}, socket)
+      preloaded_offer = %{
+        "relay_session_id" => relay_session_id,
+        "viewer_session_id" => viewer_session_id,
+        "offer_sdp" => "v=0\r\nm=video",
+        "signaling_path" => "/api/camera-relay-sessions/#{relay_session_id}/webrtc/session",
+        "transport" => "membrane_webrtc"
+      }
+
+      {:noreply, with_live_tile} =
+        Recordings.handle_async(:camera_live_open, {:ok, {live_tile, preloaded_offer}}, socket)
+
       assert with_live_tile.assigns.live_tile == live_tile
+      assert with_live_tile.assigns.pending_deferred_timeline_load? == false
+
+      after_open_async_names =
+        with_live_tile.private
+        |> Map.get(:live_async, %{})
+        |> Map.keys()
+
+      assert :load_timeline_data in after_open_async_names
+
+      pushed_events = get_in(with_live_tile.private, [:live_temp, :push_events]) || []
+
+      assert [
+               [
+                 "camera-relay:webrtc-offer",
+                 %{
+                   "signaling_path" => "/api/camera-relay-sessions/" <> _,
+                   "data" => ^preloaded_offer
+                 }
+               ]
+             ] = pushed_events
 
       cov = populated_coverage(@camera_id, @base_now_us - @hour_us, @base_now_us, [])
       clip = sample_clip("clip-deferred-1", @base_now_us - 60_000_000, @base_now_us - 50_000_000)

@@ -29,11 +29,14 @@ function parseJsonDataset(value, fallback) {
 
 export default {
   mounted() {
+    const supportsLiveViewEvents = typeof this.handleEvent === "function"
+
     this.viewer = new CameraRelayViewer({
       streamPath: this.el.dataset.streamPath,
       webrtcSignalingPath: this.el.dataset.webrtcSignalingPath,
       iceServers: parseJsonDataset(this.el.dataset.webrtcIceServers, []),
       playbackMetadata: playbackMetadataFromDataset(this.el.dataset),
+      awaitPreloadedWebRtcOffer: supportsLiveViewEvents,
       getCanvas: () => this.el.querySelector("[data-role='video-canvas']"),
       getVideo: () => this.el.querySelector("[data-role='video-element']"),
       report: (role, value) => setText(this.el, role, value),
@@ -41,6 +44,14 @@ export default {
       setSurfaceVisibility: (transport) => this.setSurfaceVisibility(transport),
       onStateChange: (state) => this.handleViewerStateChange(state),
     })
+
+    if (supportsLiveViewEvents) {
+      this.handleEvent("camera-relay:webrtc-offer", (payload) => {
+        if (!this.viewer || !payload?.data) return
+        if (payload.signaling_path && payload.signaling_path !== this.el.dataset.webrtcSignalingPath) return
+        this.viewer.setPreloadedWebRtcSession(payload.data)
+      })
+    }
 
     this.viewer.start()
   },

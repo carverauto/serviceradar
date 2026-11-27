@@ -30,6 +30,7 @@ const WEBRTC_CREATE_RETRY_DELAY_MS = 150
 const WEBRTC_CREATE_MAX_RETRY_DELAY_MS = 500
 const WEBRTC_CREATE_RETRY_STEP_MS = 50
 const WEBRTC_CREATE_MAX_ATTEMPTS = 60
+const WEBRTC_LOCAL_CANDIDATE_BATCH_MS = 25
 const STREAM_RECONNECT_DELAY_MS = 1000
 const STREAM_RECONNECT_MAX_ATTEMPTS = 60
 const WEBSOCKET_KEEPALIVE_INTERVAL_MS = 20_000
@@ -178,6 +179,10 @@ export class CameraRelayViewer {
     this.webrtcActivationWake = null
     this.webrtcRemoteCandidates = new Set()
     this.webrtcPendingRemoteCandidates = []
+    this.webrtcOutboundCandidates = []
+    this.webrtcOutboundCandidateTimer = null
+    this.preloadedWebRtcSession = options.preloadedWebRtcSession || null
+    this.awaitPreloadedWebRtcOffer = Boolean(options.awaitPreloadedWebRtcOffer)
     this.webrtcRemoteDescriptionApplied = false
     this.webrtcIceGatheringComplete = false
     this.webrtcVideo = null
@@ -498,18 +503,62 @@ export class CameraRelayViewer {
     })
 
     peerConnection.addEventListener("icecandidate", (event) => {
-      if (!isCurrentViewer() || !event.candidate || !this.webrtcViewerSessionId) {
+      if (!isCurrentViewer() || !this.webrtcViewerSessionId) {
         return
       }
 
-      void fetch(`${this.webrtcSignalingPath}/${this.webrtcViewerSessionId}/candidates`, {
+      if (event.candidate) {
+        this.webrtcOutboundCandidates.push(event.candidate.toJSON())
+        if (!this.webrtcOutboundCandidateTimer) {
+          this.webrtcOutboundCandidateTimer = setTimeout(() => {
+            this.flushOutboundCandidates()
+          }, WEBRTC_LOCAL_CANDIDATE_BATCH_MS)
+        }
+      } else {
+        this.flushOutboundCandidates()
+      }
+    })
+    return isCurrentViewer
+  }
+
+  setPreloadedWebRtcSession(session) {
+    if (this.destroyedFlag || !session?.viewer_session_id || !session?.offer_sdp) {
+      return
+    }
+
+    // If a viewer session is already active, release the unused preloaded offer.
+    if (this.webrtcViewerSessionId) {
+      if (session.viewer_session_id !== this.webrtcViewerSessionId) {
+        this.releaseWebRtcViewer(session.viewer_session_id)
+      }
+      return
+    }
+
+    this.preloadedWebRtcSession = session
+  }
+
+  flushOutboundCandidates() {
+    if (this.webrtcOutboundCandidateTimer) {
+      clearTimeout(this.webrtcOutboundCandidateTimer)
+      this.webrtcOutboundCandidateTimer = null
+    }
+
+    if (this.destroyedFlag || !this.webrtcViewerSessionId || this.webrtcOutboundCandidates.length === 0) {
+      this.webrtcOutboundCandidates = []
+      return
+    }
+
+    const batch = this.webrtcOutboundCandidates.splice(0)
+    const payload = batch.length === 1 ? {candidate: batch[0]} : {candidates: batch}
+
+    void Promise.resolve(
+      fetch(`${this.webrtcSignalingPath}/${this.webrtcViewerSessionId}/candidates`, {
         method: "POST",
         headers: jsonHeaders(),
         credentials: "same-origin",
-        body: JSON.stringify({candidate: event.candidate.toJSON()}),
+        body: JSON.stringify(payload),
       })
-    })
-    return isCurrentViewer
+    ).catch(() => {})
   }
 
   // Without core-elx's candidates the browser cannot reach a relay-only peer:
@@ -683,6 +732,23 @@ export class CameraRelayViewer {
   }
 
   async createWebRtcViewerSession() {
+    // LiveView dispatches push_event("camera-relay:webrtc-offer") right after
+    // hook.mounted() in the same DOM patch turn; yield a single microtask so a
+    // preloaded offer delivered with the live tile avoids a duplicate POST.
+    if (this.awaitPreloadedWebRtcOffer && !this.preloadedWebRtcSession) {
+      await Promise.resolve()
+    }
+
+    if (this.destroyedFlag) {
+      throw new Error("WebRTC viewer setup was stopped")
+    }
+
+    if (this.preloadedWebRtcSession) {
+      const preloaded = this.preloadedWebRtcSession
+      this.preloadedWebRtcSession = null
+      return {data: preloaded}
+    }
+
     let lastError = null
 
     for (let attempt = 1; attempt <= WEBRTC_CREATE_MAX_ATTEMPTS; attempt += 1) {
@@ -729,10 +795,17 @@ export class CameraRelayViewer {
 
   destroyWebRtc() {
     const viewerSessionId = this.webrtcViewerSessionId
+    const preloadedViewerSessionId = this.preloadedWebRtcSession?.viewer_session_id
     const peerConnection = this.peerConnection
     this.wakeRelayActivation()
     clearTimeout(this.webrtcMediaTimer)
     this.webrtcMediaTimer = null
+    if (this.webrtcOutboundCandidateTimer) {
+      clearTimeout(this.webrtcOutboundCandidateTimer)
+      this.webrtcOutboundCandidateTimer = null
+    }
+    this.webrtcOutboundCandidates = []
+    this.preloadedWebRtcSession = null
     this.stopRemoteCandidatePolling()
     this.peerConnection = null
     this.webrtcViewerSessionId = null
@@ -750,6 +823,9 @@ export class CameraRelayViewer {
 
     peerConnection?.close()
     this.releaseWebRtcViewer(viewerSessionId)
+    if (preloadedViewerSessionId && preloadedViewerSessionId !== viewerSessionId) {
+      this.releaseWebRtcViewer(preloadedViewerSessionId)
+    }
   }
 
   releaseWebRtcViewer(viewerSessionId) {

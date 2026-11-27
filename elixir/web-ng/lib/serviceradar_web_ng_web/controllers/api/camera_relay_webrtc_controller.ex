@@ -84,6 +84,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
     end
   end
 
+  @max_ice_candidate_batch 32
+
   def add_candidate(conn, %{"id" => relay_session_id, "viewer_session_id" => viewer_session_id} = params) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "devices.cameras.view"),
@@ -91,16 +93,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
            CameraRelaySessionController.normalize_uuid_param(relay_session_id, "id"),
          {:ok, normalized_viewer_session_id} <-
            CameraRelaySessionController.normalize_uuid_param(viewer_session_id, "viewer_session_id"),
-         {:ok, candidate} <- normalize_candidate(params),
+         {:ok, candidates} <- normalize_candidates(params),
+         scope = get_scope(conn),
          {:ok, _session} <-
-           CameraRelaySessionController.fetch_relay_session_for_scope(normalized_relay_id, get_scope(conn)),
+           CameraRelaySessionController.fetch_relay_session_for_scope(normalized_relay_id, scope),
          {:ok, result} <-
-           CameraRelayWebRTC.add_ice_candidate(
-             normalized_relay_id,
-             normalized_viewer_session_id,
-             candidate,
-             scope: get_scope(conn)
-           ) do
+           add_ice_candidates(normalized_relay_id, normalized_viewer_session_id, candidates, scope) do
       json(conn, %{data: Map.merge(%{relay_session_id: normalized_relay_id}, stringify_keys(result))})
     else
       error -> render_signal_error(conn, error)
@@ -203,9 +201,52 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
     |> json(%{error: "relay_session_not_found", message: "relay session was not found"})
   end
 
-  defp normalize_candidate(%{"candidate" => %{} = candidate}), do: {:ok, candidate}
+  defp add_ice_candidates(relay_session_id, viewer_session_id, candidates, scope) do
+    Enum.reduce_while(candidates, {:ok, %{}}, fn candidate, _acc ->
+      case CameraRelayWebRTC.add_ice_candidate(relay_session_id, viewer_session_id, candidate, scope: scope) do
+        {:ok, result} -> {:cont, {:ok, result}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
 
-  defp normalize_candidate(%{"candidate" => candidate}) when is_binary(candidate) do
+  defp normalize_candidates(%{"candidates" => candidates}) when is_list(candidates) do
+    cond do
+      candidates == [] ->
+        {:error, :invalid_request, "candidates must be a non-empty list"}
+
+      length(candidates) > @max_ice_candidate_batch ->
+        {:error, :invalid_request, "candidates exceeds maximum batch size of #{@max_ice_candidate_batch}"}
+
+      true ->
+        candidates
+        |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
+          case normalize_candidate_item(item) do
+            {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+            {:error, _, _} = error -> {:halt, error}
+          end
+        end)
+        |> case do
+          {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+          error -> error
+        end
+    end
+  end
+
+  defp normalize_candidates(%{"candidates" => _other}) do
+    {:error, :invalid_request, "candidates must be a non-empty list"}
+  end
+
+  defp normalize_candidates(params) do
+    case normalize_candidate_item(Map.get(params, "candidate")) do
+      {:ok, normalized} -> {:ok, [normalized]}
+      error -> error
+    end
+  end
+
+  defp normalize_candidate_item(%{} = candidate), do: {:ok, candidate}
+
+  defp normalize_candidate_item(candidate) when is_binary(candidate) do
     normalized = String.trim(candidate)
 
     if normalized == "" do
@@ -215,7 +256,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCController do
     end
   end
 
-  defp normalize_candidate(_params), do: {:error, :invalid_request, "candidate is required"}
+  defp normalize_candidate_item(_other), do: {:error, :invalid_request, "candidate is required"}
 
   defp normalize_required_string(value, field_name) when is_binary(value) do
     trimmed = String.trim(value)

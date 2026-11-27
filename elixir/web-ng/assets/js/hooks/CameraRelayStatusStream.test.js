@@ -1180,4 +1180,130 @@ describe("CameraRelayStatusStream", () => {
       vi.useRealTimers()
     }
   })
+
+  it("uses a preloaded WebRTC offer delivered via LiveView push_event without calling POST /webrtc/session", async () => {
+    vi.useFakeTimers()
+    const element = buildHookElement()
+    element.dataset.webrtcPlaybackTransport = "membrane_webrtc"
+    element.dataset.webrtcSignalingPath = "/api/camera-relay-sessions/test/webrtc/session"
+    const video = new EventTarget()
+    video.dataset = {}
+    video.classList = {toggle() {}}
+    video.play = vi.fn(() => Promise.resolve())
+    element.roles.set("video-element", video)
+
+    const peerConfigs = []
+    class PeerConnection extends EventTarget {
+      constructor(config) {
+        super()
+        peerConfigs.push(config)
+        this.connectionState = "new"
+        this.iceConnectionState = "new"
+        this.closed = false
+        this.addedCandidates = []
+      }
+      async setRemoteDescription() {}
+      async addIceCandidate(candidate) { this.addedCandidates.push(candidate) }
+      async createAnswer() { return {type: "answer", sdp: "v=0\r\nm=video"} }
+      async setLocalDescription() {}
+      close() { this.closed = true }
+    }
+
+    const MockWebSocket = createMockWebSocketClass()
+    globalThis.WebSocket = MockWebSocket
+    globalThis.window = Object.assign(new EventTarget(), {
+      location: new URL("https://example.com/cameras/test/recordings?mode=live"),
+      RTCPeerConnection: PeerConnection,
+      WebSocket: MockWebSocket,
+      VideoDecoder: function VideoDecoder() {},
+      MediaStream: class MediaStream {
+        constructor(tracks) { this.tracks = tracks }
+      },
+    })
+    globalThis.document = {querySelector: () => null}
+    globalThis.fetch = vi.fn(async (_url, _options) => ({
+      ok: true,
+      json: async () => ({data: {signaling_state: "answer_applied", remote_ice_candidates: []}}),
+    }))
+
+    const eventHandlers = new Map()
+    const hook = {
+      ...CameraRelayStatusStream,
+      el: element,
+      handleEvent(name, cb) {
+        eventHandlers.set(name, cb)
+      },
+    }
+
+    // LiveView mounts the hook and dispatches push_event synchronously right after in the same patch turn.
+    mountHook(hook)
+    eventHandlers.get("camera-relay:webrtc-offer")({
+      signaling_path: "/api/camera-relay-sessions/test/webrtc/session",
+      data: {
+        viewer_session_id: "viewer-preloaded-1",
+        offer_sdp: "v=0\r\nm=video",
+        ice_servers: [{urls: ["turn:turn.example.com:3478"], username: "u", credential: "p"}],
+        remote_ice_candidates: [{candidate: "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host", sdpMid: "0"}],
+      },
+    })
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    const createCalls = globalThis.fetch.mock.calls.filter(
+      ([url, options]) => url === "/api/camera-relay-sessions/test/webrtc/session" && options.method === "POST"
+    )
+    const answerCalls = globalThis.fetch.mock.calls.filter(
+      ([url, options]) =>
+        url === "/api/camera-relay-sessions/test/webrtc/session/viewer-preloaded-1/answer" && options.method === "POST"
+    )
+
+    expect(createCalls).toHaveLength(0)
+    expect(answerCalls).toHaveLength(1)
+    expect(peerConfigs[0].iceServers).toEqual([
+      {urls: ["turn:turn.example.com:3478"], username: "u", credential: "p"},
+    ])
+    expect(hook.viewer.peerConnection.addedCandidates).toHaveLength(1)
+  })
+
+  it("coalesces browser ICE candidates into a single batched POST and flushes immediately on end-of-candidates", async () => {
+    const {peer} = await mountWebRtcViewer()
+    const candidateCalls = () =>
+      globalThis.fetch.mock.calls.filter(
+        ([url, options]) => url.endsWith("/candidates") && options.method === "POST"
+      )
+
+    const c1 = {candidate: "candidate:1 1 UDP 1234 192.0.2.1 4000 typ host", sdpMid: "0"}
+    const c2 = {candidate: "candidate:2 1 UDP 5678 198.51.100.2 5000 typ relay", sdpMid: "0"}
+
+    const ev1 = new Event("icecandidate")
+    ev1.candidate = {toJSON: () => c1}
+    const ev2 = new Event("icecandidate")
+    ev2.candidate = {toJSON: () => c2}
+
+    peer.dispatchEvent(ev1)
+    peer.dispatchEvent(ev2)
+
+    // Still coalescing before 25ms window elapses.
+    expect(candidateCalls()).toHaveLength(0)
+
+    // End-of-candidates (candidate: null) flushes immediately in a single batched request.
+    const evEnd = new Event("icecandidate")
+    evEnd.candidate = null
+    peer.dispatchEvent(evEnd)
+
+    expect(candidateCalls()).toHaveLength(1)
+    expect(JSON.parse(candidateCalls()[0][1].body)).toEqual({candidates: [c1, c2]})
+
+    // A single candidate after the batch flushes after 25ms using the single-candidate payload.
+    const c3 = {candidate: "candidate:3 1 UDP 9999 203.0.113.3 6000 typ srflx", sdpMid: "0"}
+    const ev3 = new Event("icecandidate")
+    ev3.candidate = {toJSON: () => c3}
+    peer.dispatchEvent(ev3)
+
+    await vi.advanceTimersByTimeAsync(24)
+    expect(candidateCalls()).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(candidateCalls()).toHaveLength(2)
+    expect(JSON.parse(candidateCalls()[1][1].body)).toEqual({candidate: c3})
+  })
 })
