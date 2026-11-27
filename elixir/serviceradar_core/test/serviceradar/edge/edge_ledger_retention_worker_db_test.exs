@@ -1,10 +1,10 @@
 defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
   @moduledoc """
   Database integration tests for `ServiceRadar.Edge.EdgeLedgerRetentionWorker`:
-  verifies that rows past the retention horizon are deleted across all four edge
-  ledger and delivery-slot tables, rows inside the horizon are kept, and slots
-  belonging to an undrained registry epoch (`state = 'draining'`) are kept until
-  the epoch retires.
+  verifies that rows past the retention horizon are deleted from `event_ledger`,
+  `edge_delivery_slots`, and `edge_sweep_batch_slots`, rows inside the horizon
+  are kept, and slots belonging to an undrained registry epoch
+  (`state = 'draining'`) are kept until the epoch retires.
   """
 
   use ServiceRadar.DataCase, async: true
@@ -249,7 +249,7 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorkerDbTest do
 
     assert :ok = EdgeLedgerRetentionWorker.perform(%Oban.Job{args: %{}})
 
-    # The slot for the draining epoch is kept in all four tables despite being past the horizon.
+    # The slot for the draining epoch is kept in all three tables despite being past the horizon.
     assert bundle_exists?(draining_bundle) == %{
              event_ledger: true,
              edge_delivery_slots: true,
