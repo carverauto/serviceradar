@@ -61,6 +61,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | `elixir/serviceradar_nvr_client` | `erlang_app`, `release_fixture` (test-only) | Client library for NVR ingest, archive, descriptor, and playback read endpoints (used by `core-elx` and `web-ng`); see its `README.md` |
 | `elixir/serviceradar_object_storage` | `erlang_app`, `unit_tests`, `quality_check`, `qualification_release` (test-only) | Rustler NIF and supervised session wrapping the pinned Longshore S3 client; opt-in transport for isolated camera archive storage. See its `README.md` |
 | `elixir/palisade` | `erlang_app`, `unit_tests`, `quality_check` | Outbound URL and network address policy (SSRF defence) used by core, core-elx and web-ng; also published to Hex. See its `README.md` |
+| `elixir/serviceradar_ui` | `erlang_app`, `unit_tests`, `quality_check` | Shared Phoenix design system: `sr-*` tokens, function components, SVG charts and offline map hooks. Apache-2.0. Not published to hex.pm yet (the `serviceradar_ui-v*` tag workflow is the publish path). See its `README.md` |
 
 Vendored Hex packages that used to sit in this tree now live in
 `//third_party/hex_vendored`, with the rest of the vendored code. They are still

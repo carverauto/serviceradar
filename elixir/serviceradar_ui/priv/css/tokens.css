@@ -1,0 +1,273 @@
+/*
+ * serviceradar_ui design tokens.
+ *
+ * Import after Tailwind in the application's CSS entry point:
+ *
+ *   @import "tailwindcss";
+ *   @import "../../deps/serviceradar_ui/priv/css/tokens.css";
+ *   @import "../../deps/serviceradar_ui/priv/css/components.css";
+ *
+ * Every value lives in a --sr-* custom property. Colours are written with
+ * light-dark(), so they follow the used color-scheme:
+ *
+ *   - <html data-theme="light"> or data-theme="dark" forces a scheme
+ *     (priv/static/theme_init.js sets it from the stored preference);
+ *   - without data-theme, color-scheme: light dark follows the OS setting.
+ *
+ * Browsers without light-dark() get the same values from the
+ * @supports fallback at the end of this file, through [data-theme] and a
+ * prefers-color-scheme media query.
+ *
+ * The @theme block exposes the tokens to Tailwind v4 as utilities
+ * (bg-sr-surface, text-sr-ink, rounded-sr-control, shadow-sr-raised, ...).
+ * Outside a Tailwind build it is ignored and the custom properties still work.
+ */
+
+@theme inline {
+  --font-sans: var(--sr-font-sans);
+  --font-mono: var(--sr-font-mono);
+  --color-sr-canvas: var(--sr-color-canvas);
+  --color-sr-surface: var(--sr-color-surface);
+  --color-sr-raised: var(--sr-color-raised);
+  --color-sr-subtle: var(--sr-color-subtle);
+  --color-sr-control: var(--sr-color-control);
+  --color-sr-ink: var(--sr-color-ink);
+  --color-sr-muted: var(--sr-color-muted);
+  --color-sr-line: var(--sr-color-line);
+  --color-sr-line-strong: var(--sr-color-line-strong);
+  --color-sr-line-hover: var(--sr-color-line-hover);
+  --color-sr-brand: var(--sr-color-brand);
+  --color-sr-brand-strong: var(--sr-color-brand-strong);
+  --color-sr-on-brand: var(--sr-color-on-brand);
+  --color-sr-focus: var(--sr-color-focus);
+  --color-sr-success: var(--sr-color-success);
+  --color-sr-warning: var(--sr-color-warning);
+  --color-sr-danger: var(--sr-color-danger);
+  --color-sr-info: var(--sr-color-info);
+  --color-sr-neutral: var(--sr-color-neutral);
+  --color-sr-chart-1: var(--sr-color-chart-1);
+  --color-sr-chart-2: var(--sr-color-chart-2);
+  --color-sr-chart-3: var(--sr-color-chart-3);
+  --color-sr-chart-4: var(--sr-color-chart-4);
+  --color-sr-chart-5: var(--sr-color-chart-5);
+  --color-sr-chart-6: var(--sr-color-chart-6);
+  --color-sr-backdrop: var(--sr-color-backdrop);
+
+  --radius-sr-small: var(--sr-radius-small);
+  --radius-sr-control: var(--sr-radius-control);
+  --radius-sr-surface: var(--sr-radius-surface);
+
+  --shadow-sr-control: var(--sr-shadow-control);
+  --shadow-sr-button: var(--sr-shadow-button);
+  --shadow-sr-surface: var(--sr-shadow-surface);
+  --shadow-sr-raised: var(--sr-shadow-raised);
+  --shadow-sr-nav: var(--sr-shadow-nav);
+
+  --ease-sr-out: var(--sr-ease-out);
+}
+
+:root {
+  color-scheme: light dark;
+
+  --sr-font-sans: "Avenir Next", Avenir, "Segoe UI Variable", "Segoe UI", ui-sans-serif,
+    system-ui, sans-serif;
+  --sr-font-mono: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  --sr-radius-small: 0.375rem;
+  --sr-radius-control: 0.625rem;
+  --sr-radius-surface: 0.875rem;
+
+  --sr-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --sr-duration-base: 200ms;
+
+  --sr-z-shell: 50;
+  --sr-z-menu: 60;
+  --sr-z-modal: 200;
+  --sr-z-toast: 300;
+
+  --sr-color-canvas: light-dark(#f7f9f8, #0a1114);
+  --sr-color-surface: light-dark(#fcfdfd, #10191d);
+  --sr-color-raised: light-dark(#ffffff, #152126);
+  --sr-color-subtle: light-dark(#eff4f1, #17252a);
+  --sr-color-control: light-dark(#ffffff, #111c20);
+  --sr-color-ink: light-dark(#0b1720, #edf5f1);
+  --sr-color-muted: light-dark(#5d6977, #aab8b2);
+  --sr-color-line: light-dark(#dde4e1, #26363a);
+  --sr-color-line-strong: light-dark(#c8d3ce, #3b4c50);
+  --sr-color-line-hover: light-dark(#91a49b, #587169);
+  --sr-color-brand: light-dark(#0b824d, #3ecf87);
+  --sr-color-brand-strong: light-dark(#076b3e, #5bde9b);
+  --sr-color-on-brand: light-dark(#f8fffb, #062b1a);
+  --sr-color-focus: light-dark(rgb(22 138 82 / 0.28), rgb(62 207 135 / 0.3));
+  --sr-color-success: light-dark(#0a7043, #74dfa6);
+  --sr-color-warning: light-dark(#8a5300, #f1ca78);
+  --sr-color-danger: light-dark(#c23b42, #f2666b);
+  --sr-color-info: light-dark(#245c77, #8bc8e0);
+  --sr-color-neutral: light-dark(#5d6977, #aab8b2);
+  --sr-color-chart-1: light-dark(#0b824d, #3ecf87);
+  --sr-color-chart-2: light-dark(#2563eb, #60a5fa);
+  --sr-color-chart-3: light-dark(#b45309, #fbbf24);
+  --sr-color-chart-4: light-dark(#7c3aed, #a78bfa);
+  --sr-color-chart-5: light-dark(#be123c, #fb7185);
+  --sr-color-chart-6: light-dark(#0e7490, #22d3ee);
+  --sr-color-backdrop: light-dark(rgb(2 6 23 / 0.55), rgb(2 6 23 / 0.72));
+
+  --sr-shadow-control:
+    0 1px 2px light-dark(rgb(23 48 38 / 0.05), rgb(0 0 0 / 0.2)),
+    inset 0 1px 0 light-dark(rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.035));
+  --sr-shadow-button:
+    0 5px 14px light-dark(rgb(7 107 62 / 0.16), rgb(0 0 0 / 0.2)),
+    inset 0 1px 0 light-dark(rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.13));
+  --sr-shadow-surface:
+    0 10px 30px light-dark(rgb(23 48 38 / 0.055), rgb(0 0 0 / 0.18));
+  --sr-shadow-raised:
+    0 18px 50px light-dark(rgb(23 48 38 / 0.09), rgb(0 0 0 / 0.26)),
+    inset 0 1px 0 light-dark(rgb(255 255 255 / 0.85), rgb(255 255 255 / 0.04));
+  --sr-shadow-nav:
+    0 8px 24px light-dark(rgb(23 48 38 / 0.07), rgb(0 0 0 / 0.2)),
+    inset 0 1px 0 light-dark(rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.04));
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Fallback for browsers without light-dark(): the same values, chosen by
+   [data-theme] or, without one, by the OS preference. */
+@supports not (color: light-dark(#000, #fff)) {
+  :root,
+  [data-theme="light"] {
+    --sr-color-canvas: #f7f9f8;
+    --sr-color-surface: #fcfdfd;
+    --sr-color-raised: #ffffff;
+    --sr-color-subtle: #eff4f1;
+    --sr-color-control: #ffffff;
+    --sr-color-ink: #0b1720;
+    --sr-color-muted: #5d6977;
+    --sr-color-line: #dde4e1;
+    --sr-color-line-strong: #c8d3ce;
+    --sr-color-line-hover: #91a49b;
+    --sr-color-brand: #0b824d;
+    --sr-color-brand-strong: #076b3e;
+    --sr-color-on-brand: #f8fffb;
+    --sr-color-focus: rgb(22 138 82 / 0.28);
+    --sr-color-success: #0a7043;
+    --sr-color-warning: #8a5300;
+    --sr-color-danger: #c23b42;
+    --sr-color-info: #245c77;
+    --sr-color-neutral: #5d6977;
+    --sr-color-chart-1: #0b824d;
+    --sr-color-chart-2: #2563eb;
+    --sr-color-chart-3: #b45309;
+    --sr-color-chart-4: #7c3aed;
+    --sr-color-chart-5: #be123c;
+    --sr-color-chart-6: #0e7490;
+    --sr-color-backdrop: rgb(2 6 23 / 0.55);
+    --sr-shadow-control:
+      0 1px 2px rgb(23 48 38 / 0.05),
+      inset 0 1px 0 rgb(255 255 255 / 0.8);
+    --sr-shadow-button:
+      0 5px 14px rgb(7 107 62 / 0.16),
+      inset 0 1px 0 rgb(255 255 255 / 0.16);
+    --sr-shadow-surface:
+      0 10px 30px rgb(23 48 38 / 0.055);
+    --sr-shadow-raised:
+      0 18px 50px rgb(23 48 38 / 0.09),
+      inset 0 1px 0 rgb(255 255 255 / 0.85);
+    --sr-shadow-nav:
+      0 8px 24px rgb(23 48 38 / 0.07),
+      inset 0 1px 0 rgb(255 255 255 / 0.8);
+  }
+
+  [data-theme="dark"] {
+    --sr-color-canvas: #0a1114;
+    --sr-color-surface: #10191d;
+    --sr-color-raised: #152126;
+    --sr-color-subtle: #17252a;
+    --sr-color-control: #111c20;
+    --sr-color-ink: #edf5f1;
+    --sr-color-muted: #aab8b2;
+    --sr-color-line: #26363a;
+    --sr-color-line-strong: #3b4c50;
+    --sr-color-line-hover: #587169;
+    --sr-color-brand: #3ecf87;
+    --sr-color-brand-strong: #5bde9b;
+    --sr-color-on-brand: #062b1a;
+    --sr-color-focus: rgb(62 207 135 / 0.3);
+    --sr-color-success: #74dfa6;
+    --sr-color-warning: #f1ca78;
+    --sr-color-danger: #f2666b;
+    --sr-color-info: #8bc8e0;
+    --sr-color-neutral: #aab8b2;
+    --sr-color-chart-1: #3ecf87;
+    --sr-color-chart-2: #60a5fa;
+    --sr-color-chart-3: #fbbf24;
+    --sr-color-chart-4: #a78bfa;
+    --sr-color-chart-5: #fb7185;
+    --sr-color-chart-6: #22d3ee;
+    --sr-color-backdrop: rgb(2 6 23 / 0.72);
+    --sr-shadow-control:
+      0 1px 2px rgb(0 0 0 / 0.2),
+      inset 0 1px 0 rgb(255 255 255 / 0.035);
+    --sr-shadow-button:
+      0 5px 14px rgb(0 0 0 / 0.2),
+      inset 0 1px 0 rgb(255 255 255 / 0.13);
+    --sr-shadow-surface:
+      0 10px 30px rgb(0 0 0 / 0.18);
+    --sr-shadow-raised:
+      0 18px 50px rgb(0 0 0 / 0.26),
+      inset 0 1px 0 rgb(255 255 255 / 0.04);
+    --sr-shadow-nav:
+      0 8px 24px rgb(0 0 0 / 0.2),
+      inset 0 1px 0 rgb(255 255 255 / 0.04);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --sr-color-canvas: #0a1114;
+      --sr-color-surface: #10191d;
+      --sr-color-raised: #152126;
+      --sr-color-subtle: #17252a;
+      --sr-color-control: #111c20;
+      --sr-color-ink: #edf5f1;
+      --sr-color-muted: #aab8b2;
+      --sr-color-line: #26363a;
+      --sr-color-line-strong: #3b4c50;
+      --sr-color-line-hover: #587169;
+      --sr-color-brand: #3ecf87;
+      --sr-color-brand-strong: #5bde9b;
+      --sr-color-on-brand: #062b1a;
+      --sr-color-focus: rgb(62 207 135 / 0.3);
+      --sr-color-success: #74dfa6;
+      --sr-color-warning: #f1ca78;
+      --sr-color-danger: #f2666b;
+      --sr-color-info: #8bc8e0;
+      --sr-color-neutral: #aab8b2;
+      --sr-color-chart-1: #3ecf87;
+      --sr-color-chart-2: #60a5fa;
+      --sr-color-chart-3: #fbbf24;
+      --sr-color-chart-4: #a78bfa;
+      --sr-color-chart-5: #fb7185;
+      --sr-color-chart-6: #22d3ee;
+      --sr-color-backdrop: rgb(2 6 23 / 0.72);
+      --sr-shadow-control:
+        0 1px 2px rgb(0 0 0 / 0.2),
+        inset 0 1px 0 rgb(255 255 255 / 0.035);
+      --sr-shadow-button:
+        0 5px 14px rgb(0 0 0 / 0.2),
+        inset 0 1px 0 rgb(255 255 255 / 0.13);
+      --sr-shadow-surface:
+        0 10px 30px rgb(0 0 0 / 0.18);
+      --sr-shadow-raised:
+        0 18px 50px rgb(0 0 0 / 0.26),
+        inset 0 1px 0 rgb(255 255 255 / 0.04);
+      --sr-shadow-nav:
+        0 8px 24px rgb(0 0 0 / 0.2),
+        inset 0 1px 0 rgb(255 255 255 / 0.04);
+    }
+  }
+}

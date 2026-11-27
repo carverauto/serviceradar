@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
+    <title>ServiceRadar UI example</title>
+    <link rel="stylesheet" href="/serviceradar_ui/css/tokens.css" />
+    <link rel="stylesheet" href="/serviceradar_ui/css/components.css" />
+    <script src="/serviceradar_ui/theme_init.js" data-sr-theme-key="sr:theme">
+    </script>
+  </head>
+  <body>
+    {@inner_content}
+    <script type="module" src="/app.js">
+    </script>
+  </body>
+</html>

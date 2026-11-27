@@ -1,0 +1,75 @@
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("//build:elixir_quality.bzl", "elixir_quality")
+
+package(default_visibility = ["//visibility:public"])
+
+# mix.exs and mix.lock are read by name: a release reads each path dependency's
+# mix.exs, and //third_party/hex:gen resolves the Hex closure from every project's lock.
+# mix_app compiles with HEX_OFFLINE=1 so the action cannot reach hex.pm.
+exports_files([
+    "mix.exs",
+    "mix.lock",
+])
+
+filegroup(
+    name = "srcs",
+    srcs = glob([
+        "lib/**",
+        "priv/**",
+    ]) + [
+        "mix.exs",
+        "mix.lock",
+    ],
+)
+
+SERVICERADAR_UI_DEPS = [
+    "@hexpm//:jason",
+    "@hexpm//:phoenix",
+    "@hexpm//:phoenix_html",
+    "@hexpm//:phoenix_live_view",
+    "@rules_elixir//elixir",
+]
+
+mix_app(
+    name = "erlang_app",
+    warnings_as_errors = True,
+    srcs = [":srcs"],
+    app_name = "serviceradar_ui",
+    mix_env = "prod",
+    deps = SERVICERADAR_UI_DEPS,
+)
+
+# lazy_html is test-only. The phoenix_live_view -> lazy_html edge is dropped
+# in //third_party/hex (cc_precompiler fetches the wrong architecture), so the
+# test target depends on it directly. Phoenix.LiveViewTest is the consumer.
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = glob(["test/**/*_test.exs"]),
+    load_config = False,
+    test_helper = "test/test_helper.exs",
+    deps = [
+        ":erlang_app",
+        "@hexpm//:lazy_html",
+    ],
+)
+
+# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# See //build:elixir_quality.bzl. .formatter.exs import_deps needs the Phoenix apps.
+elixir_quality(
+    extra_inputs = [
+        "example/mix.exs",
+        "example/.formatter.exs",
+        "example/config/**/*.exs",
+        "example/lib/**/*.ex",
+        "example/lib/**/*.heex",
+        "example/test/**/*.exs",
+        "example/test/**/*.heex",
+    ],
+    formatter_deps = [
+        "@hexpm//:phoenix",
+        "@hexpm//:phoenix_html",
+        "@hexpm//:phoenix_live_view",
+    ],
+    tool_deps = SERVICERADAR_UI_DEPS + ["@hexpm//:credo"],
+)
