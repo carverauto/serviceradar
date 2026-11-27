@@ -306,12 +306,23 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
     const src = typeof edge?.src_id === "string" ? edge.src_id.trim() : ""
     const dst = typeof edge?.dst_id === "string" ? edge.dst_id.trim() : ""
     if (!src || !dst) continue
-    addNeighbor(src, dst)
-    // external_reads.rs emits ORIGIN_PREFIX as asn -> prefix, and non-anchor external
-    // edges may connect bidirectionally; traverse reverse edges without crossing anchors.
     const kind = String(edge?.kind || "").trim().toUpperCase()
-    if (kind === "ORIGIN_PREFIX" || !matchedAnchors.has(src)) {
+    if (kind === "AS_REL_PROVIDER") {
+      // Horizon writes AS_REL_PROVIDER as provider -> customer (src -> dst);
+      // walk upstream from customer (dst) to provider (src), and allow
+      // downstream fanout from non-anchor nodes without crossing anchors.
       addNeighbor(dst, src)
+      if (!matchedAnchors.has(src)) addNeighbor(src, dst)
+    } else if (kind === "AS_REL_PEER") {
+      addNeighbor(src, dst)
+      addNeighbor(dst, src)
+    } else {
+      addNeighbor(src, dst)
+      // external_reads.rs emits ORIGIN_PREFIX as asn -> prefix, and non-anchor external
+      // edges may connect bidirectionally; traverse reverse edges without crossing anchors.
+      if (kind === "ORIGIN_PREFIX" || !matchedAnchors.has(src)) {
+        addNeighbor(dst, src)
+      }
     }
   }
 

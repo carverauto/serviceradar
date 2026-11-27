@@ -343,19 +343,31 @@ impl MockExternalDgraph {
             let in_egress_only = query.contains(
                 "~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\"]))",
             );
-            let in_edges: Vec<Value> = self
-                .edges
-                .iter()
-                .filter(|e| {
-                    edge_end_uid(e, "topo.dst") == Some(uid)
-                        && (!in_egress_only
-                            || matches!(
-                                e.get("topo.kind").and_then(Value::as_str),
-                                Some("EGRESSES_TO" | "BORDER_HANDOFF")
-                            ))
-                })
-                .cloned()
-                .collect();
+            let in_asn_rel_only = query.contains(
+                "~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"AS_REL_PROVIDER\", \"AS_REL_PEER\"]))",
+            );
+            let has_in_clause = query.contains("~topo.dst");
+            let in_edges: Vec<Value> = if has_in_clause {
+                self.edges
+                    .iter()
+                    .filter(|e| {
+                        edge_end_uid(e, "topo.dst") == Some(uid)
+                            && (!in_egress_only
+                                || matches!(
+                                    e.get("topo.kind").and_then(Value::as_str),
+                                    Some("EGRESSES_TO" | "BORDER_HANDOFF")
+                                ))
+                            && (!in_asn_rel_only
+                                || matches!(
+                                    e.get("topo.kind").and_then(Value::as_str),
+                                    Some("AS_REL_PROVIDER" | "AS_REL_PEER")
+                                ))
+                    })
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let interfaces: Vec<Value> = self
                 .nodes
                 .iter()
@@ -1175,6 +1187,57 @@ async fn egress_topology_ignores_external_border_handoffs_before_device_egresses
     assert_eq!(res.egress_devices[0].port_speed_mbps, Some(1_000));
     assert_eq!(res.edges.len(), 1);
     assert_eq!(res.edges[0].kind, "EGRESSES_TO");
+
+    task.abort();
+}
+
+#[tokio::test]
+async fn egress_topology_traverses_upstream_provider_and_peer_edges_via_rev_dst() {
+    let dev = json!({
+        "uid": "0x1",
+        "dgraph.type": ["Device"],
+        "device.id": "sr:tonka-gw",
+        "device.hostname": "unifi.tonka.carverauto.dev"
+    });
+    let asn10242 = ext_node("0x2", "asn:10242", "ASN", Some(10_242));
+    let asn174 = ext_node("0x3", "asn:174", "ASN", Some(174));
+    let asn15267 = ext_node("0x4", "asn:15267", "ASN", Some(15_267));
+    let asn209 = ext_node("0x5", "asn:209", "ASN", Some(209));
+    let saas = ext_node("0x6", "saas:github", "SaasTarget", None);
+
+    let (client, _shared, task) = start_mock(MockExternalDgraph {
+        edges: vec![
+            topo_edge("0x10", "EGRESSES_TO", dev, asn10242.clone()),
+            // Horizon stores AS_REL_PROVIDER as provider -> customer (asn:174 -> asn:10242)
+            topo_edge("0x11", "AS_REL_PROVIDER", asn174.clone(), asn10242),
+            topo_edge("0x12", "AS_REL_PEER", asn174.clone(), asn15267.clone()),
+            topo_edge("0x13", "AS_REL_PEER", asn209, asn174),
+            topo_edge("0x14", "ANYCAST_SERVES", asn15267, saas),
+        ],
+        ..Default::default()
+    })
+    .await;
+
+    let res = client
+        .query_egress_topology(4, 50)
+        .await
+        .expect("egress topology");
+
+    let ext_ids: BTreeSet<&str> = res.external_nodes.iter().map(|n| n.id.as_str()).collect();
+    assert!(ext_ids.contains("asn:10242"));
+    assert!(ext_ids.contains("asn:174"));
+    assert!(ext_ids.contains("asn:15267"));
+    assert!(ext_ids.contains("asn:209"));
+    assert!(ext_ids.contains("saas:github"));
+
+    assert!(res.edges.iter().any(|e| {
+        e.kind == "AS_REL_PROVIDER" && e.src_id == "asn:174" && e.dst_id == "asn:10242"
+    }));
+    assert!(
+        res.edges
+            .iter()
+            .any(|e| { e.kind == "AS_REL_PEER" && e.src_id == "asn:209" && e.dst_id == "asn:174" })
+    );
 
     task.abort();
 }
