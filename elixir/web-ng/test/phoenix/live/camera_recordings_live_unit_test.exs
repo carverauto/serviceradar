@@ -2510,7 +2510,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       assert :camera_live_open in async_names
       refute :load_timeline_data in async_names
 
-      # Completing :camera_live_open pushes any preloaded WebRTC offer via push_event and then starts :load_timeline_data.
+      # Completing :camera_live_open pushes any preloaded WebRTC offer via push_event,
+      # then starts :load_timeline_data.
       relay_session_id = Ecto.UUID.generate()
       viewer_session_id = Ecto.UUID.generate()
 
