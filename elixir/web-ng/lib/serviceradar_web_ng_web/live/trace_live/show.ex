@@ -617,14 +617,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   end
 
   defp fetch_spans(srql, trace_id, scope, span_window) do
-    time_clause =
-      case span_window do
-        {:ok, from_dt, to_dt} ->
-          "time:[#{DateTime.to_iso8601(from_dt)},#{DateTime.to_iso8601(to_dt)}] "
-
-        :error ->
-          ""
-      end
+    time_clause = format_srql_time_clause(span_window)
 
     query =
       ~s(in:traces trace_id:"#{trace_id}" ) <>
@@ -873,14 +866,20 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   # Correlated logs
   # ----------------------------------------------------------------------
 
+  defp format_srql_time_clause({:ok, from_dt, to_dt}) do
+    "time:[#{DateTime.to_iso8601(from_dt)},#{DateTime.to_iso8601(to_dt)}] "
+  end
+
+  defp format_srql_time_clause(:error), do: ""
+
   defp load_logs(socket, _srql, _trace_id, :error) do
     socket |> assign(:logs, []) |> assign(:logs_query, nil) |> assign(:logs_error, nil)
   end
 
-  defp load_logs(socket, srql, trace_id, {:ok, from_dt, to_dt}) do
+  defp load_logs(socket, srql, trace_id, {:ok, _from_dt, _to_dt} = window) do
     query =
       ~s(in:logs trace_id:"#{trace_id}" ) <>
-        "time:[#{DateTime.to_iso8601(from_dt)},#{DateTime.to_iso8601(to_dt)}] " <>
+        format_srql_time_clause(window) <>
         "sort:timestamp:asc limit:#{@log_limit}"
 
     socket = assign(socket, :logs_query, query)
