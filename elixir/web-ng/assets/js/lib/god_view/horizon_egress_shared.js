@@ -297,10 +297,12 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
   }
 
   const neighborsById = new Map()
-  const addNeighbor = (fromId, toId) => {
+  const addNeighbor = (fromId, toId, kind) => {
     if (!neighborsById.has(fromId)) neighborsById.set(fromId, [])
     const list = neighborsById.get(fromId)
-    if (!list.includes(toId)) list.push(toId)
+    if (!list.some((entry) => entry.toId === toId && entry.kind === kind)) {
+      list.push({toId, kind})
+    }
   }
   for (const edge of data.edges) {
     const src = typeof edge?.src_id === "string" ? edge.src_id.trim() : ""
@@ -309,19 +311,17 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
     const kind = String(edge?.kind || "").trim().toUpperCase()
     if (kind === "AS_REL_PROVIDER") {
       // Horizon writes AS_REL_PROVIDER as provider -> customer (src -> dst);
-      // walk upstream from customer (dst) to provider (src), and allow
-      // downstream fanout from non-anchor nodes without crossing anchors.
-      addNeighbor(dst, src)
-      if (!matchedAnchors.has(src)) addNeighbor(src, dst)
+      // walk ONLY upstream from customer (dst) to provider (src) — never down into customer cones.
+      addNeighbor(dst, src, kind)
     } else if (kind === "AS_REL_PEER") {
-      addNeighbor(src, dst)
-      addNeighbor(dst, src)
+      addNeighbor(src, dst, kind)
+      addNeighbor(dst, src, kind)
     } else {
-      addNeighbor(src, dst)
+      addNeighbor(src, dst, kind)
       // external_reads.rs emits ORIGIN_PREFIX as asn -> prefix, and non-anchor external
       // edges may connect bidirectionally; traverse reverse edges without crossing anchors.
       if (kind === "ORIGIN_PREFIX" || !matchedAnchors.has(src)) {
-        addNeighbor(dst, src)
+        addNeighbor(dst, src, kind)
       }
     }
   }
@@ -329,11 +329,14 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
   // BFS from matched egress devices to find reachable external nodes and hop depth.
   const hopDepthById = new Map()
   const parentAnchorsById = new Map()
+  const anchorIdsById = new Map()
+  const firstParentById = new Map()
   const queue = []
 
   for (const [devId, anchor] of matchedAnchors.entries()) {
     hopDepthById.set(devId, 0)
     parentAnchorsById.set(devId, [anchor.position])
+    anchorIdsById.set(devId, [devId])
     queue.push(devId)
   }
 
@@ -343,24 +346,45 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
     const currentDepth = hopDepthById.get(currentId) ?? 0
     const neighbors = neighborsById.get(currentId) || []
 
-    for (const nextId of neighbors) {
+    for (const {toId: nextId, kind} of neighbors) {
       if (!nextId || matchedAnchors.has(nextId) || !externalNodeById.has(nextId)) continue
+      // Only traverse direct ISP peers (depth 1 -> 2), never explode transitive peers at depth >= 2.
+      if (kind === "AS_REL_PEER" && currentDepth >= 2) continue
 
       const nextDepth = currentDepth + 1
       const existingDepth = hopDepthById.get(nextId)
       if (existingDepth !== undefined && nextDepth > existingDepth) continue
 
       const anchors = parentAnchorsById.get(currentId) || []
+      const anchorIds = anchorIdsById.get(currentId) || []
       if (existingDepth === undefined || nextDepth < existingDepth) {
         hopDepthById.set(nextId, nextDepth)
         parentAnchorsById.set(nextId, [...anchors])
+        anchorIdsById.set(nextId, [...anchorIds])
+        firstParentById.set(nextId, currentId)
         queue.push(nextId)
       } else {
         const existingAnchors = parentAnchorsById.get(nextId) || []
         for (const anchorPos of anchors) {
           if (!existingAnchors.includes(anchorPos)) existingAnchors.push(anchorPos)
         }
+        const existingAnchorIds = anchorIdsById.get(nextId) || []
+        for (const aid of anchorIds) {
+          if (!existingAnchorIds.includes(aid)) existingAnchorIds.push(aid)
+        }
       }
+    }
+  }
+
+  // Mark nodes that bridge to higher-tier nodes or non-ASN high-signal targets so they survive tier caps.
+  const bridgeParentIds = new Set()
+  for (const [childId, parentId] of firstParentById.entries()) {
+    if (externalNodeById.has(parentId)) {
+      bridgeParentIds.add(parentId)
+    }
+    const childNode = externalNodeById.get(childId)
+    if (childNode && childNode.kind !== "ASN" && externalNodeById.has(parentId)) {
+      bridgeParentIds.add(parentId)
     }
   }
 
@@ -369,6 +393,7 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
     const depth = hopDepthById.get(id)
     if (depth === undefined || depth < 1) continue
     const anchors = parentAnchorsById.get(id) || []
+    const anchorIds = anchorIdsById.get(id) || []
     const anchorX =
       anchors.length > 0
         ? anchors.reduce((sum, pos) => sum + pos[0], 0) / anchors.length
@@ -377,28 +402,137 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
       anchors.length > 0
         ? anchors.reduce((sum, pos) => sum + pos[1], 0) / anchors.length
         : 0
-    reachableExternal.push({extNode, id, depth, anchorX, anchorY})
+    reachableExternal.push({
+      extNode,
+      id,
+      depth,
+      anchorX,
+      anchorY,
+      anchorId: anchorIds[0] || null,
+      parentId: firstParentById.get(id) || null,
+      isBridge: bridgeParentIds.has(id),
+    })
   }
 
   const mode = options.mode || "cartesian"
+  const zoomTier = options.zoomTier || (mode === "world" ? "local" : "local")
+  const expandedSet = toExpandedClusterSet(options.expandedClusters)
   const bounds = options.bounds || nodeBounds(sceneNodes)
-  const tierOffsetY = Number(options.tierOffsetY ?? 90)
-  const tierStepY = Number(options.tierStepY ?? 75)
-  const stepX = Number(options.stepX ?? 150)
+  const tierOffsetY = Number(options.tierOffsetY ?? 110)
+  const tierStepY = Number(options.tierStepY ?? 95)
+  const stepX = Number(options.stepX ?? 175)
+  const maxNodesPerTier = Number.isFinite(Number(options.maxNodesPerTier))
+    ? Math.max(1, Number(options.maxNodesPerTier))
+    : 6
+
+  const positionedExternalById = new Map()
+  const renderedNodes = []
+  const syntheticEdges = []
+  const hiddenClusterMembersByKey = new Map()
+
+  const consolidateAnchors = zoomTier === "global" || zoomTier === "regional"
+  const itemsToRender = []
+  const groupedByAnchor = new Map()
+
+  for (const item of reachableExternal) {
+    const clusterKey = item.anchorId ? horizonDeviceClusterKey(item.anchorId) : null
+    if (consolidateAnchors && clusterKey && !expandedSet.has(clusterKey)) {
+      if (!groupedByAnchor.has(item.anchorId)) groupedByAnchor.set(item.anchorId, [])
+      groupedByAnchor.get(item.anchorId).push(item)
+    } else {
+      itemsToRender.push(item)
+    }
+  }
+
+  for (const [devId, groupItems] of groupedByAnchor.entries()) {
+    const anchor = matchedAnchors.get(devId)
+    if (!anchor || groupItems.length === 0) continue
+    const clusterKey = horizonDeviceClusterKey(devId)
+    const sortedGroup = [...groupItems].sort((a, b) => {
+      if (a.depth !== b.depth) return a.depth - b.depth
+      const pa = KIND_PRIORITY[a.extNode.kind] ?? 99
+      const pb = KIND_PRIORITY[b.extNode.kind] ?? 99
+      if (pa !== pb) return pa - pb
+      return a.id.localeCompare(b.id)
+    })
+    const primary = sortedGroup[0].extNode
+    const primaryShort = shortClusterPrimaryLabel(primary)
+    const extraCount = sortedGroup.length - 1
+    const label =
+      extraCount > 0 ? `Internet (${primaryShort} · +${extraCount})` : `Internet (${primaryShort})`
+    const worstSev = pickWorstSeverity(...sortedGroup.map((entry) => horizonSeverity(entry.extNode)))
+    const clusterExtNode = {
+      id: clusterKey,
+      kind: "EgressCluster",
+      label,
+      asn: primary.asn ?? null,
+      outage_state: worstSev === "neutral" ? null : worstSev,
+      port_speed_mbps: anchor.device?.port_speed_mbps ?? primary.port_speed_mbps ?? null,
+      isCluster: true,
+      clusterKey,
+      clusterCount: sortedGroup.length,
+      clusterExpanded: false,
+      anchorId: devId,
+    }
+    const members = sortedGroup.map((entry) => entry.extNode)
+    hiddenClusterMembersByKey.set(clusterKey, members)
+
+    const baseOffset = Number(options.worldOffset ?? 18) * 1.15
+    const pos =
+      mode === "world"
+        ? [anchor.position[0], anchor.position[1] - baseOffset, 0]
+        : [anchor.position[0], bounds.minY - tierOffsetY, 0]
+    const clusterRecord = buildExternalNodeRenderRecord(clusterExtNode, 1, pos)
+    clusterRecord.connectedNodes = members
+    positionedExternalById.set(clusterKey, clusterRecord)
+    renderedNodes.push(clusterRecord)
+
+    const primaryEdge = data.edges.find(
+      (edge) =>
+        String(edge?.src_id || "").trim() === devId &&
+        String(edge?.dst_id || "").trim() === primary.id,
+    )
+    syntheticEdges.push({
+      src_id: devId,
+      dst_id: clusterKey,
+      kind: primaryEdge?.kind || "EGRESSES_TO",
+      egress_source: anchor.device?.egress_source || primaryEdge?.egress_source || "manual",
+      port_speed_mbps: anchor.device?.port_speed_mbps ?? primaryEdge?.port_speed_mbps ?? null,
+      avg_rtt_us: primaryEdge?.avg_rtt_us ?? null,
+      loss_pct: primaryEdge?.loss_pct ?? null,
+      severity: worstSev,
+    })
+  }
 
   const tiers = new Map()
-  for (const item of reachableExternal) {
+  for (const item of itemsToRender) {
     const tier = Math.min(item.depth, 4)
     if (!tiers.has(tier)) tiers.set(tier, [])
     tiers.get(tier).push(item)
   }
 
-  const positionedExternalById = new Map()
-  const renderedNodes = []
-
   const sortedTierKeys = [...tiers.keys()].sort((a, b) => a - b)
   for (const tier of sortedTierKeys) {
-    const items = tiers.get(tier)
+    const rawItems = tiers.get(tier)
+    const prioritized = [...rawItems].sort((a, b) => {
+      const sa = horizonSeverityRank(horizonSeverity(a.extNode))
+      const sb = horizonSeverityRank(horizonSeverity(b.extNode))
+      if (sa !== sb) return sb - sa
+      if (a.isBridge !== b.isBridge) return a.isBridge ? -1 : 1
+      const pa = KIND_PRIORITY[a.extNode.kind] ?? 99
+      const pb = KIND_PRIORITY[b.extNode.kind] ?? 99
+      if (pa !== pb) return pa - pb
+      const spdA = Number(a.extNode.port_speed_mbps || 0)
+      const spdB = Number(b.extNode.port_speed_mbps || 0)
+      if (spdA !== spdB) return spdB - spdA
+      return a.id.localeCompare(b.id)
+    })
+
+    const tierClusterKey = horizonTierClusterKey(tier)
+    const tierExpanded = expandedSet.has(tierClusterKey)
+    const visibleItems = tierExpanded ? prioritized : prioritized.slice(0, maxNodesPerTier)
+    const hiddenItems = tierExpanded ? [] : prioritized.slice(maxNodesPerTier)
+    const items = [...visibleItems]
     items.sort((a, b) => {
       if (a.anchorX !== b.anchorX) return a.anchorX - b.anchorX
       const pa = KIND_PRIORITY[a.extNode.kind] ?? 99
@@ -407,11 +541,59 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
       return a.id.localeCompare(b.id)
     })
 
+    if (hiddenItems.length > 0) {
+      const worstHiddenSeverity = pickWorstSeverity(
+        ...hiddenItems.map((h) => horizonSeverity(h.extNode)),
+      )
+      const summaryParent =
+        hiddenItems
+          .map((h) => h.parentId)
+          .find((pid) => pid && (matchedAnchors.has(pid) || positionedExternalById.has(pid))) ||
+        matchedAnchors.keys().next().value ||
+        null
+      const avgAnchorX =
+        hiddenItems.reduce((sum, h) => sum + h.anchorX, 0) / hiddenItems.length
+      const avgAnchorY =
+        hiddenItems.reduce((sum, h) => sum + h.anchorY, 0) / hiddenItems.length
+      const summaryExtNode = {
+        id: tierClusterKey,
+        kind: "EgressCluster",
+        label: `+${hiddenItems.length} more`,
+        outage_state: worstHiddenSeverity === "neutral" ? null : worstHiddenSeverity,
+        isCluster: true,
+        isSummary: true,
+        clusterKey: tierClusterKey,
+        clusterCount: hiddenItems.length,
+        clusterExpanded: false,
+      }
+      const members = hiddenItems.map((h) => h.extNode)
+      hiddenClusterMembersByKey.set(tierClusterKey, members)
+      items.push({
+        extNode: summaryExtNode,
+        id: tierClusterKey,
+        depth: tier,
+        anchorX: avgAnchorX,
+        anchorY: avgAnchorY,
+        parentId: summaryParent,
+        isCluster: true,
+      })
+      if (summaryParent) {
+        syntheticEdges.push({
+          src_id: summaryParent,
+          dst_id: tierClusterKey,
+          kind: "CLUSTER_SUMMARY",
+          egress_source: "summary",
+          severity: worstHiddenSeverity,
+        })
+      }
+    }
+
     if (mode === "world") {
-      const worldOffset = Number(options.worldOffset ?? 18) * (1 + (tier - 1) * 0.75)
       const count = items.length
+      const crowdScale = 1 + Math.max(0, count - 2) * 0.18
+      const worldOffset = Number(options.worldOffset ?? 18) * (1 + (tier - 1) * 1.15) * crowdScale
+      const angleSpread = Math.min(Math.PI * 1.15, Math.max(0.45, (count - 1) * 0.45))
       items.forEach((item, idx) => {
-        const angleSpread = Math.min(Math.PI * 0.85, Math.max(0.35, (count - 1) * 0.35))
         const t = count === 1 ? 0 : idx / (count - 1) - 0.5
         const angle = -Math.PI / 2 + t * angleSpread
         const position = [
@@ -466,7 +648,7 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
     }
   }
 
-  for (const edge of data.edges) {
+  for (const edge of [...data.edges, ...syntheticEdges]) {
     const srcId = typeof edge?.src_id === "string" ? edge.src_id.trim() : ""
     const dstId = typeof edge?.dst_id === "string" ? edge.dst_id.trim() : ""
     if (!srcId || !dstId) continue
@@ -535,7 +717,17 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
   }
 
   for (const node of renderedNodes) {
-    node.connectedNodes = connectedByExtId.get(node.id) || []
+    const clusterMembers = hiddenClusterMembersByKey.get(node.id)
+    const linked = connectedByExtId.get(node.id) || []
+    if (clusterMembers && clusterMembers.length > 0) {
+      const merged = [...clusterMembers]
+      for (const item of linked) {
+        if (!merged.includes(item)) merged.push(item)
+      }
+      node.connectedNodes = merged
+    } else {
+      node.connectedNodes = linked
+    }
   }
 
   const pulseNodes = renderedNodes.filter(
@@ -548,6 +740,169 @@ export function buildHorizonEgressGraphLayout(rawData, sceneNodes, options = {})
     pulseNodes,
     deviceLookup,
   }
+}
+
+export function horizonDeviceClusterKey(deviceId) {
+  return `horizon-cluster:${String(deviceId || "").trim()}`
+}
+
+export function horizonTierClusterKey(tier) {
+  return `horizon-tier-cluster:tier-${Number(tier)}`
+}
+
+function toExpandedClusterSet(expandedClusters) {
+  if (expandedClusters instanceof Set) return expandedClusters
+  if (Array.isArray(expandedClusters)) {
+    return new Set(expandedClusters.map((v) => String(v || "").trim()).filter(Boolean))
+  }
+  return new Set()
+}
+
+function shortClusterPrimaryLabel(node) {
+  if (!node || typeof node !== "object") return "Egress"
+  const kind = String(node.kind || "").trim()
+  const asn = Number(node.asn)
+  if (kind === "ASN" && Number.isFinite(asn) && asn > 0) return `AS${asn}`
+  return horizonNodeDisplayLabel(node)
+}
+
+export function selectVisibleHorizonLabels(nodes, options = {}) {
+  if (!Array.isArray(nodes) || nodes.length === 0) return []
+  const mode = options.mode || "cartesian"
+  const zoomTier = options.zoomTier || "local"
+  const zoom = Number(options.zoom ?? 0)
+  const clampedZoom = Math.max(0, Math.min(8, Number.isFinite(zoom) ? zoom : 0))
+  const worldPerPx = mode === "world" ? 2 ** -clampedZoom : 1
+  const selectedKey = options.selectedKey || null
+  const hoveredKey = options.hoveredKey || null
+  const maxLabels = Number.isFinite(Number(options.maxLabels)) ? Number(options.maxLabels) : 16
+
+  const priorityFor = (node) => {
+    const key = node?.interactionKey
+    if (key && (key === selectedKey || key === hoveredKey)) return 1000
+    if (node?.isCluster) return 500
+    if (node?.severity === "outage") return 400
+    if (node?.severity === "degraded") return 350
+    const depth = Number(node?.hopDepth ?? 99)
+    if (depth <= 1) return 200
+    if (depth === 2) return 100
+    return 10
+  }
+
+  const eligible = nodes.filter((node) => {
+    const key = node?.interactionKey
+    if (key && (key === selectedKey || key === hoveredKey)) return true
+    if (node?.isCluster || node?.severity === "outage" || node?.severity === "degraded") return true
+    if (mode === "world" && zoomTier === "global") {
+      return Number(node?.hopDepth ?? 99) <= 1
+    }
+    if (mode === "world" && zoomTier === "regional") {
+      return Number(node?.hopDepth ?? 99) <= 2
+    }
+    return true
+  })
+
+  const sorted = [...eligible].sort((a, b) => {
+    const pa = priorityFor(a)
+    const pb = priorityFor(b)
+    if (pa !== pb) return pb - pa
+    return String(a?.id || "").localeCompare(String(b?.id || ""))
+  })
+
+  const placedBoxes = []
+  const visible = []
+  const boxHeight = 20 * worldPerPx
+
+  for (const node of sorted) {
+    const pos = node?.position
+    if (!Array.isArray(pos) || pos.length < 2) continue
+    const x = Number(pos[0])
+    const y = Number(pos[1])
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+
+    const isFocused =
+      Boolean(node.interactionKey) &&
+      (node.interactionKey === selectedKey || node.interactionKey === hoveredKey)
+    if (!isFocused && visible.length >= maxLabels) continue
+
+    const text = String(node.labelText || node.label || node.id || "")
+    const boxWidth = Math.max(56, Math.min(220, text.length * 6.5 + 16)) * worldPerPx
+
+    if (!isFocused) {
+      const collides = placedBoxes.some(
+        (box) =>
+          Math.abs(x - box.x) < (boxWidth + box.w) * 0.5 &&
+          Math.abs(y - box.y) < (boxHeight + box.h) * 0.5,
+      )
+      if (collides) continue
+    }
+
+    placedBoxes.push({x, y, w: boxWidth, h: boxHeight})
+    visible.push(node)
+  }
+
+  return visible
+}
+
+export function horizonDeviceChains(rawData, maxItemsPerDevice = 6) {
+  const data = normalizeHorizonEgressData(rawData)
+  const nodesById = new Map(data.external_nodes.map((node) => [node.id, node]))
+  const anchorIds = new Set(
+    data.egress_devices.map((d) => String(d?.id || "").trim()).filter(Boolean),
+  )
+
+  const neighborsById = new Map()
+  const addNeighbor = (fromId, toId, kind, edge) => {
+    if (!neighborsById.has(fromId)) neighborsById.set(fromId, [])
+    const list = neighborsById.get(fromId)
+    if (!list.some((entry) => entry.toId === toId && entry.kind === kind)) {
+      list.push({toId, kind, edge})
+    }
+  }
+
+  for (const edge of data.edges) {
+    const src = typeof edge?.src_id === "string" ? edge.src_id.trim() : ""
+    const dst = typeof edge?.dst_id === "string" ? edge.dst_id.trim() : ""
+    if (!src || !dst) continue
+    const kind = String(edge?.kind || "").trim().toUpperCase()
+    if (kind === "AS_REL_PROVIDER") {
+      addNeighbor(dst, src, kind, edge)
+    } else if (kind === "AS_REL_PEER") {
+      addNeighbor(src, dst, kind, edge)
+      addNeighbor(dst, src, kind, edge)
+    } else {
+      addNeighbor(src, dst, kind, edge)
+      if (kind === "ORIGIN_PREFIX" || !anchorIds.has(src)) {
+        addNeighbor(dst, src, kind, edge)
+      }
+    }
+  }
+
+  const chains = new Map()
+  for (const device of data.egress_devices) {
+    const devId = String(device?.id || "").trim()
+    if (!devId) continue
+    const visited = new Set([devId])
+    const queue = [{id: devId, depth: 0}]
+    const chain = []
+    let head = 0
+    while (head < queue.length && chain.length < maxItemsPerDevice) {
+      const current = queue[head++]
+      const neighbors = neighborsById.get(current.id) || []
+      for (const {toId, kind, edge} of neighbors) {
+        if (visited.has(toId) || anchorIds.has(toId)) continue
+        if (kind === "AS_REL_PEER" && current.depth >= 2) continue
+        const ext = nodesById.get(toId)
+        if (!ext) continue
+        visited.add(toId)
+        chain.push({ext, edge, depth: current.depth + 1})
+        queue.push({id: toId, depth: current.depth + 1})
+        if (chain.length >= maxItemsPerDevice) break
+      }
+    }
+    chains.set(devId, chain)
+  }
+  return chains
 }
 
 function buildExternalNodeRenderRecord(extNode, hopDepth, position) {

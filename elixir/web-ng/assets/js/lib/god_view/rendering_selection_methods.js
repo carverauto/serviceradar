@@ -455,6 +455,16 @@ export const godViewRenderingSelectionMethods = {
     if (typeof this.horizonEgressLayerId === "function" && this.horizonEgressLayerId(layerId)) {
       const entity = info?.object
       if (entity && typeof entity === "object") {
+        if (entity.isCluster && typeof entity.clusterKey === "string" && typeof this.toggleHorizonEgressCluster === "function") {
+          this.toggleHorizonEgressCluster(entity.clusterKey)
+          if (this.state.lastGraph && typeof this.renderGraph === "function") {
+            this.renderGraph(this.state.lastGraph)
+          } else if (typeof this.refreshInteraction === "function") {
+            this.refreshInteraction()
+          }
+          this.forceDeckRedraw()
+          return
+        }
         const key = typeof entity.interactionKey === "string" ? entity.interactionKey : null
         const same = key && this.state.selectedHorizonEntity?.interactionKey === key
         this.state.selectedNodeIndex = null
