@@ -549,6 +549,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     roi_active_count = MapSet.size(roi_focus_set) + MapSet.size(roi_ignore_set)
     roi_dirty? = roi_focus_set != roi_saved_focus_set or roi_ignore_set != roi_saved_ignore_set
     roi_preview_thumbnail = latest_clip_thumbnail_url(assigns.timeline_event_clips || [])
+
+    live_poster_url =
+      latest_poster_thumbnail_url(
+        assigns.live_tile,
+        blocks,
+        assigns.timeline_event_clips || [],
+        active_source_id
+      )
+
     roi_total_cells = (assigns.roi_grid_cols || 12) * (assigns.roi_grid_rows || 8)
 
     assigns =
@@ -587,6 +596,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:roi_active_count, roi_active_count)
       |> assign(:roi_dirty?, roi_dirty?)
       |> assign(:roi_preview_thumbnail, roi_preview_thumbnail)
+      |> assign(:live_poster_url, live_poster_url)
       |> assign(:roi_total_cells, roi_total_cells)
       |> assign(:time_basis_label, format_time_basis(time_basis, time_uncertainty))
       |> assign(:time_basis_short, to_string(time_basis))
@@ -1402,15 +1412,29 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   session={@live_tile.session}
                   id_prefix="camera-workspace-live-relay"
                   compact={true}
+                  poster_url={@live_poster_url}
                 />
                 <div
                   :if={!@live_tile || !@live_tile.session}
                   id="camera-timeline-live-placeholder"
                   role="status"
-                  class="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-zinc-950 p-6 text-center text-sm text-zinc-400"
+                  class="relative flex aspect-video w-full flex-col items-center justify-center gap-2 overflow-hidden bg-zinc-950 p-6 text-center text-sm text-zinc-400"
                 >
-                  <.icon name="hero-video-camera" class="size-8 text-zinc-500" />
-                  <span>{(@live_tile && @live_tile.error) || "Opening live camera relay..."}</span>
+                  <img
+                    :if={is_binary(@live_poster_url) and @live_poster_url != ""}
+                    src={@live_poster_url}
+                    alt=""
+                    data-role="live-placeholder-poster"
+                    class="pointer-events-none absolute inset-0 h-full w-full object-contain opacity-85"
+                  />
+                  <div class={[
+                    "relative z-10 flex flex-col items-center justify-center gap-2",
+                    (is_binary(@live_poster_url) and @live_poster_url != "") &&
+                      "rounded-lg bg-zinc-950/70 px-4 py-2.5 text-zinc-200 backdrop-blur-xs"
+                  ]}>
+                    <.icon name="hero-video-camera" class="size-8 text-zinc-400" />
+                    <span>{(@live_tile && @live_tile.error) || "Opening live camera relay..."}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3027,6 +3051,47 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     </dialog>
     """
   end
+
+  defp latest_poster_thumbnail_url(live_tile, blocks, clips, active_source_id) do
+    tile_poster =
+      case live_tile do
+        %{} -> Map.get(live_tile, :poster_url)
+        _ -> nil
+      end
+
+    cond do
+      is_binary(tile_poster) and tile_poster != "" ->
+        tile_poster
+
+      block_poster = latest_block_thumbnail_url(blocks, active_source_id) ->
+        block_poster
+
+      true ->
+        latest_clip_thumbnail_url(clips)
+    end
+  end
+
+  defp latest_block_thumbnail_url(blocks, active_source_id)
+       when is_list(blocks) and is_binary(active_source_id) and active_source_id != "" do
+    blocks
+    |> Enum.filter(fn block ->
+      coverage_field(block, :has_thumbnail) == true and
+        is_binary(coverage_field(block, :id)) and
+        coverage_field(block, :id) != ""
+    end)
+    |> Enum.max_by(
+      fn block ->
+        coverage_field(block, :timeline_end_us) || coverage_field(block, :timeline_start_us) || 0
+      end,
+      fn -> nil end
+    )
+    |> case do
+      nil -> nil
+      block -> Thumbnail.block_url(active_source_id, coverage_field(block, :id))
+    end
+  end
+
+  defp latest_block_thumbnail_url(_, _), do: nil
 
   defp latest_clip_thumbnail_url(clips) when is_list(clips) do
     Enum.find_value(clips, fn clip ->

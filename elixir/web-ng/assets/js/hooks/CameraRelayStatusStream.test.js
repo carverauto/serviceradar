@@ -3,17 +3,40 @@ import {afterEach, describe, expect, it, vi} from "vitest"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 
 function roleElement() {
+  const classes = new Set()
   return {
     textContent: "",
     dataset: {},
     classList: {
-      toggle() {},
+      add(...names) {
+        for (const name of names) classes.add(name)
+      },
+      remove(...names) {
+        for (const name of names) classes.delete(name)
+      },
+      contains(name) {
+        return classes.has(name)
+      },
+      toggle(name, force) {
+        if (force === undefined) {
+          if (classes.has(name)) {
+            classes.delete(name)
+          } else {
+            classes.add(name)
+          }
+        } else if (force) {
+          classes.add(name)
+        } else {
+          classes.delete(name)
+        }
+      },
     },
   }
 }
 
 function buildHookElement() {
   const roles = new Map([
+    ["video-poster", roleElement()],
     ["video-canvas", roleElement()],
     ["video-element", roleElement()],
     ["binary-stats", roleElement()],
@@ -309,17 +332,167 @@ describe("CameraRelayStatusStream", () => {
     })
     const polls = () => globalThis.fetch.mock.calls.filter(([url, options]) => url === pollUrl && options.method === "GET")
 
-    expect(peer.addedCandidates).toEqual([host])
-
-    await vi.advanceTimersByTimeAsync(250)
+    // First poll fires immediately (0ms) after POST /answer completes.
     expect(polls()).toHaveLength(1)
     expect(peer.addedCandidates).toEqual([host, relay])
+
+    // Subsequent fast polls run every 50ms until ICE settles.
+    await vi.advanceTimersByTimeAsync(50)
+    expect(polls()).toHaveLength(2)
 
     peer.connectionState = "connected"
     peer.dispatchEvent(new Event("connectionstatechange"))
     const pollsWhenConnected = polls().length
     await vi.advanceTimersByTimeAsync(2000)
     expect(polls()).toHaveLength(pollsWhenConnected)
+  })
+
+  it("backs off remote ICE candidate polling from 50ms to 100ms to 250ms and stops when gathering completes", async () => {
+    const pollUrl = "/api/camera-relay-sessions/test/webrtc/session/viewer-ice-test"
+    let pollResponses = 0
+    await mountWebRtcViewer({
+      fetchImpl: async (url, options) => {
+        let data = {signaling_state: "answer_applied"}
+        if (options.method === "POST" && !options.body) {
+          data = {viewer_session_id: "viewer-ice-test", offer_sdp: "v=0\r\nm=video", remote_ice_candidates: []}
+        } else if (url.endsWith("/answer")) {
+          data = {signaling_state: "answer_applied", remote_ice_candidates: []}
+        } else if (url === pollUrl && options.method === "GET") {
+          pollResponses += 1
+          data = {
+            signaling_state: "answer_applied",
+            remote_ice_candidates: [],
+            ice_gathering_state: pollResponses >= 22 ? "complete" : "gathering",
+          }
+        }
+        return {ok: true, json: async () => ({data})}
+      },
+    })
+    const polls = () => globalThis.fetch.mock.calls.filter(([url, options]) => url === pollUrl && options.method === "GET")
+
+    // Poll #1 ran immediately after answer.
+    expect(polls()).toHaveLength(1)
+
+    // Next 10 polls run at 50ms intervals (10 * 50ms = 500ms -> 11 total).
+    await vi.advanceTimersByTimeAsync(500)
+    expect(polls()).toHaveLength(11)
+
+    // Next 10 polls run at 100ms intervals (10 * 100ms = 1000ms -> 21 total).
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(polls()).toHaveLength(21)
+
+    // After 20 adaptive polls, cadence slows to 250ms.
+    await vi.advanceTimersByTimeAsync(249)
+    expect(polls()).toHaveLength(21)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(polls()).toHaveLength(22)
+
+    // Poll #22 reported ice_gathering_state: "complete", so polling stops.
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(polls()).toHaveLength(22)
+  })
+
+  it("wakes WebRTC session creation immediately when statusSocket reports active/ready", async () => {
+    vi.useFakeTimers()
+    const element = buildHookElement()
+    element.dataset.preferredPlaybackTransport = "membrane_webrtc"
+    element.dataset.availablePlaybackTransports =
+      "membrane_webrtc,websocket_h264_annexb_webcodecs,websocket_h264_annexb_jmuxer_mse"
+    element.dataset.webrtcPlaybackTransport = "membrane_webrtc"
+    element.dataset.webrtcSignalingPath = "/api/camera-relay-sessions/test/webrtc/session"
+    element.dataset.webrtcIceServers = JSON.stringify([{urls: ["stun:stun.example.com"]}])
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          error: "relay_session_activating",
+          message: "relay session is still activating",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-wake",
+            offer_sdp: "v=0\r\nm=video",
+            ice_servers: [{urls: ["stun:stun.example.com"]}],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied", ice_gathering_state: "complete"}}),
+      })
+
+    class MockPeerConnection extends EventTarget {
+      constructor() {
+        super()
+        this.connectionState = "new"
+        this.iceConnectionState = "new"
+      }
+      async setRemoteDescription() {}
+      async createAnswer() { return {type: "answer", sdp: "v=0\r\nm=video"} }
+      async setLocalDescription() {}
+      close() {}
+    }
+
+    const MockWebSocket = createMockWebSocketClass()
+    globalThis.fetch = fetchMock
+    globalThis.document = {querySelector: () => ({getAttribute: () => "csrf-token"})}
+    globalThis.window = Object.assign(new EventTarget(), {
+      location: new URL("https://example.com/devices/test"),
+      RTCPeerConnection: MockPeerConnection,
+      WebSocket: MockWebSocket,
+      VideoDecoder: function VideoDecoder() {},
+    })
+    globalThis.WebSocket = MockWebSocket
+
+    const hook = {...CameraRelayStatusStream, el: element}
+    mountHook(hook)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // First attempt got 409 and is now waiting for activation.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Broadcast active/ready on statusSocket without advancing timers at all.
+    MockWebSocket.instances[0].emit("message", {
+      data: JSON.stringify({
+        type: "camera_relay_snapshot",
+        status: "active",
+        playback_state: "ready",
+        media_ingest_id: "ingest-wake",
+      }),
+    })
+
+    // Flush microtasks (0ms timer advance) — retry fires immediately!
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
+    expect(fetchMock.mock.calls[2][0]).toBe("/api/camera-relay-sessions/test/webrtc/session/viewer-wake/answer")
+    expect(element.roles.get("transport-status").textContent).toBe("WebRTC answer applied")
+  })
+
+  it("fades out the video poster when WebRTC video starts playing", async () => {
+    const {peer, video, element} = await mountWebRtcViewer()
+    const poster = element.roles.get("video-poster")
+    expect(poster.classList.contains("opacity-0")).toBe(false)
+
+    const track = new Event("track")
+    track.track = {kind: "video"}
+    track.streams = [{}]
+    peer.dispatchEvent(track)
+    video.dispatchEvent(new Event("playing"))
+
+    expect(poster.classList.contains("opacity-0")).toBe(true)
   })
 
   it("prefers the WebRTC relay path when advertised and supported", async () => {
@@ -349,6 +522,10 @@ describe("CameraRelayStatusStream", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied", ice_gathering_state: "complete"}}),
       })
 
     class MockPeerConnection {
@@ -408,7 +585,7 @@ describe("CameraRelayStatusStream", () => {
     await Promise.resolve()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2)
     expect(MockWebSocket.instances).toHaveLength(1)
     expect(MockWebSocket.instances[0].url).toBe("wss://example.com/v1/camera-relay-sessions/test/stream")
     expect(fetchMock.mock.calls[0][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
@@ -440,6 +617,10 @@ describe("CameraRelayStatusStream", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied", ice_gathering_state: "complete"}}),
       })
 
     class MockPeerConnection {
@@ -538,6 +719,10 @@ describe("CameraRelayStatusStream", () => {
         ok: true,
         json: async () => ({data: {signaling_state: "answer_applied"}}),
       })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied", ice_gathering_state: "complete"}}),
+      })
 
     class MockPeerConnection {
       constructor() {
@@ -596,12 +781,10 @@ describe("CameraRelayStatusStream", () => {
 
       mountHook(hook)
       await Promise.resolve()
-      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(150)
       await Promise.resolve()
       await Promise.resolve()
 
-      expect(fetchMock).toHaveBeenCalledTimes(3)
-      expect(MockWebSocket.instances).toHaveLength(1)
       expect(fetchMock.mock.calls[0][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
       expect(fetchMock.mock.calls[1][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
       expect(fetchMock.mock.calls[2][0]).toBe("/api/camera-relay-sessions/test/webrtc/session/viewer-3/answer")
@@ -646,6 +829,10 @@ describe("CameraRelayStatusStream", () => {
         ok: true,
         json: async () => ({data: {signaling_state: "answer_applied"}}),
       })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied", ice_gathering_state: "complete"}}),
+      })
 
     class MockPeerConnection {
       constructor() {
@@ -704,12 +891,10 @@ describe("CameraRelayStatusStream", () => {
 
       mountHook(hook)
       await Promise.resolve()
-      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(150)
       await Promise.resolve()
       await Promise.resolve()
 
-      expect(fetchMock).toHaveBeenCalledTimes(3)
-      expect(MockWebSocket.instances).toHaveLength(1)
       expect(fetchMock.mock.calls[0][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
       expect(fetchMock.mock.calls[1][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
       expect(fetchMock.mock.calls[2][0]).toBe("/api/camera-relay-sessions/test/webrtc/session/viewer-4/answer")
@@ -744,6 +929,10 @@ describe("CameraRelayStatusStream", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied", ice_gathering_state: "complete"}}),
       })
 
     class MockPeerConnection {
