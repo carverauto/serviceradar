@@ -33,6 +33,9 @@ defmodule ServiceRadar.Repo.MigrationsCompileTest do
 
   @migrations_dir Path.expand("../../../priv/repo/migrations", __DIR__)
 
+  # Compiling and purging 200+ migration files via Kernel.ParallelCompiler + :code_server
+  # routinely exceeds ExUnit's default 60s timeout under shared RBE worker load.
+  @tag timeout: 180_000
   test "every migration in priv/repo/migrations compiles" do
     files = Path.wildcard(Path.join(@migrations_dir, "*.exs"))
 
