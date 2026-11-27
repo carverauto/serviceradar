@@ -192,9 +192,6 @@ func (h *harness) prepareFixture(t *testing.T, fx *FixtureRecord) {
 	fx.RecordSHA256 = recordSum[:]
 	fx.SemanticEnvelopeSHA256 = record.SemanticEnvelopeSha256
 	fx.ExecutionID, fx.ExecutionShard, fx.AssignmentEpoch = batch.ExecutionId, batch.ExecutionShard, batch.AssignmentEpoch
-	for i := range fx.RowKeys {
-		fx.RowKeys[i] = projection.RowKey(record.SemanticEnvelopeSha256, i)
-	}
 
 	// This is the production refresher, not a direct snapshot installation.
 	_, err = h.gwProc.RPC(":ok = ServiceRadarAgentGateway.EdgeRecordTrustRefresh.refresh_now()", rpcTimeout)

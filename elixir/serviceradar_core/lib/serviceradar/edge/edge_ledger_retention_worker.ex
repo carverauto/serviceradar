@@ -4,7 +4,6 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
   bounded batches:
 
     * `platform.edge_sweep_batch_slots`
-    * `platform.edge_sweep_projected_rows`
     * `platform.edge_delivery_slots`
     * `platform.event_ledger`
 
@@ -24,13 +23,10 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
        plus the clock tolerance: a late record may be PRIMARY only while the ledger still
        proves it was never applied, so the ledger outlives that window.
 
-  ## Projected Rows Prune Order
-
-  `edge_sweep_projected_rows` is the largest of these tables by far, so its
-  candidates are read oldest first through `edge_sweep_projected_rows_inserted_at_idx`
-  (`ORDER BY candidate.inserted_at`). The ordering keeps the planner on that index even
-  for a generic plan; without it, a batch that finds no expired row, including the last
-  batch of every run, reads the whole heap to prove there is none.
+  `platform.edge_sweep_projected_rows` is not pruned here: nothing writes or reads it
+  since #7069 (exactly-once for a sweep batch is `event_ledger` plus
+  `edge_sweep_batch_slots`), and a later migration drops it
+  (`docs/edge-sweep-projected-rows-performance.md`).
 
   ## Ledger Coverage
 
@@ -99,31 +95,6 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
           AND slot.collection_expires > $2
       )
     LIMIT $4
-  )
-  """
-
-  @delete_sweep_projected_rows_sql """
-  DELETE FROM platform.edge_sweep_projected_rows AS target
-  WHERE target.ctid IN (
-    SELECT candidate.ctid
-    FROM platform.edge_sweep_projected_rows AS candidate
-    WHERE candidate.inserted_at < $1
-      AND NOT EXISTS (
-        SELECT 1
-        FROM platform.edge_contract_registry_epochs AS epoch
-        WHERE epoch.state = 'draining'
-          AND epoch.draining_since IS NOT NULL
-          AND candidate.inserted_at >= COALESCE(epoch.activated_at, epoch.created_at) - INTERVAL '300 seconds'
-          AND candidate.inserted_at <= epoch.draining_since + ($2 * INTERVAL '1 second')
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM platform.edge_sweep_batch_slots AS batch
-        WHERE batch.network_scope_id = candidate.network_scope_id
-          AND batch.event_id = candidate.event_id
-      )
-    ORDER BY candidate.inserted_at
-    LIMIT $3
   )
   """
 
@@ -295,13 +266,6 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
              batch_size,
              max_batches
            ),
-         {:ok, deleted_projected_rows} <-
-           delete_in_batches(
-             @delete_sweep_projected_rows_sql,
-             fn limit -> [cutoff, margin, limit] end,
-             batch_size,
-             max_batches
-           ),
          {:ok, deleted_delivery_slots} <-
            delete_in_batches(
              @delete_delivery_slots_sql,
@@ -329,7 +293,6 @@ defmodule ServiceRadar.Edge.EdgeLedgerRetentionWorker do
         batch_size: batch_size,
         max_batches: max_batches,
         deleted_sweep_batch_slots: deleted_batch_slots,
-        deleted_sweep_projected_rows: deleted_projected_rows,
         deleted_delivery_slots: deleted_delivery_slots,
         deleted_event_ledger: deleted_ledger_rows,
         deleted_authority_history_intervals: deleted_history_intervals

@@ -33,7 +33,6 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
   alias ServiceRadar.Edge.WireDecode
-  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.Ingestion.ResultIngestor
 
   require Logger
@@ -68,8 +67,6 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
       if primary? do
         case SweepProjection.project(repo, record, batch) do
           {:ok, progress} ->
-            project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
-
             SweepHostGauges.mark(
               repo,
               record,
@@ -231,28 +228,5 @@ defmodule ServiceRadar.Edge.Projectors.SweepObservation do
       %{rows: []} ->
         nil
     end
-  end
-
-  defp project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch) do
-    rows =
-      batch
-      |> ProjectionRows.sweep()
-      |> Enum.with_index()
-      |> Enum.map(fn {{kind, batch_index, element_index}, ordinal} ->
-        %{
-          network_scope_id: network_scope_id,
-          row_key: ProjectionRows.row_key(semantic_digest, ordinal),
-          event_id: event_id,
-          kind: kind,
-          batch_index: batch_index,
-          element_index: element_index,
-          inserted_at: DateTime.utc_now()
-        }
-      end)
-
-    BulkInsert.insert_all(repo, "edge_sweep_projected_rows", rows,
-      on_conflict: :nothing,
-      returning: false
-    )
   end
 end

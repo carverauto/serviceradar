@@ -162,8 +162,14 @@ when it moved.
   Remaining as of the move (2026-11-02): unchanged: the tables are not partitioned,
   and there is no terminal slot, service-ingress slot or retirement job.
   Interim (#6427): `ServiceRadar.Edge.EdgeLedgerRetentionWorker` prunes expired
-  rows from the four unpartitioned tables by bounded batched `DELETE`. It is
+  rows from the unpartitioned `event_ledger`, `edge_delivery_slots`, and
+  `edge_sweep_batch_slots` tables by bounded batched `DELETE`. It is
   not the chronological range-`DROP` retirement job this task requires.
+  Retired (#7069): the sweep projector no longer writes `edge_sweep_projected_rows`.
+  Exactly-once for a sweep batch is `event_ledger` plus `edge_sweep_batch_slots`; the
+  table is no longer pruned and is dropped in the next PR, once this change is deployed
+  everywhere.
+  It is no longer a partitioning target.
 - [ ] 1.9 (was `unify-sweep-results-proto` 5.3) Implement horizontally partitioned sweep consumers that preserve each
   micro-batch as an independent idempotency unit while adaptively grouping
   compatible messages in bounded aggregate transactions. Perform bounded bulk authoritative

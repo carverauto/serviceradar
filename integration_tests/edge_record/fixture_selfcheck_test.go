@@ -80,14 +80,6 @@ func TestBuildSweepFixtureIsValidAndDecodable(t *testing.T) {
 	if fx.ProjectedRowCount != 8 {
 		t.Fatalf("ProjectedRowCount = %d, want 8 (four reachability and four open-port rows)", fx.ProjectedRowCount)
 	}
-	if len(fx.RowKeys) != fx.ProjectedRowCount {
-		t.Fatalf("len(RowKeys) = %d, want %d", len(fx.RowKeys), fx.ProjectedRowCount)
-	}
-	for i, k := range fx.RowKeys {
-		if len(k) != 32 {
-			t.Fatalf("row key %d must be 32 bytes, got %d", i, len(k))
-		}
-	}
 
 	// Frame-level check: the delivery frame the sender builds around this
 	// record must also pass local validation, matching go/pkg/edge/sender's

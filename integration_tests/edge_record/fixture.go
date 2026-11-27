@@ -61,8 +61,8 @@ type FixtureRecord struct {
 	// EventID is a UUIDv7 (16 bytes), embedded as EdgeRecordV1.event_id
 	// and retained by the typed append as the spool event ID. Matches
 	// event_ledger.event_id, edge_delivery_slots.event_id,
-	// edge_sweep_batch_slots.event_id, edge_sweep_projected_rows.event_id
-	// (all :uuid columns -- exactly 16 bytes).
+	// edge_sweep_batch_slots.event_id (all :uuid columns -- exactly 16
+	// bytes).
 	EventID []byte
 
 	// RecordBytes is the exact encoded EdgeRecordV1 -- hand this directly to
@@ -81,8 +81,7 @@ type FixtureRecord struct {
 
 	// SemanticEnvelopeSHA256 is the record's semantic_envelope_sha256 field
 	// (edgerecord.SemanticEnvelopeDigest), the semantic_digest event_ledger,
-	// edge_delivery_slots, and edge_sweep_batch_slots all store, and the
-	// input to projection.RowKey/2 for every row in RowKeys below.
+	// edge_delivery_slots, and edge_sweep_batch_slots all store.
 	SemanticEnvelopeSHA256 []byte
 
 	// NetworkScopeID is a UUID (16 bytes): EdgeRecordV1.network_scope_id,
@@ -102,17 +101,8 @@ type FixtureRecord struct {
 	// ProjectedRowCount is len(projection.SweepProjectionRows(batch)),
 	// computed independently here (not by asking the processor). It is the
 	// expected edge_sweep_batch_slots.projected_row_count AND
-	// edge_sweep_batch_slots.committed_row_count value on first commit, and
-	// the expected row count of edge_sweep_projected_rows rows keyed by
-	// NetworkScopeID after ingestion.
+	// edge_sweep_batch_slots.committed_row_count value on first commit.
 	ProjectedRowCount int
-
-	// RowKeys are projection.RowKey(SemanticEnvelopeSHA256, ordinal) for
-	// ordinal in [0, ProjectedRowCount), in ProjectionRows.sweep/1's
-	// enumeration order (reachability, then open_port/port_error/mtr_summary
-	// per host, host order). Each is expected to appear exactly once as
-	// edge_sweep_projected_rows.row_key for this NetworkScopeID.
-	RowKeys [][]byte
 
 	// Batch is the exact decoded SweepObservationBatchV1 this record's
 	// payload carries, kept for callers that want to log/compare it (e.g.
@@ -293,12 +283,6 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 	}
 	recordSum := sha256.Sum256(recordBytes)
 
-	rowCount := projection.SweepRows(batch)
-	rowKeys := make([][]byte, rowCount)
-	for i := 0; i < rowCount; i++ {
-		rowKeys[i] = projection.RowKey(record.SemanticEnvelopeSha256, i)
-	}
-
 	return &FixtureRecord{
 		EventID:                eventID,
 		RecordBytes:            recordBytes,
@@ -309,15 +293,14 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 		ExecutionShard:         batch.GetExecutionShard(),
 		AssignmentEpoch:        batch.GetAssignmentEpoch(),
 		BatchSequence:          batch.GetBatchSequence(),
-		ProjectedRowCount:      rowCount,
-		RowKeys:                rowKeys,
+		ProjectedRowCount:      projection.SweepRows(batch),
 		Batch:                  batch,
 	}, nil
 }
 
 // rebindNetworkScope re-signs and re-digests fx's record after the caller
 // overwrites NetworkScopeID post-construction, so the returned RecordBytes/
-// RecordSHA256/SemanticEnvelopeSHA256/RowKeys stay internally consistent
+// RecordSHA256/SemanticEnvelopeSHA256 stay internally consistent
 // with the new scope id. Group C needs the CONFLICTING fixture to share the
 // primary fixture's NetworkScopeID (part of the reused delivery slot and the
 // event_ledger/batch_slot keys) while differing in every other field.
@@ -345,16 +328,9 @@ func rebindNetworkScope(fx *FixtureRecord) {
 	}
 	recordSum := sha256.Sum256(recordBytes)
 
-	rowCount := len(fx.RowKeys)
-	rowKeys := make([][]byte, rowCount)
-	for i := 0; i < rowCount; i++ {
-		rowKeys[i] = projection.RowKey(record.SemanticEnvelopeSha256, i)
-	}
-
 	fx.RecordBytes = recordBytes
 	fx.RecordSHA256 = recordSum[:]
 	fx.SemanticEnvelopeSHA256 = record.SemanticEnvelopeSha256
-	fx.RowKeys = rowKeys
 }
 
 // fixtureCapability builds a structurally-complete production grant bound to

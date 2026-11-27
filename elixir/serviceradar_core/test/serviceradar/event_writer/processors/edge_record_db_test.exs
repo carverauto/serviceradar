@@ -120,7 +120,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   end
 
   describe "ingest/3" do
-    test "a fresh frame commits one ledger row, one delivery-slot binding, one sweep-batch-slot binding, and its projected rows" do
+    test "a fresh frame commits one ledger row, one delivery-slot binding, one sweep-batch-slot binding, and its sweep domain rows" do
       %{record_bytes: record_bytes, headers: headers, record: record, batch: batch} =
         build_frame()
 
@@ -133,11 +133,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
       assert delivery_slot_count(record) == 1
       assert sweep_batch_slot_count(record, batch) == 1
-
-      rows = projected_row_keys(record)
-      expected_rows = ProjectionRows.sweep(batch)
-      assert length(rows) == length(expected_rows)
-      assert length(Enum.uniq(rows)) == length(rows)
 
       execution_id = Ecto.UUID.cast!(batch.execution_id)
 
@@ -473,7 +468,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         build_frame()
 
       assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
-      before_rows = projected_row_keys(record)
+      before_versions = host_result_versions(batch)
+      assert [_] = before_versions
 
       # Force redelivery of the SAME stored bytes twice.
       assert {:ok, :replay} = EdgeRecord.ingest(record_bytes, headers, Repo)
@@ -482,7 +478,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert delivery_slot_count(record) == 1
       assert ledger_count(record) == 1
       assert sweep_batch_slot_count(record, batch) == 1
-      assert projected_row_keys(record) == before_rows
+      assert host_result_versions(batch) == before_versions
 
       assert %{hosts_total: 1, hosts_available: 1, hosts_failed: 0} =
                Repo.get!(SweepGroupExecution, Ecto.UUID.cast!(batch.execution_id))
@@ -623,7 +619,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert ledger_count(frame.record) == 0
       assert delivery_slot_count(frame.record) == 0
       assert sweep_batch_slot_count(frame.record, frame.batch) == 0
-      assert projected_row_keys(frame.record) == []
 
       assert Repo.all(
                Ecto.Query.from(a in DeviceAgentAvailability,
@@ -742,7 +737,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         assert ledger_count(record) == 0
         assert delivery_slot_count(record) == 0
         assert sweep_batch_slot_count(record, batch) == 0
-        assert projected_row_keys(record) == []
         assert Repo.get(SweepGroupExecution, Ecto.UUID.cast!(batch.execution_id)) == nil
 
         # Nothing of the rolled-back attempt survives, so a redelivery commits.
@@ -4728,14 +4722,16 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     count
   end
 
-  defp projected_row_keys(record) do
+  # The tuple version of each of the batch execution's host rows. The domain writes upsert, so
+  # a re-applied projection keeps the row count; it cannot keep the tuple versions.
+  defp host_result_versions(batch) do
     %{rows: rows} =
       Repo.query!(
-        "SELECT row_key FROM platform.edge_sweep_projected_rows WHERE network_scope_id = $1::uuid AND event_id = $2::uuid",
-        [record.network_scope_id, record.event_id]
+        "SELECT ctid::text, xmin::text FROM platform.sweep_host_results WHERE execution_id = $1::uuid ORDER BY ip",
+        [batch.execution_id]
       )
 
-    Enum.map(rows, fn [row_key] -> row_key end)
+    rows
   end
 
   defp with_telemetry(events, callback, fun) do

@@ -28,15 +28,9 @@
 //     port_errors and MTR summary/hop rows. The agent's projected_row_count and
 //     the consumer's actual insert count MUST use the same rule so admission and
 //     write cost agree.
-//   - RowKey derives a stable per-row idempotency key from the frame's immutable
-//     semantic digest and the row ordinal, so re-projecting a redelivered frame
-//     upserts the same rows instead of duplicating them.
 package projection
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
-
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
@@ -128,20 +122,4 @@ func MtrTraceRows(t *edgev1.MtrTraceEventV1) int {
 // MtrRows derives the count from the enumerated mutations for the batch.
 func MtrRows(b *edgev1.MtrTraceBatchV1) int {
 	return len(MtrProjectionRows(b))
-}
-
-// RowKey derives a stable idempotency key for the row at ordinal within a frame
-// whose immutable semantic digest is semanticDigest. Re-projecting the same
-// durable frame yields identical keys, so a redelivery upserts rather than
-// duplicating. Distinct frames (distinct digests) and distinct ordinals yield
-// distinct keys.
-func RowKey(semanticDigest []byte, ordinal int) []byte {
-	h := sha256.New()
-	var num [8]byte
-	binary.BigEndian.PutUint64(num[:], uint64(len(semanticDigest)))
-	_, _ = h.Write(num[:])
-	_, _ = h.Write(semanticDigest)
-	binary.BigEndian.PutUint64(num[:], uint64(ordinal))
-	_, _ = h.Write(num[:])
-	return h.Sum(nil)
 }

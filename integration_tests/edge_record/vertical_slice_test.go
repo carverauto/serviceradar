@@ -65,7 +65,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -691,7 +690,7 @@ func (h *harness) testGroupA(t *testing.T) {
 // assertCommittedFixtureValues matches every committed row fx's keys touch
 // against independently computed expected values: the event_ledger digests,
 // the delivery-slot binding at (spoolID, sequence), the sweep-batch-slot row
-// counts, and the exact projected row-key set. Groups A, C and D share it so
+// counts, and the sweep domain rows. Groups A, C and D share it so
 // "the same exact expected values" means the same checks in each.
 func (h *harness) assertCommittedFixtureValues(t *testing.T, fx *FixtureRecord, spoolID []byte, sequence uint64) {
 	t.Helper()
@@ -724,16 +723,6 @@ func (h *harness) assertCommittedFixtureValues(t *testing.T, fx *FixtureRecord, 
 		t.Errorf("edge_sweep_batch_slots projected/committed row count mismatch: row=%s want both=%d", batchRow, fx.ProjectedRowCount)
 	}
 
-	// edge_sweep_projected_rows: exactly ProjectedRowCount rows, exact
-	// row_key set match.
-	gotCount := h.rpcQueryCount(t, fmt.Sprintf(
-		"SELECT count(*) FROM platform.edge_sweep_projected_rows WHERE network_scope_id = %s AND event_id = %s",
-		uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.EventID),
-	))
-	if gotCount != fx.ProjectedRowCount {
-		t.Fatalf("edge_sweep_projected_rows count = %d, want %d", gotCount, fx.ProjectedRowCount)
-	}
-	h.assertProjectedRowKeySet(t, fx)
 	h.assertSweepDomain(t, fx)
 }
 
@@ -749,37 +738,6 @@ func hexInspect(b []byte) string {
 		parts[i] = fmt.Sprintf("%d", v)
 	}
 	return strings.Join(parts, ", ")
-}
-
-func (h *harness) assertProjectedRowKeySet(t *testing.T, fx *FixtureRecord) {
-	t.Helper()
-	out, err := h.coreProc.RPC(fmt.Sprintf(
-		`%%Postgrex.Result{rows: rows} = ServiceRadar.Repo.query!(%q, []); rows |> Enum.map(fn [k] -> Base.encode16(k, case: :lower) end) |> Enum.sort() |> Enum.join(",") |> IO.puts()`,
-		fmt.Sprintf("SELECT row_key FROM platform.edge_sweep_projected_rows WHERE network_scope_id = %s AND event_id = %s",
-			uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.EventID)),
-	), rpcTimeout)
-	if err != nil {
-		t.Fatalf("query projected row keys: %v", err)
-	}
-
-	got := strings.Split(strings.TrimSpace(out), ",")
-	sort.Strings(got)
-
-	want := make([]string, len(fx.RowKeys))
-	for i, k := range fx.RowKeys {
-		want[i] = hex.EncodeToString(k)
-	}
-	sort.Strings(want)
-
-	if len(got) != len(want) {
-		t.Fatalf("projected row key set size mismatch: got %d, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("projected row key set mismatch at index %d: got %s want %s", i, got[i], want[i])
-			break
-		}
-	}
 }
 
 // testMismatchedIdentityControl sends the SAME fixture record over a
@@ -941,12 +899,16 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Fatalf("first delivery ended with %q, want ok:inserted", first.Tag)
 		}
 
-		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fxC.ProjectedRowCount, Executions: 1, Hosts: len(fxC.Batch.Hosts)}
+		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Executions: 1, Hosts: len(fxC.Batch.Hosts)}
 		firstCommit := h.snapshotFixtureRows(t, fxC, spoolID)
 		if firstCommit != want {
 			t.Fatalf("first-commit snapshot = %+v, want %+v", firstCommit, want)
 		}
 		h.assertCommittedFixtureValues(t, fxC, spoolID, 1)
+		firstVersions := h.hostResultVersions(t, fxC)
+		if firstVersions == "[nil]" {
+			t.Fatalf("first commit wrote no sweep_host_results rows")
+		}
 		storedSeq := h.requireOneStoredMessage(t, fxC.RecordBytes)
 
 		h.releaseIngestProbe(t, fxC.EventID, probeTransactionResult, 1)
@@ -959,6 +921,9 @@ func (h *harness) testGroupC(t *testing.T) {
 		secondDelivery := h.snapshotFixtureRows(t, fxC, spoolID)
 		if secondDelivery != firstCommit {
 			t.Errorf("second-delivery snapshot = %+v, want the first-commit snapshot %+v", secondDelivery, firstCommit)
+		}
+		if got := h.hostResultVersions(t, fxC); got != firstVersions {
+			t.Errorf("redelivery rewrote sweep_host_results: versions %s, want the first commit's %s", got, firstVersions)
 		}
 		h.assertCommittedFixtureValues(t, fxC, spoolID, 1)
 		h.requireConsumedWithoutRepublish(t, storedSeq)
@@ -1025,7 +990,7 @@ func (h *harness) testGroupC(t *testing.T) {
 
 // fixtureRowSnapshot counts ledger and sweep rows owned by a fixture's immutable IDs.
 type fixtureRowSnapshot struct {
-	Ledger, Slots, Batch, Rows, Executions, Hosts int
+	Ledger, Slots, Batch, Executions, Hosts int
 }
 
 // snapshotFixtureRows takes ledger and domain counts in one rpc call, so a probe that
@@ -1033,7 +998,7 @@ type fixtureRowSnapshot struct {
 func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID []byte) fixtureRowSnapshot {
 	t.Helper()
 	expr := fmt.Sprintf(
-		`[%q, %q, %q, %q, %q, %q] |> Enum.map(fn sql -> %%Postgrex.Result{rows: [[n]]} = ServiceRadar.Repo.query!(sql, []); n end) |> Enum.join(",") |> IO.puts()`,
+		`[%q, %q, %q, %q, %q] |> Enum.map(fn sql -> %%Postgrex.Result{rows: [[n]]} = ServiceRadar.Repo.query!(sql, []); n end) |> Enum.join(",") |> IO.puts()`,
 		eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID),
 		fmt.Sprintf(
 			"SELECT count(*) FROM platform.edge_delivery_slots WHERE network_scope_id = %s AND spool_id = %s",
@@ -1042,10 +1007,6 @@ func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID [
 		fmt.Sprintf(
 			"SELECT count(*) FROM platform.edge_sweep_batch_slots WHERE network_scope_id = %s AND execution_id = %s",
 			uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.ExecutionID),
-		),
-		fmt.Sprintf(
-			"SELECT count(*) FROM platform.edge_sweep_projected_rows WHERE network_scope_id = %s AND event_id = %s",
-			uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.EventID),
 		),
 		fmt.Sprintf("SELECT count(*) FROM platform.sweep_group_executions WHERE id = %s", uuidLiteral(fx.ExecutionID)),
 		fmt.Sprintf("SELECT count(*) FROM platform.sweep_host_results WHERE execution_id = %s", uuidLiteral(fx.ExecutionID)),
@@ -1056,7 +1017,7 @@ func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID [
 	}
 
 	fields := strings.Split(strings.TrimSpace(out), ",")
-	if len(fields) != 6 {
+	if len(fields) != 5 {
 		t.Fatalf("rpc fixture row snapshot: unparsable output %q", out)
 	}
 	counts := make([]int, len(fields))
@@ -1067,7 +1028,18 @@ func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID [
 		}
 		counts[i] = n
 	}
-	return fixtureRowSnapshot{Ledger: counts[0], Slots: counts[1], Batch: counts[2], Rows: counts[3], Executions: counts[4], Hosts: counts[5]}
+	return fixtureRowSnapshot{Ledger: counts[0], Slots: counts[1], Batch: counts[2], Executions: counts[3], Hosts: counts[4]}
+}
+
+// hostResultVersions renders the tuple version (ctid and xmin) of every sweep_host_results
+// row of fx's execution. The domain writes upsert, so a re-applied projection leaves the row
+// counts unchanged; it cannot leave the tuple versions unchanged.
+func (h *harness) hostResultVersions(t *testing.T, fx *FixtureRecord) string {
+	t.Helper()
+	return h.rpcQueryRow(t, fmt.Sprintf(
+		"SELECT string_agg(ctid::text || '/' || xmin::text, ',' ORDER BY ip) FROM platform.sweep_host_results WHERE execution_id = %s",
+		uuidLiteral(fx.ExecutionID),
+	))
 }
 
 // requireAcceptedAck fails t unless msg is an EdgeDeliveryAckV1 resolving
@@ -1626,7 +1598,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		if got := h.ingestObservations(t, fx3.EventID); !slices.Equal(got, wantObservations) {
 			t.Fatalf("ingest probe recorded %+v, want %+v: only the first delivery may abort inside its transaction, and the released redelivery must be the one that commits", got, wantObservations)
 		}
-		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fx3.ProjectedRowCount, Executions: 1, Hosts: len(fx3.Batch.Hosts)}
+		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Executions: 1, Hosts: len(fx3.Batch.Hosts)}
 		if got := h.snapshotFixtureRows(t, fx3, spoolID); got != want {
 			t.Errorf("snapshot after the redelivery committed = %+v, want %+v", got, want)
 		}
