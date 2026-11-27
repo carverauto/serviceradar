@@ -18,6 +18,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   require Logger
 
   @status_ttl_secs 900
+  @status_max_future_skew_secs 60
 
   @doc """
   Projects any Horizon OCSF rows in `rows` into StarRocks and forwards
@@ -31,6 +32,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
       `&Destination.persist_warehouse/2`
     * `:publish_nats` - `(subject, payload, opts -> :ok | {:error, term()})`, defaults to
       `&ServiceRadar.NATS.Connection.publish/3`
+    * `:now` - `DateTime.t()` override for TTL freshness checks
   """
   @spec project_rows([map()], keyword()) :: :ok
   def project_rows(rows, opts \\ []) when is_list(rows) do
@@ -377,7 +379,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     publish_fn = Keyword.get(opts, :publish_nats, &Connection.publish/3)
 
     Enum.each(horizon_rows, fn row ->
-      case build_nats_status_event(row) do
+      case build_nats_status_event(row, opts) do
         {:ok, subject, payload, msg_id} ->
           publish_status_event(publish_fn, subject, payload, msg_id)
 
@@ -421,7 +423,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
       :ok
   end
 
-  defp build_nats_status_event(%{log_name: "horizon.outage", time: time} = row) do
+  defp build_nats_status_event(%{log_name: "horizon.outage", time: time} = row, opts) do
     unmapped = unmapped_map(row)
     outage_id = non_empty_string(unmapped["outage_id"])
     entity_type = non_empty_string(unmapped["entity_type"])
@@ -429,7 +431,8 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     outage_state = normalize_outage_status(raw_status)
     {entity_id, node_kind, origin_asn} = map_outage_entity(entity_type, unmapped)
 
-    if is_binary(outage_id) and is_binary(entity_id) and is_binary(outage_state) do
+    if is_binary(outage_id) and is_binary(entity_id) and is_binary(outage_state) and
+         fresh_status_event?(time, opts) do
       timestamp = time |> normalize_time() |> DateTime.to_iso8601()
       subject = "serviceradar.horizon.outages.#{subject_token(entity_type || "unknown")}"
       msg_id = status_msg_id("outage", outage_id, timestamp, outage_state)
@@ -454,7 +457,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     end
   end
 
-  defp build_nats_status_event(%{log_name: "horizon.bgp_anomaly", time: time} = row) do
+  defp build_nats_status_event(%{log_name: "horizon.bgp_anomaly", time: time} = row, opts) do
     unmapped = unmapped_map(row)
     event_id = non_empty_string(unmapped["event_id"])
     kind = non_empty_string(unmapped["kind"]) || "anomaly"
@@ -468,7 +471,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
         true -> nil
       end
 
-    if is_binary(event_id) and is_binary(entity_id) do
+    if is_binary(event_id) and is_binary(entity_id) and fresh_status_event?(time, opts) do
       timestamp = time |> normalize_time() |> DateTime.to_iso8601()
       subject = "serviceradar.horizon.bgp.#{subject_token(kind)}"
       msg_id = status_msg_id("bgp", event_id, timestamp, kind)
@@ -496,7 +499,19 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     end
   end
 
-  defp build_nats_status_event(_row), do: :ignore
+  defp build_nats_status_event(_row, _opts), do: :ignore
+
+  defp fresh_status_event?(time, opts) do
+    case normalize_time(time) do
+      %DateTime{} = dt ->
+        now = Keyword.get(opts, :now, DateTime.utc_now())
+        age_secs = DateTime.diff(now, dt, :second)
+        age_secs >= -@status_max_future_skew_secs and age_secs <= @status_ttl_secs
+
+      _ ->
+        false
+    end
+  end
 
   defp map_outage_entity(entity_type, unmapped) do
     entity_type_down = entity_type && String.downcase(entity_type)

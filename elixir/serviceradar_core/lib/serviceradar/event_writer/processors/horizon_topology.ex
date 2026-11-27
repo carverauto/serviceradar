@@ -86,16 +86,33 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonTopology do
   defp dispatch_decoded(subject, decoded, opts) do
     case ExternalProjection.normalize_status_event(subject, decoded) do
       {:ok, patch} ->
-        apply_store_call(
-          fn -> store_fun(opts, :upsert_external_status).(patch, opts) end,
-          opts,
-          subject
-        )
+        if status_patch_expired?(patch, opts) do
+          :ok
+        else
+          apply_store_call(
+            fn -> store_fun(opts, :upsert_external_status).(patch, opts) end,
+            opts,
+            subject
+          )
+        end
 
       {:ignore, :unmatched_event} ->
         :ok
     end
   end
+
+  defp status_patch_expired?(%{expires_at: expires_at}, opts) when is_binary(expires_at) do
+    case DateTime.from_iso8601(expires_at) do
+      {:ok, expires_dt, _offset} ->
+        now = Keyword.get(opts, :now, DateTime.utc_now())
+        DateTime.before?(expires_dt, now)
+
+      _ ->
+        false
+    end
+  end
+
+  defp status_patch_expired?(_patch, _opts), do: false
 
   defp apply_store_call(fun, opts, subject) do
     case fun.() do

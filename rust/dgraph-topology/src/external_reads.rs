@@ -207,7 +207,7 @@ impl TopologyClient {
         let mut txn = self.dgraph().new_read_only_txn();
 
         let seed_query = format!(
-            "{{\n  direct(func: type(TopologyEdge), first: {cap}) @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\"])) {{\n    uid\n    {EDGE_BODY}\n    topo.src {{ {NODE_FIELDS} }}\n    topo.dst {{ {NODE_FIELDS} }}\n  }}\n  dev_prefixes(func: type(Prefix), first: {cap}) @filter(gt(prefix.asn, 0) AND has(~iface.prefixes)) {{\n    {NODE_FIELDS}\n    ~iface.prefixes {{\n      iface.name\n      iface.if_index\n      ~device.interfaces {{ {NODE_FIELDS} }}\n    }}\n  }}\n}}"
+            "{{\n  direct(func: eq(topo.kind, \"EGRESSES_TO\"), first: {cap}) @filter(NOT eq(topo.stale, true)) {{\n    uid\n    {EDGE_BODY}\n    topo.src {{ {NODE_FIELDS} }}\n    topo.dst {{ {NODE_FIELDS} }}\n  }}\n  var(func: has(device.id)) @filter(has(~topo.src)) {{\n    border_edges as ~topo.src @filter(NOT eq(topo.stale, true) AND eq(topo.kind, \"BORDER_HANDOFF\"))\n  }}\n  border_direct(func: uid(border_edges), first: {cap}) {{\n    uid\n    {EDGE_BODY}\n    topo.src {{ {NODE_FIELDS} }}\n    topo.dst {{ {NODE_FIELDS} }}\n  }}\n  dev_prefixes(func: type(Prefix), first: {cap}) @filter(gt(prefix.asn, 0) AND has(~iface.prefixes)) {{\n    {NODE_FIELDS}\n    ~iface.prefixes {{\n      iface.name\n      iface.if_index\n      ~device.interfaces {{ {NODE_FIELDS} }}\n    }}\n  }}\n}}"
         );
         let seed_block: EgressSeedBlock = ro_query(&mut txn, &seed_query).await?;
 
@@ -216,9 +216,15 @@ impl TopologyClient {
         let mut seen_edges: BTreeSet<String> = BTreeSet::new();
         let mut edges: Vec<ExternalEdgeRef> = Vec::new();
         let mut frontier: Vec<String> = Vec::new();
-        let mut truncated = seed_block.direct.len() >= cap || seed_block.dev_prefixes.len() >= cap;
+        let mut truncated = seed_block.direct.len() >= cap
+            || seed_block.border_direct.len() >= cap
+            || seed_block.dev_prefixes.len() >= cap;
 
-        for edge in seed_block.direct {
+        for edge in seed_block
+            .direct
+            .into_iter()
+            .chain(seed_block.border_direct)
+        {
             let (Some(src), Some(dst)) = (edge.src.first(), edge.dst.first()) else {
                 continue;
             };
@@ -524,6 +530,8 @@ fn insert_egress_device(map: &mut BTreeMap<String, EgressDeviceRef>, cand: Egres
 struct EgressSeedBlock {
     #[serde(default)]
     direct: Vec<RawEdge>,
+    #[serde(default)]
+    border_direct: Vec<RawEdge>,
     #[serde(default)]
     dev_prefixes: Vec<PrefixConeBlockRow>,
 }
