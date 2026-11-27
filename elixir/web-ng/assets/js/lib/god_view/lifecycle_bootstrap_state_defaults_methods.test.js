@@ -20,7 +20,10 @@ describe("lifecycle_bootstrap_state_defaults_methods", () => {
       inferred: false,
       endpoints: true,
       mtr_paths: true,
+      horizon_egress: false,
     })
+    expect(state.horizonEgressData).toBeNull()
+    expect(state.selectedHorizonEntity).toBeNull()
     expect(state.managedTopologyCameraBaseMinZoom).toEqual(-2)
     expect(state.managedTopologySceneMinZoom).toBeNull()
     expect(state.managedTopologySceneMinZoomKey).toBeNull()

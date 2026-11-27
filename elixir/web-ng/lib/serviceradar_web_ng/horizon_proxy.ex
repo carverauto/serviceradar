@@ -136,9 +136,9 @@ defmodule ServiceRadarWebNG.HorizonProxy do
         [
           finch: [
             conn_opts: [transport_opts: [timeout: @connect_timeout_ms]],
-            conn_max_idle_time: 30_000,
+            conn_max_idle_time: 10_000,
             http2: [
-              ping_interval: 30_000,
+              ping_interval: 15_000,
               max_connection_age: 300_000,
               max_connection_age_jitter: 30_000
             ]

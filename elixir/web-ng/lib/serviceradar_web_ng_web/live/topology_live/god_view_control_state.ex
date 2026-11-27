@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewControlState do
   import Phoenix.Component, only: [assign: 3, update: 3]
   import Phoenix.LiveView, only: [push_event: 3]
 
+  alias ServiceRadarWebNGWeb.TopologyLive.GodViewHorizonEgressOverlay
   alias ServiceRadarWebNGWeb.TopologyLive.GodViewMtrOverlay
 
   def toggle_causal_filter(socket, state) do
@@ -65,6 +66,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewControlState do
         "backbone" -> :backbone
         "inferred" -> :inferred
         "mtr_paths" -> :mtr_paths
+        "horizon_egress" -> :horizon_egress
         _ -> :endpoints
       end
 
@@ -75,12 +77,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewControlState do
       |> assign(:topology_layers, layers)
       |> push_event("god_view:set_topology_layers", %{layers: stringify_filter_keys(layers)})
 
-    if key == :mtr_paths do
-      if layers.mtr_paths,
-        do: GodViewMtrOverlay.push_path_data(socket),
-        else: GodViewMtrOverlay.clear_path_data(socket)
-    else
-      socket
+    case key do
+      :mtr_paths ->
+        if layers.mtr_paths,
+          do: GodViewMtrOverlay.push_path_data(socket),
+          else: GodViewMtrOverlay.clear_path_data(socket)
+
+      :horizon_egress ->
+        if layers.horizon_egress,
+          do: GodViewHorizonEgressOverlay.push_egress_data(socket),
+          else: GodViewHorizonEgressOverlay.clear_egress_data(socket)
+
+      _ ->
+        socket
     end
   end
 

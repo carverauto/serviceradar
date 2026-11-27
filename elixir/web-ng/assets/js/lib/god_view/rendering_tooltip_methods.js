@@ -1,4 +1,10 @@
 import {detectThemeMode} from "./lifecycle_bootstrap_state_defaults_methods"
+import {
+  formatPortSpeedMbps,
+  formatRttUs,
+  horizonEntityBadges,
+  horizonNodeDisplayLabel,
+} from "./horizon_egress_shared"
 
 function tooltipStyle() {
   const dark = detectThemeMode() === "dark"
@@ -99,6 +105,16 @@ export const godViewRenderingTooltipMethods = {
     if (layer?.id === "god-view-mtr-paths") {
       return this.getMtrPathTooltip(object)
     }
+    if (layer?.id === "god-view-horizon-egress-edges") {
+      return this.getHorizonEgressEdgeTooltip(object)
+    }
+    if (
+      layer?.id === "god-view-horizon-egress-nodes" ||
+      layer?.id === "god-view-horizon-egress-nodes-halo" ||
+      layer?.id === "god-view-horizon-egress-labels"
+    ) {
+      return this.getHorizonEgressNodeTooltip(object)
+    }
     if (layer?.id !== "god-view-nodes") return null
     const d = object?.details || {}
     const rawIp = typeof d.ip === "string" ? d.ip.trim() : ""
@@ -174,6 +190,48 @@ export const godViewRenderingTooltipMethods = {
       style: tooltipStyle(),
     }
   },
+  getHorizonEgressNodeTooltip(object) {
+    if (!object) return null
+    const title = horizonNodeDisplayLabel(object)
+    const badges = horizonEntityBadges(object)
+    const location = [object.metro, object.iata, object.country_code].filter(Boolean).join(" · ")
+    const speed = formatPortSpeedMbps(object.port_speed_mbps)
+    return {
+      html: [
+        `<div class="font-semibold">${this.escapeHtml(title)}</div>`,
+        object.kind ? `<div>Kind: ${this.escapeHtml(object.kind)}</div>` : "",
+        badges.length > 0 ? `<div>Status: ${this.escapeHtml(badges.join(" "))}</div>` : "",
+        object.outage_state ? `<div>Outage: ${this.escapeHtml(object.outage_state)}</div>` : "",
+        object.rpki_state ? `<div>RPKI: ${this.escapeHtml(object.rpki_state)}</div>` : "",
+        object.rtbh_active === true ? `<div>RTBH: active</div>` : "",
+        object.irr_status ? `<div>IRR: ${this.escapeHtml(object.irr_status)}</div>` : "",
+        speed ? `<div>Port Speed: ${this.escapeHtml(speed)}</div>` : "",
+        object.region ? `<div>Region: ${this.escapeHtml(object.region)}</div>` : "",
+        location ? `<div>Location: ${this.escapeHtml(location)}</div>` : "",
+        object.ip ? `<div>IP: ${this.escapeHtml(object.ip)}</div>` : "",
+      ].filter(Boolean).join(""),
+      style: tooltipStyle(),
+    }
+  },
+  getHorizonEgressEdgeTooltip(object) {
+    if (!object) return null
+    const speed = formatPortSpeedMbps(object.port_speed_mbps)
+    const rtt = formatRttUs(object.avg_rtt_us)
+    const lossVal = Number(object.loss_pct)
+    const hasLoss = Number.isFinite(lossVal)
+    return {
+      html: [
+        `<div class="font-semibold">${this.escapeHtml(object.kind || "EGRESSES_TO")}</div>`,
+        `<div>${this.escapeHtml(object.src_id)} → ${this.escapeHtml(object.dst_id)}</div>`,
+        object.egress_source ? `<div>Source: ${this.escapeHtml(object.egress_source)}</div>` : "",
+        object.if_name ? `<div>Interface: ${this.escapeHtml(object.if_name)}</div>` : "",
+        speed ? `<div>Port Speed: ${this.escapeHtml(speed)}</div>` : "",
+        rtt ? `<div>Avg RTT: ${this.escapeHtml(rtt)}</div>` : "",
+        hasLoss ? `<div>Loss: ${this.escapeHtml(lossVal.toFixed(1))}%</div>` : "",
+      ].filter(Boolean).join(""),
+      style: tooltipStyle(),
+    }
+  },
   edgeLayerId(layerId) {
     return layerId === "god-view-edges-mantle" || layerId === "god-view-edges-crust"
   },
@@ -199,15 +257,28 @@ export const godViewRenderingTooltipMethods = {
         ? info.object.index
         : null
     const isMtrPath = layerId === "god-view-mtr-paths"
+    const isHorizon = typeof this.horizonEgressLayerId === "function" && this.horizonEgressLayerId(layerId)
     const nextKey =
       (this.edgeLayerId(layerId) || isMtrPath) && typeof info?.object?.interactionKey === "string"
         ? info.object.interactionKey
         : null
-    if (this.state.hoveredEdgeKey === nextKey && this.state.hoveredNodeIndex === nextNodeIndex) return
+    const nextHorizonKey =
+      isHorizon && typeof info?.object?.interactionKey === "string"
+        ? info.object.interactionKey
+        : null
+    if (
+      this.state.hoveredEdgeKey === nextKey &&
+      this.state.hoveredNodeIndex === nextNodeIndex &&
+      this.state.hoveredHorizonKey === nextHorizonKey
+    ) {
+      return
+    }
     this.state.hoveredEdgeKey = nextKey
     this.state.hoveredNodeIndex = nextNodeIndex
+    this.state.hoveredHorizonKey = nextHorizonKey
     if (this.state.canvas && !this.state.dragState && !this.state.pendingDragState) {
-      this.state.canvas.style.cursor = nextKey || nextNodeIndex !== null ? "pointer" : "grab"
+      this.state.canvas.style.cursor =
+        nextKey || nextNodeIndex !== null || nextHorizonKey ? "pointer" : "grab"
     }
     if (this.state.lastGraph) this.refreshInteraction()
   },

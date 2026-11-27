@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
   import Plug.Conn
 
+  alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Endpoint
   alias ServiceRadarWebNGWeb.Router
@@ -25,11 +26,11 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
       visual_layers: %{mantle: true, atmosphere: true},
       zoom_mode: "auto",
       causal_filters: %{healthy: true, unavailable: true, unknown: true},
-      topology_layers: %{backbone: true, inferred: false, endpoints: true, mtr_paths: false},
+      topology_layers: %{backbone: true, inferred: false, endpoints: true, mtr_paths: false, horizon_egress: false},
       timezone: "Etc/UTC"
     }
 
-    socket = Phoenix.Component.assign(%Phoenix.LiveView.Socket{}, assigns)
+    socket = Phoenix.Component.assign(%Socket{}, assigns)
 
     Enum.reduce([false, true, false], socket, fn enabled, socket ->
       html = render_component(&GodViewTemplateComponents.surface/1, socket.assigns)
@@ -43,6 +44,56 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
       [layer] = LazyHTML.attribute(control, "phx-value-layer")
       {:noreply, next} = GodView.handle_event(event, %{"layer" => layer}, socket)
       assert next.assigns.topology_layers.inferred == !enabled
+      assert next.assigns.topology_layers.backbone
+      next
+    end)
+  end
+
+  test "rendered Internet Egress / Horizon control defaults off and dispatches its layer toggle" do
+    alias ServiceRadarWebNGWeb.TopologyLive.GodView
+    alias ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents
+
+    previous_fun = Application.get_env(:serviceradar_web_ng, :horizon_egress_topology_fun)
+
+    Application.put_env(:serviceradar_web_ng, :horizon_egress_topology_fun, fn _opts ->
+      {:error, :graph_store_unavailable}
+    end)
+
+    on_exit(fn ->
+      if is_nil(previous_fun),
+        do: Application.delete_env(:serviceradar_web_ng, :horizon_egress_topology_fun),
+        else: Application.put_env(:serviceradar_web_ng, :horizon_egress_topology_fun, previous_fun)
+    end)
+
+    assigns = %{
+      snapshot_url: "/topology/snapshot/latest",
+      stream_state: :ok,
+      last_node_count: 0,
+      last_edge_count: 0,
+      pipeline_stats: %{},
+      controls_collapsed: false,
+      visual_layers: %{mantle: true, atmosphere: true},
+      zoom_mode: "auto",
+      causal_filters: %{healthy: true, unavailable: true, unknown: true},
+      topology_layers: %{backbone: true, inferred: false, endpoints: true, mtr_paths: false, horizon_egress: false},
+      horizon_egress_cache: nil,
+      timezone: "Etc/UTC"
+    }
+
+    socket = Phoenix.Component.assign(%Socket{}, assigns)
+
+    Enum.reduce([false, true, false], socket, fn enabled, socket ->
+      html = render_component(&GodViewTemplateComponents.surface/1, socket.assigns)
+
+      control =
+        html |> LazyHTML.from_fragment() |> LazyHTML.query("[data-testid='toggle-horizon-egress-layer']")
+
+      assert control |> LazyHTML.text() |> String.trim() == "Internet Egress / Horizon"
+      assert LazyHTML.attribute(control, "aria-pressed") == [to_string(enabled)]
+      [event] = LazyHTML.attribute(control, "phx-click")
+      [layer] = LazyHTML.attribute(control, "phx-value-layer")
+      {:noreply, next} = GodView.handle_event(event, %{"layer" => layer}, socket)
+      assert next.assigns.topology_layers.horizon_egress == !enabled
       assert next.assigns.topology_layers.backbone
       next
     end)

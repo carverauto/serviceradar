@@ -1,4 +1,5 @@
-import {LinearInterpolator, OrthographicView} from "@deck.gl/core"
+import {COORDINATE_SYSTEM, LinearInterpolator, OrthographicView} from "@deck.gl/core"
+import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 import {TopologyDeck} from "./topology_deck"
 import {Socket} from "phoenix"
 import GodViewRenderer from "../GodViewRenderer"
@@ -14,6 +15,17 @@ import WorldTileLayer from "./world_tile_layer"
 import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode"
 import {readBoundedBody, topologyTarget, worldExchange, worldJson, worldJsonParams} from "./world_http"
 import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
+import {
+  buildHorizonEgressGraphLayout,
+  formatPortSpeedMbps,
+  formatRttUs,
+  horizonEdgeColor,
+  horizonEntityBadges,
+  horizonInspectUrl,
+  horizonNodeDisplayLabel,
+  horizonSeverityColor,
+  normalizeHorizonEgressData,
+} from "./horizon_egress_shared"
 
 const QUERY_GENERATION = Symbol("topology query generation")
 
@@ -62,6 +74,8 @@ export default class WorldMapRenderer {
     this.packetFlow = true
     this.links = true
     this.inferred = false
+    this.horizonEgressEnabled = false
+    this.horizonEgressData = null
     this.zoomMode = "auto"
     this.filters = {}
     this.destroyed = false
@@ -141,7 +155,11 @@ export default class WorldMapRenderer {
     this.toolbar.addEventListener("submit", event => {event.preventDefault(); void this.search(input.value.trim())})
     this.panel = element("div", "absolute left-3 top-14 z-20 max-w-xs rounded-lg border border-sr-line bg-sr-surface p-3 text-sm")
     this.panel.hidden = true
-    this.el.append(this.canvas, this.summary, this.toolbar, this.panel)
+    this.horizonEgressPanel = element("section", "absolute bottom-10 right-3 z-20 max-h-[42vh] w-80 overflow-y-auto rounded-lg border border-sr-line bg-sr-surface/95 p-3 text-xs text-sr-ink shadow-lg backdrop-blur-md")
+    this.horizonEgressPanel.hidden = true
+    this.horizonEgressPanel.setAttribute("data-testid", "world-horizon-egress-panel")
+    this.horizonEgressPanel.setAttribute("aria-label", "Internet Egress / Horizon")
+    this.el.append(this.canvas, this.summary, this.toolbar, this.panel, this.horizonEgressPanel)
     this.filterPanel = new WorldFilterPanel({parent: this.el, toolbar: this.toolbar, onApply: query => this.setBitmapQuery(query)})
     window.addEventListener("keydown", event => {
       if (event.key === "Escape" && !this.panel.hidden) this.dismissPanel(true)
@@ -176,7 +194,7 @@ export default class WorldMapRenderer {
         this.setView(viewState)
       },
       onClick: info => {if (info.object) void this.pick(info); else this.dismissPanel()},
-      getTooltip: info => info.object ? {text: selectionTitle(info.object)} : null,
+      getTooltip: info => info.object ? this.worldTooltip(info) : null,
     })
     this.resize = new ResizeObserver(() => {
       const width = this.el.clientWidth
@@ -212,7 +230,7 @@ export default class WorldMapRenderer {
       this.filters = {...filters}
       this.render()
     })
-    for (const name of ["god_view:set_topology_layers", "god_view:mtr_path_data"]) {
+    for (const name of ["god_view:set_topology_layers", "god_view:mtr_path_data", "god_view:horizon_egress_data"]) {
       this.handleEvent(name, payload => this.setSceneControl(name, payload))
     }
     this.handleEvent("god_view:set_zoom_mode", ({mode}) => {
@@ -264,6 +282,12 @@ export default class WorldMapRenderer {
     this.pendingDetail?.handlers.get(name)?.(payload)
     if (name === "god_view:set_topology_layers") {
       this.inferred = payload.layers?.inferred === true
+      this.horizonEgressEnabled = payload.layers?.horizon_egress === true
+      this.updateHorizonEgressPanel()
+      this.render()
+    } else if (name === "god_view:horizon_egress_data") {
+      this.horizonEgressData = normalizeHorizonEgressData(payload)
+      this.updateHorizonEgressPanel()
       this.render()
     }
   }
@@ -640,6 +664,216 @@ export default class WorldMapRenderer {
     this.pushEvent("god_view_stream_stats", payload)
   }
 
+  visibleWorldEgressAnchors() {
+    if (!this.cache?.entries || !this.cache?.visible) return []
+    const anchors = []
+    const seen = new Set()
+    for (const id of this.cache.visible.keys()) {
+      const entry = this.cache.entries.get(id)
+      const geometry = entry && !entry.dirty ? entry.geometry : null
+      if (!geometry || !Array.isArray(geometry.nodes) || !geometry.positions) continue
+      for (const node of geometry.nodes) {
+        if (!node || node.kind === "boundary" || !node.id || seen.has(node.id)) continue
+        const x = Number(geometry.positions[node.index * 2])
+        const y = Number(geometry.positions[node.index * 2 + 1])
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+        seen.add(node.id)
+        const deviceUid = geometry.columns?.nodeDetail?.(node.index, "device_uid")
+        anchors.push({
+          id: node.id,
+          position: [x, y, 0],
+          details: deviceUid ? {device_uid: deviceUid} : {},
+        })
+      }
+    }
+    return anchors
+  }
+
+  buildWorldHorizonEgressLayers() {
+    if (!this.horizonEgressEnabled || this.detailRenderer || !this.horizonEgressData) return []
+    const anchors = this.visibleWorldEgressAnchors()
+    const zoom = Number(this.viewState?.zoom ?? 0)
+    const worldOffset = 28 * (2 ** -Math.max(0, Math.min(8, Number.isFinite(zoom) ? zoom : 0)))
+    const layout = buildHorizonEgressGraphLayout(this.horizonEgressData, anchors, {
+      mode: "world",
+      worldOffset,
+    })
+    if (layout.nodes.length === 0 && layout.edges.length === 0) return []
+
+    const layers = []
+    if (layout.edges.length > 0) {
+      layers.push(
+        new LineLayer({
+          id: "world-horizon-egress-edges",
+          data: layout.edges,
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          getSourcePosition: d => d.sourcePosition,
+          getTargetPosition: d => d.targetPosition,
+          getColor: d => horizonEdgeColor(d, null, false),
+          getWidth: d => (String(d?.egress_source || "").toLowerCase() === "manual" ? 3 : 2),
+          widthUnits: "pixels",
+          pickable: true,
+          parameters: GOD_VIEW_ALPHA_BLEND,
+        }),
+      )
+    }
+    if (layout.nodes.length > 0) {
+      layers.push(
+        new ScatterplotLayer({
+          id: "world-horizon-egress-nodes",
+          data: layout.nodes,
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          getPosition: d => d.position,
+          getRadius: 7,
+          radiusUnits: "pixels",
+          filled: true,
+          stroked: true,
+          lineWidthUnits: "pixels",
+          getLineWidth: 1.5,
+          getFillColor: d => horizonSeverityColor(d.severity, null, 235),
+          getLineColor: [240, 248, 255, 220],
+          pickable: true,
+          parameters: GOD_VIEW_ALPHA_BLEND,
+        }),
+        new TextLayer({
+          id: "world-horizon-egress-labels",
+          data: layout.nodes,
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          getPosition: d => d.position,
+          getText: d => d.labelText,
+          getSize: 11,
+          sizeUnits: "pixels",
+          getColor: [237, 245, 241, 240],
+          getPixelOffset: [0, -12],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "bottom",
+          fontFamily: "Inter, system-ui, sans-serif",
+          fontWeight: 600,
+          characterSet: "auto",
+          pickable: true,
+        }),
+      )
+    }
+    return layers
+  }
+
+  worldTooltip(info) {
+    const object = info?.object
+    if (!object) return null
+    const layerId = String(info?.layer?.id || "")
+    if (layerId.startsWith("world-horizon-egress-")) {
+      if (object.horizonEntityType === "edge" || (object.src_id && object.dst_id)) {
+        const parts = [`${object.kind || "EGRESSES_TO"}: ${object.src_id} → ${object.dst_id}`]
+        const speed = formatPortSpeedMbps(object.port_speed_mbps)
+        if (speed) parts.push(speed)
+        const rtt = formatRttUs(object.avg_rtt_us)
+        if (rtt) parts.push(`RTT ${rtt}`)
+        if (Number.isFinite(Number(object.loss_pct))) parts.push(`loss ${Number(object.loss_pct).toFixed(1)}%`)
+        return {text: parts.join(" · ")}
+      }
+      const badges = horizonEntityBadges(object)
+      return {text: [horizonNodeDisplayLabel(object), ...badges].join(" ")}
+    }
+    return {text: selectionTitle(object)}
+  }
+
+  updateHorizonEgressPanel() {
+    if (!this.horizonEgressPanel) return
+    if (!this.horizonEgressEnabled || this.detailRenderer) {
+      this.horizonEgressPanel.hidden = true
+      return
+    }
+    this.horizonEgressPanel.hidden = false
+    const data = normalizeHorizonEgressData(this.horizonEgressData)
+    const nodesById = new Map(data.external_nodes.map(node => [node.id, node]))
+
+    const header = element("div", "flex items-center justify-between gap-2 pb-2 border-b border-sr-line/60")
+    header.append(element("div", "font-semibold text-xs", "Internet Egress / Horizon"))
+    const openLink = element("a", "link link-primary text-[11px] font-semibold", "Open Horizon")
+    openLink.href = "/dashboards/horizon#tab=weather_map"
+    header.append(openLink)
+
+    const nodes = [header]
+    const outages = data.external_nodes.filter(node => node.outage_state || node.rtbh_active || node.rpki_state === "invalid").length
+    const summaryText = `${data.egress_devices.length} egress · ${data.external_nodes.length} external · ${data.edges.length} links${outages > 0 ? ` · ${outages} alerts` : ""}`
+    nodes.push(element("div", "mt-1.5 text-[11px] text-sr-muted", summaryText))
+
+    if (data.egress_devices.length === 0) {
+      nodes.push(element("p", "mt-2 text-[11px] text-sr-muted", "No Internet egress paths active yet."))
+    } else {
+      const list = element("div", "mt-2 space-y-2")
+      for (const device of data.egress_devices.slice(0, 6)) {
+        const card = element("div", "rounded border border-sr-line/60 bg-sr-subtle/40 p-2 space-y-1")
+        const speed = formatPortSpeedMbps(device.port_speed_mbps)
+        const titleParts = [device.label || device.id, device.egress_source, device.if_name, speed].filter(Boolean)
+        card.append(element("div", "font-medium text-[11px] break-all", titleParts.join(" · ")))
+
+        // Traverse reachable downstream hops (egress router -> prefix/IXP -> upstream ASNs -> SaaS targets)
+        const visited = new Set([device.id])
+        const queue = [{id: device.id, edge: null}]
+        const chain = []
+        let head = 0
+        while (head < queue.length && chain.length < 6) {
+          const current = queue[head++]
+          for (const edge of data.edges) {
+            if (edge.src_id !== current.id && edge.dst_id !== current.id) continue
+            const nextId = edge.src_id === current.id ? edge.dst_id : edge.src_id
+            if (visited.has(nextId)) continue
+            visited.add(nextId)
+            const ext = nodesById.get(nextId)
+            if (ext) {
+              chain.push({ext, edge})
+              queue.push({id: nextId, edge})
+              if (chain.length >= 6) break
+            }
+          }
+        }
+
+        for (const {ext, edge} of chain) {
+          const row = element("div", "flex items-center justify-between gap-2 text-[11px]")
+          const badges = horizonEntityBadges(ext)
+          const edgeSpeed = formatPortSpeedMbps(edge.port_speed_mbps)
+          if (edgeSpeed && !badges.includes(edgeSpeed)) badges.push(edgeSpeed)
+          row.append(element("span", "truncate", [horizonNodeDisplayLabel(ext), ...badges].join(" ")))
+          const inspect = element("a", "link link-primary shrink-0 font-semibold", "Inspect")
+          inspect.href = horizonInspectUrl(ext)
+          row.append(inspect)
+          card.append(row)
+        }
+        list.append(card)
+      }
+      nodes.push(list)
+    }
+
+    this.horizonEgressPanel.replaceChildren(...nodes)
+  }
+
+  showHorizonEgressSelection(object) {
+    this.selection?.abort()
+    const isEdge = object?.horizonEntityType === "edge" || Boolean(object?.src_id && object?.dst_id)
+    const titleText = isEdge ? `${object.kind || "EGRESSES_TO"}` : horizonNodeDisplayLabel(object)
+    const title = element("div", "font-semibold", titleText)
+    const content = [title]
+    const badges = horizonEntityBadges(object)
+    if (badges.length > 0) content.push(element("p", "mt-1 font-mono text-xs", badges.join(" ")))
+    if (isEdge) {
+      content.push(element("p", "mt-1 text-xs text-sr-muted", `${object.src_id} → ${object.dst_id}`))
+    }
+    const meta = []
+    if (object?.egress_source) meta.push(`source: ${object.egress_source}`)
+    const speed = formatPortSpeedMbps(object?.port_speed_mbps)
+    if (speed) meta.push(speed)
+    const rtt = formatRttUs(object?.avg_rtt_us)
+    if (rtt) meta.push(`RTT ${rtt}`)
+    if (Number.isFinite(Number(object?.loss_pct))) meta.push(`loss ${Number(object.loss_pct).toFixed(1)}%`)
+    if (meta.length > 0) content.push(element("p", "mt-1 text-xs text-sr-muted", meta.join(" · ")))
+
+    const link = element("a", "btn btn-sm mt-3", "Inspect in Horizon")
+    link.href = horizonInspectUrl(object, object?.connectedNodes || [])
+    content.push(link)
+    this.openPanel(...content)
+  }
+
   render() {
     if (!this.deck || !this.cache.manifest || this.destroyed || this.rendererFailed) return
     this.flushPendingCommands()
@@ -647,6 +881,7 @@ export default class WorldMapRenderer {
     const membershipBlocked = filterRequested && !this.membershipEnabled
     if (membershipBlocked) this.membership.pending = true
     const membershipApplied = this.membershipEnabled && filterRequested
+    const worldEgressLayers = this.buildWorldHorizonEgressLayers()
     this.deck.setProps({layers: [new WorldTileLayer({
       id: `god-view-world-${this.cache.manifest.layout_version}`, visible: !this.detailRenderer,
       maxZoom: this.cache.manifest.zmax, getTileData: this.getTileData,
@@ -657,7 +892,7 @@ export default class WorldMapRenderer {
       membershipPending: (membershipApplied && this.membership.pending && this.membership.entries.size === 0) || membershipBlocked,
       links: this.links, inferred: this.inferred, filters: this.filters, visibleTileCount: this.visibleTileCount ?? 64,
       onViewportLoad: this.onViewportLoad, onTileSelection: this.onTileSelection, onTileError: this.onTileError, measureText: this.measureText,
-    })], _animate: !this.detailRenderer && this.packetFlow})
+    }), ...worldEgressLayers], _animate: !this.detailRenderer && this.packetFlow})
   }
 
   async search(id) {
@@ -686,6 +921,10 @@ export default class WorldMapRenderer {
   }
 
   async pick(info) {
+    if (String(info?.layer?.id || "").startsWith("world-horizon-egress-") && info?.object) {
+      this.showHorizonEgressSelection(info.object)
+      return
+    }
     const geometry = info.sourceTile?.content
     if (!geometry) return
     const object = info.object
@@ -807,6 +1046,7 @@ export default class WorldMapRenderer {
       this.pendingDetail = null
       candidate = null
       this.panel.hidden = true
+      if (this.horizonEgressPanel) this.horizonEgressPanel.hidden = true
       this.back.hidden = false
       this.render()
       this.nextPage?.remove()
@@ -861,6 +1101,7 @@ export default class WorldMapRenderer {
     this.nextPage?.remove()
     if (this.back) this.back.hidden = true
     if (this.panel) this.panel.hidden = true
+    this.updateHorizonEgressPanel()
     this.render()
   }
 

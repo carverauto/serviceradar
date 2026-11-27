@@ -222,6 +222,16 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                   >
                     Inferred
                   </button>
+                  <button
+                    type="button"
+                    class={"col-span-2 #{overlay_filter_button_class(@topology_layers.horizon_egress)}"}
+                    phx-click="toggle_topology_layer"
+                    phx-value-layer="horizon_egress"
+                    aria-pressed={to_string(@topology_layers.horizon_egress)}
+                    data-testid="toggle-horizon-egress-layer"
+                  >
+                    Internet Egress / Horizon
+                  </button>
                 </div>
               </div>
             </div>

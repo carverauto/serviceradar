@@ -215,9 +215,12 @@ export const godViewLifecycleDomSetupMethods = {
       return
     }
 
-    const deviceLink = event.target?.closest?.("[data-device-href]")
+    const deviceLink =
+      event.target?.closest?.("[data-device-href]") ||
+      event.target?.closest?.("[data-horizon-href]")
     if (deviceLink) {
-      const href = deviceLink.getAttribute("data-device-href")
+      const href =
+        deviceLink.getAttribute("data-horizon-href") || deviceLink.getAttribute("data-device-href")
       if (href) {
         event.preventDefault()
         event.stopPropagation?.()

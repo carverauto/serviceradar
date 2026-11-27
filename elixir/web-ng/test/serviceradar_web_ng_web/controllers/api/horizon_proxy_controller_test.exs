@@ -917,8 +917,8 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert conn_fallback.status == 200
       assert_receive {:upstream_request, fallback_opts}
       refute Keyword.has_key?(fallback_opts, :connect_options)
-      assert fallback_opts[:finch][:conn_max_idle_time] == 30_000
-      assert fallback_opts[:finch][:http2][:ping_interval] == 30_000
+      assert fallback_opts[:finch][:conn_max_idle_time] == 10_000
+      assert fallback_opts[:finch][:http2][:ping_interval] == 15_000
 
       start_supervised!(
         {Finch,
@@ -926,9 +926,9 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
          pools: %{
            default: [
              conn_opts: [transport_opts: [timeout: 5_000]],
-             conn_max_idle_time: 30_000,
+             conn_max_idle_time: 10_000,
              http2: [
-               ping_interval: 30_000,
+               ping_interval: 15_000,
                max_connection_age: 300_000,
                max_connection_age_jitter: 30_000
              ]
@@ -1451,6 +1451,62 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
 
         assert MapSet.member?(catalog_keys, perm), "expected #{perm} to exist in Catalog"
       end
+    end
+  end
+
+  describe "cookie session CSRF enforcement on POST /api/horizon/v1/snapshots" do
+    setup do
+      stub_upstream({:ok, %{base_url: @upstream_base, api_key: @secret_api_key}})
+
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+
+        {:ok,
+         %Req.Response{
+           status: 201,
+           headers: %{"content-type" => ["application/json"]},
+           body: Jason.encode!(%{"id" => "snap-123"})
+         }}
+      end)
+
+      %{operator_scope: scope_for_role(:operator)}
+    end
+
+    test "returns 403 without x-csrf-token and 201 with valid CSRF token for cookie sessions", %{
+      operator_scope: operator_scope
+    } do
+      Plug.CSRFProtection.delete_csrf_token()
+
+      error =
+        assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
+          build_conn()
+          |> init_test_session(%{})
+          |> put_private(:plug_skip_csrf_protection, false)
+          |> put_req_header("accept", "application/json")
+          |> assign(:current_scope, operator_scope)
+          |> post("/api/horizon/v1/snapshots", %{"title" => "Demo snapshot"})
+        end
+
+      assert Plug.Exception.status(error) == 403
+      refute_received {:upstream_request, _}
+
+      csrf_token = Plug.CSRFProtection.get_csrf_token()
+      csrf_state = Plug.CSRFProtection.dump_state()
+
+      allowed_conn =
+        build_conn()
+        |> init_test_session(%{"_csrf_token" => csrf_state})
+        |> put_private(:plug_skip_csrf_protection, false)
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("x-csrf-token", csrf_token)
+        |> assign(:current_scope, operator_scope)
+        |> post("/api/horizon/v1/snapshots", %{"title" => "Demo snapshot"})
+
+      assert allowed_conn.status == 201
+      assert Jason.decode!(allowed_conn.resp_body) == %{"id" => "snap-123"}
+      assert_receive {:upstream_request, req_opts}
+      assert req_opts[:method] == :post
+      assert req_opts[:url] == "#{@upstream_base}/api/v1/snapshots"
     end
   end
 
