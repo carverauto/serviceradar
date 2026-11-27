@@ -56,22 +56,26 @@ samples of the heap on the standby.
 | PK `(network_scope_id, event_id, kind, batch_index, element_index)` | 212 | 24 | 624 | 33 | 7.1 MB |
 
 The `inserted_at` index adds under 1% WAL and no measurable dirtied pages (right-edge
-inserts). Its size is about 21 bytes per row (about 1.3 GB at today's size). With it, the
-prune's no-candidate case reads 3 blocks; a batch of 5000 expired rows reads about 130 index
-blocks; a generic plan stays on the index because the query orders by `inserted_at`.
+inserts). Its size is about 21 bytes per row (about 1.3 GB at the 2026-11-26 size). With it,
+the prune's no-candidate case read 3 blocks; a batch of 5000 expired rows read about 130
+index blocks; a generic plan stayed on the index because the query ordered by `inserted_at`.
+That prune no longer runs; see "Writer stopped".
 
 ## Prune index (#7076)
+
+This index landed before the writer and the prune stopped. It stays until the drop in the
+next PR.
 
 1. `20261126070000_index_edge_sweep_projected_rows_inserted_at.exs`: concurrent B-tree on
    `inserted_at`. An interrupted build leaves an invalid index under that name; this
    migration drops it and rebuilds it, so a retry does not record a name the planner
    never uses.
-2. The projected-rows prune orders its candidates by `inserted_at`, so it walks the index
-   oldest first and stops at the cutoff.
+2. The projected-rows prune ordered its candidates by `inserted_at`, so it walked the index
+   oldest first and stopped at the cutoff. That statement is gone; see "Writer stopped".
 
-Not changed: the guards and the horizon. Rows older than the cutoff whose batch slot is
-still guarded (draining epoch, open scheduled slot) are re-read through the index each
-batch; that range is bounded by the expired range, not the table.
+The index did not change the guards or the horizon. Rows older than the cutoff whose batch
+slot was still guarded (draining epoch, open scheduled slot) were re-read through the index
+each batch; that range was bounded by the expired range, not the table.
 
 `edge_delivery_slots` (0.34 GB) and `event_ledger` (0.27 GB) prunes have the same
 full-scan shape at about 26k blocks per call. They are small today; the same index plus
