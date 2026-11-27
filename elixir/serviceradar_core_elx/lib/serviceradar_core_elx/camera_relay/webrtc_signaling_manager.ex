@@ -123,6 +123,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
         relay_session_id: relay_session_id,
         viewer_session_id: viewer_session_id,
         signaling_state: "viewer_authorized",
+        ice_gathering_state: "gathering",
         answer_sdp: nil,
         last_candidate: nil,
         remote_candidates: [],
@@ -347,10 +348,59 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
       ) do
     case fetch_session_by_signaling(state, signaling_pid) do
       {:ok, session} ->
+        {updated, broadcast_candidate} =
+          if end_of_candidates?(candidate) do
+            {
+              session
+              |> refresh_session(state.session_ttl_ms)
+              |> Map.put(:ice_gathering_state, "complete"),
+              nil
+            }
+          else
+            {
+              session
+              |> refresh_session(state.session_ttl_ms)
+              |> keep_remote_candidate(candidate),
+              candidate
+            }
+          end
+
+        :ok =
+          relay_pubsub(state).broadcast_webrtc_candidate(updated.relay_session_id, %{
+            relay_session_id: updated.relay_session_id,
+            viewer_session_id: updated.viewer_session_id,
+            candidate: broadcast_candidate,
+            ice_gathering_state: updated.ice_gathering_state
+          })
+
+        {:noreply, put_in(state, [:sessions, session.viewer_session_id], updated)}
+
+      :error ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info(
+        {:membrane_webrtc_signaling, signaling_pid, %{"type" => "ice_gathering_state", "data" => gathering_state},
+         _metadata},
+        state
+      ) do
+    case fetch_session_by_signaling(state, signaling_pid) do
+      {:ok, session} ->
+        normalized_state = normalize_ice_gathering_state(gathering_state, session.ice_gathering_state)
+
         updated =
           session
           |> refresh_session(state.session_ttl_ms)
-          |> keep_remote_candidate(candidate)
+          |> Map.put(:ice_gathering_state, normalized_state)
+
+        :ok =
+          relay_pubsub(state).broadcast_webrtc_candidate(updated.relay_session_id, %{
+            relay_session_id: updated.relay_session_id,
+            viewer_session_id: updated.viewer_session_id,
+            candidate: nil,
+            ice_gathering_state: normalized_state
+          })
 
         {:noreply, put_in(state, [:sessions, session.viewer_session_id], updated)}
 
@@ -435,6 +485,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
     %{
       viewer_session_id: session.viewer_session_id,
       signaling_state: session.signaling_state,
+      ice_gathering_state: Map.get(session, :ice_gathering_state, "gathering"),
       offer_sdp: session.offer_sdp,
       remote_ice_candidates: session.remote_candidates,
       expires_at: DateTime.to_iso8601(session.expires_at)
@@ -497,6 +548,21 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager do
       session
     end
   end
+
+  defp end_of_candidates?(nil), do: true
+  defp end_of_candidates?(""), do: true
+  defp end_of_candidates?(%{"candidate" => ""}), do: true
+  defp end_of_candidates?(%{candidate: ""}), do: true
+  defp end_of_candidates?(_candidate), do: false
+
+  defp normalize_ice_gathering_state(%{"state" => state}, fallback), do: normalize_ice_gathering_state(state, fallback)
+  defp normalize_ice_gathering_state(%{state: state}, fallback), do: normalize_ice_gathering_state(state, fallback)
+  defp normalize_ice_gathering_state(state, _fallback) when is_binary(state) and state != "", do: state
+
+  defp normalize_ice_gathering_state(state, _fallback) when is_atom(state) and not is_nil(state),
+    do: Atom.to_string(state)
+
+  defp normalize_ice_gathering_state(_state, fallback), do: fallback
 
   defp flush_pending_candidates(session) do
     session

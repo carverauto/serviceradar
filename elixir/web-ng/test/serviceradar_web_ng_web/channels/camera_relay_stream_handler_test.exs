@@ -183,6 +183,63 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
     refute_receive {:camera_relay_webrtc_closed, _}
   end
 
+  test "forwards relay-scoped WebRTC ICE candidates and gathering completion over the websocket" do
+    relay_session_id = Ecto.UUID.generate()
+    viewer_session_id = Ecto.UUID.generate()
+    state = %{relay_session_id: relay_session_id}
+    :ok = RelayPubSub.subscribe(relay_session_id)
+
+    candidate = %{
+      "candidate" => "candidate:1 1 UDP 2122252543 192.0.2.20 40000 typ host",
+      "sdpMid" => "0"
+    }
+
+    :ok =
+      RelayPubSub.broadcast_webrtc_candidate(relay_session_id, %{
+        viewer_session_id: viewer_session_id,
+        candidate: candidate,
+        ice_gathering_state: "gathering"
+      })
+
+    assert_receive {:camera_relay_webrtc_candidate, payload}
+
+    assert {:push, {:text, json}, ^state} =
+             CameraRelayStreamHandler.handle_info({:camera_relay_webrtc_candidate, payload}, state)
+
+    assert %{
+             "type" => "webrtc_ice_candidate",
+             "relay_session_id" => ^relay_session_id,
+             "viewer_session_id" => ^viewer_session_id,
+             "candidate" => ^candidate,
+             "ice_gathering_state" => "gathering"
+           } = Jason.decode!(json)
+
+    :ok =
+      RelayPubSub.broadcast_webrtc_candidate(relay_session_id, %{
+        viewer_session_id: viewer_session_id,
+        candidate: nil,
+        ice_gathering_state: "complete"
+      })
+
+    assert_receive {:camera_relay_webrtc_candidate, complete_payload}
+
+    assert {:push, {:text, complete_json}, ^state} =
+             CameraRelayStreamHandler.handle_info({:camera_relay_webrtc_candidate, complete_payload}, state)
+
+    assert %{
+             "type" => "webrtc_ice_candidate",
+             "relay_session_id" => ^relay_session_id,
+             "viewer_session_id" => ^viewer_session_id,
+             "candidate" => nil,
+             "ice_gathering_state" => "complete"
+           } = Jason.decode!(complete_json)
+
+    unrelated = %{payload | relay_session_id: Ecto.UUID.generate()}
+
+    assert {:ok, ^state} =
+             CameraRelayStreamHandler.handle_info({:camera_relay_webrtc_candidate, unrelated}, state)
+  end
+
   @tag :db_free
 
   test "a failed relay snapshot tells the viewer why the camera source failed" do

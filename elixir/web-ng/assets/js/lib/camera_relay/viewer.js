@@ -16,9 +16,11 @@ import {
 } from "./player"
 
 const WEBRTC_MEDIA_DEADLINE_MS = 8000
-// core-elx trickles its ICE candidates after returning the offer. Poll
-// immediately after the answer and adaptively back off until ICE settles;
-// the media deadline bounds the loop.
+// core-elx pushes trickled ICE candidates over the status WebSocket. Keep a
+// gentle backup HTTP poll while the socket is open in case a candidate arrived
+// before viewer_session_id was assigned, and fall back to fast adaptive polling
+// when the socket is unavailable.
+const WEBRTC_REMOTE_CANDIDATE_WS_FALLBACK_POLL_MS = 500
 const WEBRTC_REMOTE_CANDIDATE_POLL_FAST_MS = 50
 const WEBRTC_REMOTE_CANDIDATE_POLL_MEDIUM_MS = 100
 const WEBRTC_REMOTE_CANDIDATE_POLL_SLOW_MS = 250
@@ -175,6 +177,9 @@ export class CameraRelayViewer {
     this.webrtcCandidatePollTimer = null
     this.webrtcActivationWake = null
     this.webrtcRemoteCandidates = new Set()
+    this.webrtcPendingRemoteCandidates = []
+    this.webrtcRemoteDescriptionApplied = false
+    this.webrtcIceGatheringComplete = false
     this.webrtcVideo = null
     this.webrtcPlayingHandler = null
     this.chunkCount = 0
@@ -413,6 +418,9 @@ export class CameraRelayViewer {
 
       this.webrtcViewerSessionId = viewerSessionId
       this.webrtcRemoteCandidates = new Set()
+      this.webrtcPendingRemoteCandidates = []
+      this.webrtcRemoteDescriptionApplied = false
+      this.webrtcIceGatheringComplete = session.ice_gathering_state === "complete"
       this.peerConnection = new window.RTCPeerConnection({
         iceServers: session.ice_servers || this.webrtcIceServers || [],
       })
@@ -422,7 +430,12 @@ export class CameraRelayViewer {
 
       await peerConnection.setRemoteDescription({type: "offer", sdp: offerSdp})
       if (!isCurrentViewer()) return
+      this.webrtcRemoteDescriptionApplied = true
       this.addRemoteCandidates(peerConnection, session.remote_ice_candidates)
+      if (this.webrtcPendingRemoteCandidates.length > 0) {
+        const pending = this.webrtcPendingRemoteCandidates.splice(0)
+        this.addRemoteCandidates(peerConnection, pending)
+      }
       const answer = await peerConnection.createAnswer()
       if (!isCurrentViewer()) return
       await peerConnection.setLocalDescription(answer)
@@ -443,6 +456,9 @@ export class CameraRelayViewer {
       }
 
       this.addRemoteCandidates(peerConnection, answerBody?.data?.remote_ice_candidates)
+      if (answerBody?.data?.ice_gathering_state === "complete") {
+        this.webrtcIceGatheringComplete = true
+      }
       this.pollRemoteCandidates(peerConnection, isCurrentViewer)
       this.report("transport-status", "WebRTC answer applied")
       this.report("player-status", "Waiting for WebRTC media...")
@@ -510,12 +526,48 @@ export class CameraRelayViewer {
     }
   }
 
+  isStatusSocketOpen() {
+    const socket = this.statusSocket
+    if (!socket) return false
+    const openState = socket.constructor?.OPEN ?? globalThis.WebSocket?.OPEN ?? 1
+    return socket.readyState === openState
+  }
+
+  stopRemoteCandidatePolling() {
+    if (this.webrtcCandidatePollTimer) {
+      clearTimeout(this.webrtcCandidatePollTimer)
+      this.webrtcCandidatePollTimer = null
+    }
+  }
+
+  handleWebRtcIceCandidate(payload) {
+    if (!this.webrtcViewerSessionId || payload.viewer_session_id !== this.webrtcViewerSessionId) {
+      return
+    }
+
+    if (payload.candidate) {
+      if (this.peerConnection && this.webrtcRemoteDescriptionApplied) {
+        this.addRemoteCandidates(this.peerConnection, [payload.candidate])
+      } else {
+        this.webrtcPendingRemoteCandidates.push(payload.candidate)
+      }
+    }
+
+    if (payload.ice_gathering_state === "complete") {
+      this.webrtcIceGatheringComplete = true
+      this.stopRemoteCandidatePolling()
+    }
+  }
+
   pollRemoteCandidates(peerConnection, isCurrentViewer) {
     const viewerSessionId = this.webrtcViewerSessionId
     let pollCount = 0
     const settled = () =>
       ["connected", "failed", "closed"].includes(peerConnection.connectionState)
     const nextPollDelayMs = (count) => {
+      if (this.isStatusSocketOpen()) {
+        return WEBRTC_REMOTE_CANDIDATE_WS_FALLBACK_POLL_MS
+      }
       if (count < WEBRTC_REMOTE_CANDIDATE_FAST_POLLS) {
         return WEBRTC_REMOTE_CANDIDATE_POLL_FAST_MS
       }
@@ -527,7 +579,7 @@ export class CameraRelayViewer {
 
     const poll = async () => {
       this.webrtcCandidatePollTimer = null
-      if (!isCurrentViewer() || settled()) return
+      if (!isCurrentViewer() || settled() || this.webrtcIceGatheringComplete) return
 
       let gatheringComplete = false
 
@@ -545,18 +597,32 @@ export class CameraRelayViewer {
         if (!isCurrentViewer()) return
         this.addRemoteCandidates(peerConnection, body?.data?.remote_ice_candidates)
         gatheringComplete = body?.data?.ice_gathering_state === "complete"
+        if (gatheringComplete) {
+          this.webrtcIceGatheringComplete = true
+        }
       } catch (_error) {
         if (!isCurrentViewer()) return
       }
 
-      if (!settled() && !gatheringComplete) {
+      if (!settled() && !gatheringComplete && !this.webrtcIceGatheringComplete) {
+        const wsOpen = this.isStatusSocketOpen()
         const delayMs = nextPollDelayMs(pollCount)
-        pollCount += 1
+        if (!wsOpen) {
+          pollCount += 1
+        }
         this.webrtcCandidatePollTimer = setTimeout(poll, delayMs)
       }
     }
 
-    void poll()
+    if (settled() || this.webrtcIceGatheringComplete) {
+      return
+    }
+
+    if (this.isStatusSocketOpen()) {
+      this.webrtcCandidatePollTimer = setTimeout(poll, WEBRTC_REMOTE_CANDIDATE_WS_FALLBACK_POLL_MS)
+    } else {
+      void poll()
+    }
   }
 
   attachWebRtcTrack(peerConnection, event) {
@@ -667,10 +733,12 @@ export class CameraRelayViewer {
     this.wakeRelayActivation()
     clearTimeout(this.webrtcMediaTimer)
     this.webrtcMediaTimer = null
-    clearTimeout(this.webrtcCandidatePollTimer)
-    this.webrtcCandidatePollTimer = null
+    this.stopRemoteCandidatePolling()
     this.peerConnection = null
     this.webrtcViewerSessionId = null
+    this.webrtcPendingRemoteCandidates = []
+    this.webrtcRemoteDescriptionApplied = false
+    this.webrtcIceGatheringComplete = false
 
     const video = this.webrtcVideo || (peerConnection ? this.getVideo() : null)
     if (this.webrtcPlayingHandler) {
@@ -743,6 +811,11 @@ export class CameraRelayViewer {
         this.report("transport-status", "Browser stream sent invalid payload")
       }
 
+      return
+    }
+
+    if (payload.type === "webrtc_ice_candidate") {
+      this.handleWebRtcIceCandidate(payload)
       return
     }
 

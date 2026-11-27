@@ -50,6 +50,13 @@ defmodule ServiceRadar.Camera.RelayPubSub do
     broadcast(relay_session_id, {:camera_relay_chunk, payload})
   end
 
+  def broadcast_webrtc_candidate(relay_session_id, payload) when is_map(payload) do
+    broadcast(
+      relay_session_id,
+      {:camera_relay_webrtc_candidate, Map.put_new(payload, :relay_session_id, relay_session_id)}
+    )
+  end
+
   def viewer_join(relay_session_id, viewer_id, payload \\ %{}) when is_map(payload) do
     broadcast_control(
       {:camera_relay_viewer_join,
