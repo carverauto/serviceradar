@@ -383,7 +383,7 @@ impl TopologyClient {
             }
         }
 
-        for _depth in 0..hops {
+        for depth in 0..hops {
             if frontier.is_empty() || ext_nodes.len() >= cap || edges.len() >= cap {
                 if !frontier.is_empty() {
                     truncated = true;
@@ -391,8 +391,19 @@ impl TopologyClient {
                 break;
             }
             let uids = frontier.join(", ");
+            let allow_peers = depth == 0;
+            let out_kinds = if allow_peers {
+                "\"EGRESSES_TO\", \"BORDER_HANDOFF\", \"AS_REL_PEER\", \"IXP_MEMBER\", \"TRACEROUTE_HOP\", \"ANYCAST_SERVES\""
+            } else {
+                "\"EGRESSES_TO\", \"BORDER_HANDOFF\", \"IXP_MEMBER\", \"TRACEROUTE_HOP\", \"ANYCAST_SERVES\""
+            };
+            let in_kinds = if allow_peers {
+                "\"AS_REL_PROVIDER\", \"AS_REL_PEER\""
+            } else {
+                "\"AS_REL_PROVIDER\""
+            };
             let expand_query = format!(
-                "{{\n  q(func: uid({uids})) {{\n    uid\n    ~topo.src @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"EGRESSES_TO\", \"BORDER_HANDOFF\", \"AS_REL_PROVIDER\", \"AS_REL_PEER\", \"IXP_MEMBER\", \"TRACEROUTE_HOP\", \"ANYCAST_SERVES\"])) {{ {EDGE_BODY} topo.dst {{ {NODE_FIELDS} }} }}\n    ~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"AS_REL_PROVIDER\", \"AS_REL_PEER\"])) {{ {EDGE_BODY} topo.src {{ {NODE_FIELDS} }} }}\n  }}\n}}"
+                "{{\n  q(func: uid({uids})) {{\n    uid\n    ~topo.src @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [{out_kinds}])) {{ {EDGE_BODY} topo.dst {{ {NODE_FIELDS} }} }}\n    ~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [{in_kinds}])) {{ {EDGE_BODY} topo.src {{ {NODE_FIELDS} }} }}\n  }}\n}}"
             );
             let parsed: HopExpandBlock = ro_query(&mut txn, &expand_query).await?;
             let mut next_frontier = Vec::new();
@@ -401,60 +412,77 @@ impl TopologyClient {
                     continue;
                 };
                 let src_id = src_node.canonical_id();
-                for e in row.out_edges {
+                let mut candidates: Vec<(bool, &RawEdge, RawNode)> = Vec::new();
+                for e in &row.out_edges {
+                    if e.kind == "AS_REL_PROVIDER" || (e.kind == "AS_REL_PEER" && !allow_peers) {
+                        continue;
+                    }
                     for dst_node in e
                         .dst
                         .iter()
                         .filter(|n| !n.stale && !n.is_internal_device())
                         .cloned()
                     {
-                        let dst_id = dst_node.canonical_id();
-                        if add_node(
-                            dst_node,
-                            &mut ext_nodes,
-                            &mut next_frontier,
-                            cap,
-                            &mut truncated,
-                        ) {
-                            record_edge(
-                                &src_id,
-                                &dst_id,
-                                &e.kind,
-                                &e,
-                                &mut seen_edges,
-                                &mut edges,
-                                cap,
-                                &mut truncated,
-                            );
-                        }
+                        candidates.push((false, e, dst_node));
                     }
                 }
-                for e in row.in_edges {
+                for e in &row.in_edges {
+                    let allowed_in =
+                        e.kind == "AS_REL_PROVIDER" || (e.kind == "AS_REL_PEER" && allow_peers);
+                    if !allowed_in {
+                        continue;
+                    }
                     for far_node in e
                         .src
                         .iter()
                         .filter(|n| !n.stale && !n.is_internal_device())
                         .cloned()
                     {
-                        let far_id = far_node.canonical_id();
-                        if add_node(
-                            far_node,
-                            &mut ext_nodes,
-                            &mut next_frontier,
+                        candidates.push((true, e, far_node));
+                    }
+                }
+                candidates.sort_by(|(_, ea, na), (_, eb, nb)| {
+                    egress_candidate_rank(nb)
+                        .cmp(&egress_candidate_rank(na))
+                        .then_with(|| ea.kind.cmp(&eb.kind))
+                        .then_with(|| na.canonical_id().cmp(&nb.canonical_id()))
+                });
+
+                let mut per_kind_counts: HashMap<&str, usize> = HashMap::new();
+                for (is_reverse, e, target_node) in candidates {
+                    if ext_nodes.contains_key(&target_node.uid) {
+                        continue;
+                    }
+                    let kind_cap = egress_per_node_kind_cap(&e.kind);
+                    let seen_count = per_kind_counts.entry(e.kind.as_str()).or_insert(0);
+                    if *seen_count >= kind_cap {
+                        truncated = true;
+                        continue;
+                    }
+                    let target_id = target_node.canonical_id();
+                    if add_node(
+                        target_node,
+                        &mut ext_nodes,
+                        &mut next_frontier,
+                        cap,
+                        &mut truncated,
+                    ) {
+                        *seen_count += 1;
+                        let (edge_src, edge_dst) = if is_reverse {
+                            (target_id.as_str(), src_id.as_str())
+                        } else {
+                            (src_id.as_str(), target_id.as_str())
+                        };
+                        record_edge(
+                            edge_src,
+                            edge_dst,
+                            &e.kind,
+                            e,
+                            &mut seen_edges,
+                            &mut edges,
                             cap,
                             &mut truncated,
-                        ) {
-                            record_edge(
-                                &far_id,
-                                &src_id,
-                                &e.kind,
-                                &e,
-                                &mut seen_edges,
-                                &mut edges,
-                                cap,
-                                &mut truncated,
-                            );
-                        }
+                        );
                     }
                 }
             }
@@ -538,6 +566,60 @@ fn egress_source_rank(source: &str) -> u8 {
         "prefix_origin" => 1,
         _ => 0,
     }
+}
+
+const MAX_EGRESS_PEERS_PER_NODE: usize = 8;
+const MAX_EGRESS_FANOUT_PER_KIND: usize = 8;
+const MAX_EGRESS_UPSTREAM_PROVIDERS_PER_NODE: usize = 16;
+
+fn egress_per_node_kind_cap(kind: &str) -> usize {
+    match kind {
+        "AS_REL_PROVIDER" => MAX_EGRESS_UPSTREAM_PROVIDERS_PER_NODE,
+        "AS_REL_PEER" => MAX_EGRESS_PEERS_PER_NODE,
+        _ => MAX_EGRESS_FANOUT_PER_KIND,
+    }
+}
+
+fn egress_candidate_rank(node: &RawNode) -> (u8, u8, i64) {
+    let outage = node
+        .outage_state
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let rpki = node
+        .ext_rpki_state
+        .as_deref()
+        .or(node.prefix_rpki_state.as_deref())
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let rtbh = node
+        .ext_rtbh_active
+        .or(node.prefix_rtbh_active)
+        .unwrap_or(false);
+
+    let severity_rank = if rtbh
+        || matches!(outage.as_str(), "outage" | "critical" | "down" | "major")
+    {
+        2
+    } else if rpki == "invalid" || matches!(outage.as_str(), "degraded" | "warning" | "partial") {
+        1
+    } else {
+        0
+    };
+
+    let kind_rank = match node.kind() {
+        "SaasTarget" => 5,
+        "IXP" => 4,
+        "Vantage" | "Facility" => 3,
+        "Prefix" | "TransitRouter" | "AnycastPop" => 2,
+        "ASN" => 1,
+        _ => 0,
+    };
+
+    let speed_rank = node.port_speed_mbps.unwrap_or(0).max(0);
+    (severity_rank, kind_rank, speed_rank)
 }
 
 fn insert_egress_device(map: &mut BTreeMap<String, EgressDeviceRef>, cand: EgressDeviceRef) {

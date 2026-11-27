@@ -6,6 +6,7 @@ import {
   horizonEdgeColor,
   horizonSeverityColor,
   normalizeHorizonEgressData,
+  selectVisibleHorizonLabels,
 } from "./horizon_egress_shared"
 
 const EMPTY_RENDER_DATA = Object.freeze({
@@ -21,6 +22,23 @@ export const godViewRenderingHorizonEgressMethods = {
   horizonEgressLayerId(layerId) {
     return typeof layerId === "string" && layerId.startsWith("god-view-horizon-egress-")
   },
+  toggleHorizonEgressCluster(clusterKey) {
+    if (typeof clusterKey !== "string" || !clusterKey) return false
+    if (!(this.state.expandedHorizonClusters instanceof Set)) {
+      this.state.expandedHorizonClusters = new Set()
+    }
+    if (this.state.expandedHorizonClusters.has(clusterKey)) {
+      this.state.expandedHorizonClusters.delete(clusterKey)
+    } else {
+      this.state.expandedHorizonClusters.add(clusterKey)
+    }
+    this.state.expandedHorizonClustersRevision = (this.state.expandedHorizonClustersRevision || 0) + 1
+    return this.state.expandedHorizonClusters.has(clusterKey)
+  },
+  horizonEgressZoomTier() {
+    const raw = this.state.zoomMode === "auto" ? this.state.zoomTier : this.state.zoomMode
+    return raw === "global" || raw === "regional" || raw === "local" ? raw : "local"
+  },
   buildHorizonEgressRenderData(nodeData) {
     const enabled = this.state.topologyLayers?.horizon_egress === true
     const rawData = this.state.horizonEgressData
@@ -28,13 +46,27 @@ export const godViewRenderingHorizonEgressMethods = {
       return EMPTY_RENDER_DATA
     }
 
+    const zoomTier = this.horizonEgressZoomTier()
+    const clusterRev = this.state.expandedHorizonClustersRevision || 0
     const cached = horizonEgressRenderCache.get(nodeData)
-    if (cached && cached.owner === this && cached.rawData === rawData) {
+    if (
+      cached &&
+      cached.owner === this &&
+      cached.rawData === rawData &&
+      cached.zoomTier === zoomTier &&
+      cached.clusterRev === clusterRev
+    ) {
       return cached.value
     }
 
-    const value = buildHorizonEgressGraphLayout(rawData, nodeData, {mode: "cartesian"})
-    horizonEgressRenderCache.set(nodeData, {owner: this, rawData, value})
+    const value = buildHorizonEgressGraphLayout(rawData, nodeData, {
+      mode: "cartesian",
+      zoomTier,
+      zoom: Number(this.state.viewState?.zoom ?? 0),
+      expandedClusters: this.state.expandedHorizonClusters,
+      maxNodesPerTier: 6,
+    })
+    horizonEgressRenderCache.set(nodeData, {owner: this, rawData, zoomTier, clusterRev, value})
     return value
   },
   horizonEgressForDevice(node) {
@@ -138,13 +170,21 @@ export const godViewRenderingHorizonEgressMethods = {
     }
 
     if (renderData.nodes.length > 0) {
+      const zoomTier = this.horizonEgressZoomTier()
+      const visibleLabels = selectVisibleHorizonLabels(renderData.nodes, {
+        mode: "cartesian",
+        zoomTier,
+        zoom: Number(this.state.viewState?.zoom ?? 0),
+        selectedKey,
+        hoveredKey,
+      })
       layers.push(
         new ScatterplotLayer({
           id: "god-view-horizon-egress-nodes-halo",
           data: renderData.nodes,
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
           getPosition: (d) => d.position,
-          getRadius: (d) => (d.interactionKey === selectedKey ? 24 : 20),
+          getRadius: (d) => (d.isCluster ? 28 : d.interactionKey === selectedKey ? 24 : 20),
           radiusUnits: "pixels",
           filled: true,
           stroked: false,
@@ -162,7 +202,7 @@ export const godViewRenderingHorizonEgressMethods = {
           data: renderData.nodes,
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
           getPosition: (d) => d.position,
-          getRadius: 11,
+          getRadius: (d) => (d.isCluster ? 16 : 11),
           radiusUnits: "pixels",
           filled: false,
           stroked: true,
@@ -182,7 +222,7 @@ export const godViewRenderingHorizonEgressMethods = {
           data: renderData.nodes,
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
           getPosition: (d) => d.position,
-          getRadius: 6,
+          getRadius: (d) => (d.isCluster ? 11 : 6),
           radiusUnits: "pixels",
           filled: true,
           stroked: false,
@@ -195,22 +235,25 @@ export const godViewRenderingHorizonEgressMethods = {
         }),
         new TextLayer({
           id: "god-view-horizon-egress-labels",
-          data: renderData.nodes,
+          data: visibleLabels,
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
           getPosition: (d) => d.position,
           getText: (d) => d.labelText,
-          getSize: 11,
+          getSize: (d) => (d.isCluster ? 12 : 11),
           sizeUnits: "pixels",
           sizeMinPixels: 9,
           getColor: visual?.label || [237, 245, 241, 240],
           fontFamily: "Inter, system-ui, sans-serif",
           fontWeight: 600,
-          getPixelOffset: [0, -14],
+          getPixelOffset: (d) => [0, d.isCluster ? -18 : -14],
           getTextAnchor: "middle",
           getAlignmentBaseline: "bottom",
           billboard: true,
           pickable: true,
           characterSet: "auto",
+          updateTriggers: {
+            data: [renderData.nodes, selectedKey, hoveredKey],
+          },
         }),
       )
     }

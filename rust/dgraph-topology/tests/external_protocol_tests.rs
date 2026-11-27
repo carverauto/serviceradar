@@ -333,11 +333,31 @@ impl MockExternalDgraph {
             .map(|(u, _)| u.split(',').map(str::trim).collect())
             .unwrap_or_default();
         let mut q = Vec::new();
+        let src_clause = query
+            .split_once("~topo.src")
+            .and_then(|(_, r)| r.split_once('{'))
+            .map_or("", |(head, _)| head);
+        let allowed_out_kinds: Option<Vec<String>> = src_clause
+            .split_once("eq(topo.kind, [")
+            .and_then(|(_, r)| r.split_once(']'))
+            .map(|(list, _)| {
+                list.split(',')
+                    .map(|part| part.trim().trim_matches('"').to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            });
         for uid in uids {
             let out_edges: Vec<Value> = self
                 .edges
                 .iter()
-                .filter(|e| edge_end_uid(e, "topo.src") == Some(uid))
+                .filter(|e| {
+                    edge_end_uid(e, "topo.src") == Some(uid)
+                        && allowed_out_kinds.as_ref().is_none_or(|kinds| {
+                            e.get("topo.kind")
+                                .and_then(Value::as_str)
+                                .is_some_and(|k| kinds.iter().any(|allowed| allowed == k))
+                        })
+                })
                 .cloned()
                 .collect();
             let in_egress_only = query.contains(
@@ -345,6 +365,9 @@ impl MockExternalDgraph {
             );
             let in_asn_rel_only = query.contains(
                 "~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"AS_REL_PROVIDER\", \"AS_REL_PEER\"]))",
+            );
+            let in_provider_only = query.contains(
+                "~topo.dst @filter(NOT eq(topo.stale, true) AND eq(topo.kind, [\"AS_REL_PROVIDER\"]))",
             );
             let has_in_clause = query.contains("~topo.dst");
             let in_edges: Vec<Value> = if has_in_clause {
@@ -361,6 +384,11 @@ impl MockExternalDgraph {
                                 || matches!(
                                     e.get("topo.kind").and_then(Value::as_str),
                                     Some("AS_REL_PROVIDER" | "AS_REL_PEER")
+                                ))
+                            && (!in_provider_only
+                                || matches!(
+                                    e.get("topo.kind").and_then(Value::as_str),
+                                    Some("AS_REL_PROVIDER")
                                 ))
                     })
                     .cloned()
@@ -1201,18 +1229,24 @@ async fn egress_topology_traverses_upstream_provider_and_peer_edges_via_rev_dst(
     });
     let asn10242 = ext_node("0x2", "asn:10242", "ASN", Some(10_242));
     let asn174 = ext_node("0x3", "asn:174", "ASN", Some(174));
-    let asn15267 = ext_node("0x4", "asn:15267", "ASN", Some(15_267));
-    let asn209 = ext_node("0x5", "asn:209", "ASN", Some(209));
-    let saas = ext_node("0x6", "saas:github", "SaasTarget", None);
+    let asn3356 = ext_node("0x4", "asn:3356", "ASN", Some(3356));
+    let asn64520 = ext_node("0x5", "asn:64520", "ASN", Some(64_520));
+    let asn64521 = ext_node("0x6", "asn:64521", "ASN", Some(64_521));
+    let ixp = ext_node("0x7", "ixp:14", "IXP", None);
+    let saas = ext_node("0x8", "saas:github", "SaasTarget", None);
 
     let (client, _shared, task) = start_mock(MockExternalDgraph {
         edges: vec![
             topo_edge("0x10", "EGRESSES_TO", dev, asn10242.clone()),
-            // Horizon stores AS_REL_PROVIDER as provider -> customer (asn:174 -> asn:10242)
-            topo_edge("0x11", "AS_REL_PROVIDER", asn174.clone(), asn10242),
-            topo_edge("0x12", "AS_REL_PEER", asn174.clone(), asn15267.clone()),
-            topo_edge("0x13", "AS_REL_PEER", asn209, asn174),
-            topo_edge("0x14", "ANYCAST_SERVES", asn15267, saas),
+            // Horizon stores AS_REL_PROVIDER as provider -> customer (upstream -> downstream)
+            topo_edge("0x11", "AS_REL_PROVIDER", asn174.clone(), asn10242.clone()),
+            topo_edge("0x12", "AS_REL_PROVIDER", asn3356, asn174.clone()),
+            // Direct ISP (depth == 0) peers in both directions
+            topo_edge("0x13", "AS_REL_PEER", asn64520, asn10242.clone()),
+            topo_edge("0x14", "AS_REL_PEER", asn10242, asn64521),
+            // Upstream IXP & monitored SaaS targets stay reachable
+            topo_edge("0x15", "IXP_MEMBER", asn174.clone(), ixp),
+            topo_edge("0x16", "ANYCAST_SERVES", asn174, saas),
         ],
         ..Default::default()
     })
@@ -1226,18 +1260,102 @@ async fn egress_topology_traverses_upstream_provider_and_peer_edges_via_rev_dst(
     let ext_ids: BTreeSet<&str> = res.external_nodes.iter().map(|n| n.id.as_str()).collect();
     assert!(ext_ids.contains("asn:10242"));
     assert!(ext_ids.contains("asn:174"));
-    assert!(ext_ids.contains("asn:15267"));
-    assert!(ext_ids.contains("asn:209"));
+    assert!(ext_ids.contains("asn:3356"));
+    assert!(ext_ids.contains("asn:64520"));
+    assert!(ext_ids.contains("asn:64521"));
+    assert!(ext_ids.contains("ixp:14"));
     assert!(ext_ids.contains("saas:github"));
 
     assert!(res.edges.iter().any(|e| {
         e.kind == "AS_REL_PROVIDER" && e.src_id == "asn:174" && e.dst_id == "asn:10242"
     }));
+    assert!(res.edges.iter().any(|e| {
+        e.kind == "AS_REL_PROVIDER" && e.src_id == "asn:3356" && e.dst_id == "asn:174"
+    }));
+    assert!(res.edges.iter().any(|e| {
+        e.kind == "AS_REL_PEER" && e.src_id == "asn:64520" && e.dst_id == "asn:10242"
+    }));
+
+    task.abort();
+}
+
+#[tokio::test]
+async fn egress_topology_blocks_provider_customer_cones_and_caps_shallow_peers() {
+    let dev = json!({
+        "uid": "0x1",
+        "dgraph.type": ["Device"],
+        "device.id": "sr:tonka-gw",
+        "device.hostname": "unifi.tonka.carverauto.dev"
+    });
+    let asn10242 = ext_node("0x2", "asn:10242", "ASN", Some(10_242));
+    let asn174 = ext_node("0x3", "asn:174", "ASN", Some(174));
+    let downstream_customer = ext_node("0x4", "asn:99001", "ASN", Some(99_001));
+    let upstream_transitive_peer = ext_node("0x5", "asn:15267", "ASN", Some(15_267));
+    let upstream_rev_peer = ext_node("0x6", "asn:209", "ASN", Some(209));
+    let saas = ext_node("0x7", "saas:github", "SaasTarget", None);
+
+    let mut edges = vec![
+        topo_edge("0x10", "EGRESSES_TO", dev, asn10242.clone()),
+        topo_edge("0x11", "AS_REL_PROVIDER", asn174.clone(), asn10242.clone()),
+        // Downstream customer cone of asn:174 must NEVER be traversed
+        topo_edge(
+            "0x12",
+            "AS_REL_PROVIDER",
+            asn174.clone(),
+            downstream_customer,
+        ),
+        // Transitive peers of upstream asn:174 (depth >= 1) must NEVER explode
+        topo_edge(
+            "0x13",
+            "AS_REL_PEER",
+            asn174.clone(),
+            upstream_transitive_peer,
+        ),
+        topo_edge("0x14", "AS_REL_PEER", upstream_rev_peer, asn174.clone()),
+        topo_edge("0x15", "ANYCAST_SERVES", asn174, saas),
+    ];
+
+    // 10 shallow peers on asn:10242 (cap = 8), with one outage peer at the end of list
+    for idx in 0..9 {
+        let uid = format!("0x10{idx}");
+        let id = format!("asn:6460{idx}");
+        let peer = ext_node(&uid, &id, "ASN", Some(64_600 + i64::from(idx)));
+        let edge_uid = format!("0x20{idx}");
+        edges.push(topo_edge(&edge_uid, "AS_REL_PEER", asn10242.clone(), peer));
+    }
+    let mut outage_peer = ext_node("0x199", "asn:64699", "ASN", Some(64_699));
+    outage_peer["ext.outage_state"] = json!("outage");
+    edges.push(topo_edge("0x299", "AS_REL_PEER", asn10242, outage_peer));
+
+    let (client, _shared, task) = start_mock(MockExternalDgraph {
+        edges,
+        ..Default::default()
+    })
+    .await;
+
+    let res = client
+        .query_egress_topology(4, 200)
+        .await
+        .expect("egress topology");
+
+    let ext_ids: BTreeSet<&str> = res.external_nodes.iter().map(|n| n.id.as_str()).collect();
+    assert!(ext_ids.contains("asn:10242"));
+    assert!(ext_ids.contains("asn:174"));
+    assert!(ext_ids.contains("saas:github"));
     assert!(
-        res.edges
-            .iter()
-            .any(|e| { e.kind == "AS_REL_PEER" && e.src_id == "asn:209" && e.dst_id == "asn:174" })
+        !ext_ids.contains("asn:99001"),
+        "downstream customer cone leaked: {ext_ids:?}"
     );
+    assert!(
+        !ext_ids.contains("asn:15267") && !ext_ids.contains("asn:209"),
+        "transitive upstream peers leaked: {ext_ids:?}"
+    );
+    assert!(
+        ext_ids.contains("asn:64699"),
+        "outage peer must be prioritized under per-node peer cap: {ext_ids:?}"
+    );
+    let peer_count = res.edges.iter().filter(|e| e.kind == "AS_REL_PEER").count();
+    assert_eq!(peer_count, 8, "shallow peers must be capped at 8");
 
     task.abort();
 }

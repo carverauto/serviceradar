@@ -8,8 +8,11 @@ import {
   formatLossPct,
   formatPortSpeedMbps,
   formatRttUs,
+  horizonDeviceClusterKey,
   horizonEntityBadges,
   horizonInspectUrl,
+  horizonTierClusterKey,
+  selectVisibleHorizonLabels,
 } from "./horizon_egress_shared"
 import {godViewRenderingHorizonEgressMethods} from "./rendering_horizon_egress_methods"
 import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
@@ -23,6 +26,15 @@ import {decodeWorldTile} from "./world_tile_decode"
 import {worldTileIpc, worldTileKey} from "./fixtures/world_tile_ipc"
 
 vi.mock("../GodViewRenderer", () => ({default: class {}}))
+vi.mock("./topology_deck", () => ({
+  TopologyDeck: class {
+    constructor(props) {
+      this.props = props
+    }
+    setProps() {}
+    finalize() {}
+  },
+}))
 
 function sampleEgressPayload() {
   return {
@@ -428,7 +440,7 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
         {src_id: "asn:64512", dst_id: "198.51.100.0/24", kind: "ORIGIN_PREFIX", avg_rtt_us: null, loss_pct: null},
         // Duplicate ORIGIN_PREFIX edge should be deduplicated
         {src_id: "asn:64512", dst_id: "198.51.100.0/24", kind: "ORIGIN_PREFIX", avg_rtt_us: null, loss_pct: null},
-        {src_id: "asn:64512", dst_id: "asn:64513", kind: "AS_REL_PROVIDER", avg_rtt_us: null, loss_pct: null},
+        {src_id: "asn:64513", dst_id: "asn:64512", kind: "AS_REL_PROVIDER", avg_rtt_us: null, loss_pct: null},
         {src_id: "asn:64513", dst_id: "saas:github", kind: "ANYCAST_SERVES", avg_rtt_us: null, loss_pct: null},
       ],
     }
@@ -566,7 +578,7 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(details.classList.contains("hidden")).toBe(true)
   })
 
-  it("walks upstream AS_REL_PROVIDER (dst -> src) and bidirectional AS_REL_PEER with cycle protection", () => {
+  it("walks upstream AS_REL_PROVIDER (dst -> src) and shallow depth-1 AS_REL_PEER while blocking customer cones and transitive peers", () => {
     const internalNodes = [
       {id: "sr:tonka-gw", position: [200, 300, 0], details: {device_uid: "sr:tonka-gw"}},
     ]
@@ -576,7 +588,10 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
       egress_devices: [{id: "sr:tonka-gw", kind: "Device", label: "unifi.tonka.carverauto.dev", egress_source: "manual", port_speed_mbps: 1000}],
       external_nodes: [
         {id: "asn:10242", kind: "ASN", label: "US Internet Corp", asn: 10242, outage_state: "up"},
+        {id: "asn:64520", kind: "ASN", label: "Direct Peer", asn: 64520, outage_state: "up"},
         {id: "asn:174", kind: "ASN", label: "Cogent Communications, Inc.", asn: 174, outage_state: "up"},
+        {id: "asn:3356", kind: "ASN", label: "Lumen", asn: 3356, outage_state: "up"},
+        {id: "asn:99001", kind: "ASN", label: "Downstream School District", asn: 99001, outage_state: "up"},
         {id: "asn:15267", kind: "ASN", label: "702 Communications", asn: 15267, outage_state: "up"},
         {id: "asn:209", kind: "ASN", label: "CenturyLink", asn: 209, outage_state: "up"},
         {id: "ixp:14", kind: "IXP", label: "NYIIX", port_speed_mbps: 100000, outage_state: "up"},
@@ -584,24 +599,203 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
       ],
       edges: [
         {src_id: "sr:tonka-gw", dst_id: "asn:10242", kind: "EGRESSES_TO", egress_source: "manual", port_speed_mbps: 1000},
-        // provider -> customer orientation from Horizon
+        // provider -> customer orientation from Horizon (upstream)
         {src_id: "asn:174", dst_id: "asn:10242", kind: "AS_REL_PROVIDER"},
-        // bidirectional peers + cycle back to asn:174
+        {src_id: "asn:3356", dst_id: "asn:174", kind: "AS_REL_PROVIDER"},
+        // Direct ISP peer (depth 1 -> 2) is kept
+        {src_id: "asn:64520", dst_id: "asn:10242", kind: "AS_REL_PEER"},
+        // Downstream customer cone of asn:174 must NEVER be walked
+        {src_id: "asn:174", dst_id: "asn:99001", kind: "AS_REL_PROVIDER"},
+        // Transitive peers at depth >= 2 must NOT explode
         {src_id: "asn:174", dst_id: "asn:15267", kind: "AS_REL_PEER"},
         {src_id: "asn:209", dst_id: "asn:174", kind: "AS_REL_PEER"},
-        {src_id: "asn:15267", dst_id: "asn:174", kind: "AS_REL_PEER"},
+        // IXP / SaaS off upstream transit stay reachable
         {src_id: "asn:174", dst_id: "ixp:14", kind: "IXP_MEMBER"},
-        {src_id: "asn:15267", dst_id: "saas:github", kind: "ANYCAST_SERVES"},
+        {src_id: "asn:174", dst_id: "saas:github", kind: "ANYCAST_SERVES"},
       ],
     }
 
     const layout = buildHorizonEgressGraphLayout(payload, internalNodes, {mode: "cartesian"})
     expect(layout.nodes.find((n) => n.id === "asn:10242")?.hopDepth).toBe(1)
     expect(layout.nodes.find((n) => n.id === "asn:174")?.hopDepth).toBe(2)
-    expect(layout.nodes.find((n) => n.id === "asn:15267")?.hopDepth).toBe(3)
-    expect(layout.nodes.find((n) => n.id === "asn:209")?.hopDepth).toBe(3)
+    expect(layout.nodes.find((n) => n.id === "asn:64520")?.hopDepth).toBe(2)
+    expect(layout.nodes.find((n) => n.id === "asn:3356")?.hopDepth).toBe(3)
     expect(layout.nodes.find((n) => n.id === "ixp:14")?.hopDepth).toBe(3)
-    expect(layout.nodes.find((n) => n.id === "saas:github")?.hopDepth).toBe(4)
-    expect(layout.edges).toHaveLength(7)
+    expect(layout.nodes.find((n) => n.id === "saas:github")?.hopDepth).toBe(3)
+    expect(layout.nodes.find((n) => n.id === "asn:99001")).toBeUndefined()
+    expect(layout.nodes.find((n) => n.id === "asn:15267")).toBeUndefined()
+    expect(layout.nodes.find((n) => n.id === "asn:209")).toBeUndefined()
+    expect(layout.edges).toHaveLength(6)
+  })
+
+  it("consolidates zoomed-out external topology into expandable numbered cluster bubbles and caps sibling fans at 6", () => {
+    const internalNodes = [
+      {id: "sr:tonka-gw", position: [200, 300, 0], details: {device_uid: "sr:tonka-gw"}},
+    ]
+    const externalNodes = [
+      {id: "asn:10242", kind: "ASN", label: "US Internet Corp", asn: 10242, outage_state: "up"},
+      {id: "asn:174", kind: "ASN", label: "Cogent", asn: 174, outage_state: "up"},
+    ]
+    const edges = [
+      {src_id: "sr:tonka-gw", dst_id: "asn:10242", kind: "EGRESSES_TO", egress_source: "manual", port_speed_mbps: 1000},
+      {src_id: "asn:174", dst_id: "asn:10242", kind: "AS_REL_PROVIDER"},
+    ]
+    for (let i = 0; i < 8; i += 1) {
+      const id = `asn:6460${i}`
+      externalNodes.push({
+        id,
+        kind: "ASN",
+        label: `Peer ${i}`,
+        asn: 64600 + i,
+        outage_state: i === 7 ? "outage" : "up",
+      })
+      edges.push({src_id: "asn:10242", dst_id: id, kind: "AS_REL_PEER"})
+    }
+    const payload = {
+      max_hops: 4,
+      truncated: false,
+      egress_devices: [{id: "sr:tonka-gw", kind: "Device", label: "unifi.tonka.carverauto.dev", egress_source: "manual", port_speed_mbps: 1000}],
+      external_nodes: externalNodes,
+      edges,
+    }
+
+    // 1) Zoomed-out global/regional tier consolidates the whole cone into a single numbered cluster bubble
+    const globalLayout = buildHorizonEgressGraphLayout(payload, internalNodes, {
+      mode: "world",
+      zoomTier: "global",
+      worldOffset: 42,
+    })
+    expect(globalLayout.nodes).toHaveLength(1)
+    expect(globalLayout.nodes[0].isCluster).toBe(true)
+    expect(globalLayout.nodes[0].clusterCount).toBe(10)
+    expect(globalLayout.nodes[0].severity).toBe("outage")
+    expect(globalLayout.nodes[0].labelText).toContain("Internet (AS10242 · +9)")
+    expect(globalLayout.edges).toHaveLength(1)
+
+    // 2) Clicking the cluster expands it, while tier-2 sibling fan (9 nodes) caps at 6 + "+3 more" cluster bubble
+    const clusterKey = horizonDeviceClusterKey("sr:tonka-gw")
+    const expandedLayout = buildHorizonEgressGraphLayout(payload, internalNodes, {
+      mode: "world",
+      zoomTier: "global",
+      worldOffset: 42,
+      expandedClusters: [clusterKey],
+      maxNodesPerTier: 6,
+    })
+    const tier2Nodes = expandedLayout.nodes.filter((n) => n.hopDepth === 2)
+    expect(tier2Nodes).toHaveLength(7) // 6 top prioritized + 1 "+3 more" cluster bubble
+    expect(tier2Nodes.some((n) => n.id === "asn:64607")).toBe(true) // outage peer prioritized into top 6
+    const overflowBubble = tier2Nodes.find((n) => n.id === horizonTierClusterKey(2))
+    expect(overflowBubble?.isCluster).toBe(true)
+    expect(overflowBubble?.label).toBe("+3 more")
+
+    // 3) Clicking the "+3 more" tier cluster reveals all siblings
+    const fullyExpanded = buildHorizonEgressGraphLayout(payload, internalNodes, {
+      mode: "world",
+      zoomTier: "local",
+      worldOffset: 42,
+      expandedClusters: [clusterKey, horizonTierClusterKey(2)],
+      maxNodesPerTier: 6,
+    })
+    expect(fullyExpanded.nodes).toHaveLength(10)
+  })
+
+  it("culls overlapping labels cleanly (including negative zoom), respects auto zoomTier, handles smooth zoom, and mounts panel at bottom-left", async () => {
+    const overlappingNodes = [
+      {id: "asn:1", hopDepth: 1, position: [100, 100, 0], labelText: "AS1 · Primary ISP", severity: "healthy", interactionKey: "k1"},
+      {id: "asn:2", hopDepth: 2, position: [105, 102, 0], labelText: "AS2 · Overlapping Peer", severity: "neutral", interactionKey: "k2"},
+      {id: "asn:3", hopDepth: 2, position: [300, 100, 0], labelText: "AS3 · Outage Transit", severity: "outage", interactionKey: "k3"},
+      {id: "asn:5", hopDepth: 1, position: [305, 102, 0], labelText: "AS5 · Healthy Neighbor", severity: "healthy", interactionKey: "k5"},
+      {id: "asn:4", hopDepth: 3, position: [560, 100, 0], labelText: "AS4 · Far Transit", severity: "neutral", interactionKey: "k4"},
+    ]
+
+    const visible = selectVisibleHorizonLabels(overlappingNodes, {
+      mode: "world",
+      zoomTier: "local",
+      zoom: 0,
+      hoveredKey: "k2",
+    })
+    const visibleIds = visible.map((n) => n.id)
+    // Focused hovered node (k2) beats healthy hop-1 (k1); outage node (k3) beats healthy hop-1 (k5); distant node (k4) stays visible
+    expect(visibleIds).toContain("asn:2")
+    expect(visibleIds).toContain("asn:3")
+    expect(visibleIds).toContain("asn:4")
+    expect(visibleIds).not.toContain("asn:1")
+    expect(visibleIds).not.toContain("asn:5")
+
+    // Negative zoom (-2 => worldPerPx = 4) scales collision boxes in both cartesian and world modes
+    const cartesianZoomOut = selectVisibleHorizonLabels(
+      [
+        {id: "asn:a", hopDepth: 1, position: [0, 0, 0], labelText: "AS100 · Alpha", severity: "healthy", interactionKey: "ka"},
+        {id: "asn:b", hopDepth: 1, position: [250, 0, 0], labelText: "AS200 · Beta", severity: "neutral", interactionKey: "kb"},
+      ],
+      {mode: "cartesian", zoomTier: "local", zoom: -2},
+    )
+    expect(cartesianZoomOut.map((n) => n.id)).toEqual(["asn:a"])
+
+    // GodViewRenderer auto zoomMode resolves state.zoomTier ("global") into cluster consolidation
+    const autoState = {
+      zoomMode: "auto",
+      zoomTier: "global",
+      topologyLayers: {horizon_egress: true},
+      horizonEgressData: sampleEgressPayload(),
+      selectedHorizonEntity: null,
+      hoveredHorizonKey: null,
+      animationPhase: 0,
+      visual: visualForTheme("dark"),
+    }
+    const autoCtx = createStateBackedContext(autoState, {})
+    Object.assign(autoCtx, bindApi(autoCtx, godViewRenderingHorizonEgressMethods))
+    expect(autoCtx.horizonEgressZoomTier()).toBe("global")
+    const autoData = autoCtx.buildHorizonEgressRenderData([
+      {id: "sr:edge-rtr-01", position: [120, 200, 0], details: {device_uid: "sr:edge-rtr-01"}},
+    ])
+    expect(autoData.nodes).toHaveLength(1)
+    expect(autoData.nodes[0].isCluster).toBe(true)
+    expect(autoData.nodes[0].labelText).toContain("Internet (198.51.100.0/24 · +2)")
+
+    // Mount real WorldMapRenderer DOM and verify bottom-left panel placement + smooth-zoom render trigger + cluster pick
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      const el = document.createElement("div")
+      const renderer = new WorldMapRenderer(el, vi.fn(), vi.fn())
+      renderer.poll = vi.fn().mockResolvedValue(undefined)
+      await renderer.mount()
+
+      expect(renderer.horizonEgressPanel.className).toContain("bottom-10")
+      expect(renderer.horizonEgressPanel.className).toContain("left-3")
+      expect(renderer.horizonEgressPanel.className).not.toContain("right-3")
+
+      const renderSpy = vi.spyOn(renderer, "render").mockImplementation(() => {
+        renderer.lastHorizonRenderZoom = Number(renderer.viewState?.zoom ?? 0)
+      })
+      renderer.horizonEgressEnabled = true
+      renderer.viewState = {target: [256, 256, 0], zoom: 0}
+      renderer.lastHorizonRenderZoom = 0
+
+      // Smooth zoom increments < 0.25 accumulate against lastHorizonRenderZoom until crossing >= 0.25
+      renderer.setView({target: [256, 256, 0], zoom: 0.1})
+      expect(renderSpy).not.toHaveBeenCalled()
+      renderer.setView({target: [256, 256, 0], zoom: 0.2})
+      expect(renderSpy).not.toHaveBeenCalled()
+      renderer.setView({target: [256, 256, 0], zoom: 0.3})
+      expect(renderSpy).toHaveBeenCalledTimes(1)
+      expect(renderer.lastHorizonRenderZoom).toBe(0.3)
+
+      // Clicking a Horizon cluster bubble toggles expansion and dismisses any stale popup panel
+      const clusterKey = horizonDeviceClusterKey("sr:edge-rtr-01")
+      renderer.panel.hidden = false
+      await renderer.pick({
+        layer: {id: "world-horizon-egress-nodes"},
+        object: {isCluster: true, clusterKey, interactionKey: "horizon-node:cluster"},
+      })
+      expect(renderer.expandedHorizonClusters.has(clusterKey)).toBe(true)
+      expect(renderer.panel.hidden).toBe(true)
+      renderer.destroy()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
