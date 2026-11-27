@@ -118,6 +118,7 @@ What changed:
 ### Dropping the table
 
 Done in `20261127090000_drop_edge_sweep_projected_rows.exs`, as a drop plus an empty stub.
+The migration runs on top of the committed baseline.
 
 A plain `DROP TABLE` is unsafe for an installation that upgrades from a release older
 than #7096 straight to the drop release: migrations run first, its old-projector cores
@@ -132,11 +133,6 @@ stub. Drop it in a later release that enforces a minimum upgrade version at or a
 
 Operator decision (2026-11-27): drop the table as soon as this change is rolled out
 everywhere, not after a retention horizon. Nothing reads the rows, so waiting buys nothing.
-
-The drop ships in `20261127090000_drop_edge_sweep_projected_rows.exs` as the drop plus
-the `UNLOGGED` stub above, and it is safe without waiting for a rollout of #7096. The
-migration runs on top of the committed baseline. The remaining step is a later release
-that enforces a minimum upgrade version at or after #7096 and drops the stub.
 
 On demo the drop frees about 13 GB (7.4 GB heap, 5.9 GB primary key, plus the
 `inserted_at` index).
