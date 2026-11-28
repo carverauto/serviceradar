@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.HorizonProxy.Upstream do
 
   import Bitwise
 
+  alias Palisade.NetworkAddressPolicy
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -304,10 +305,7 @@ defmodule ServiceRadarWebNG.HorizonProxy.Upstream do
     forbidden_ip?({high >>> 8, high &&& 0xFF, low >>> 8, low &&& 0xFF})
   end
 
-  defp in_ipv4_cidr?({a, b, c, d}, {ba, bb, bc, bd}, bits) do
-    mask = bnot((1 <<< (32 - bits)) - 1) &&& 0xFFFFFFFF
-    ip_int = (a <<< 24) + (b <<< 16) + (c <<< 8) + d
-    base_int = (ba <<< 24) + (bb <<< 16) + (bc <<< 8) + bd
-    (ip_int &&& mask) == (base_int &&& mask)
+  defp in_ipv4_cidr?(ip, base, bits) when is_tuple(ip) and is_tuple(base) and is_integer(bits) and bits >= 0 do
+    NetworkAddressPolicy.cidr_contains?(ip, "#{:inet.ntoa(base)}/#{bits}")
   end
 end

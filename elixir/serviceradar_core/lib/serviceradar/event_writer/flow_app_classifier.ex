@@ -19,6 +19,7 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
   specificity (count of non-NULL match fields) `DESC`, then `id ASC`.
   """
 
+  alias Palisade.NetworkAddressPolicy
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.NetflowAppClassificationRule
 
@@ -232,38 +233,30 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
     end
   end
 
-  # CIDR containment in pure stdlib: both addresses parse to the same family,
-  # and the IP masked by the rule's prefix equals the network address. This is
   # Postgres `inet <<= cidr` for the string form the Ash Cidr type hands us
-  # ("2001:db8::/32").
-  defp contains?(cidr_string, ip_string) do
-    with {:ok, net, mask} <- parse_cidr(cidr_string),
-         {:ok, ip} <- parse_address(ip_string),
-         :same_family <- family(net, ip) do
-      mask_address(ip, mask) == mask_address(net, mask)
+  # ("2001:db8::/32"). A bare address is a host route.
+  defp contains?(cidr_string, ip_string) when is_binary(cidr_string) and is_binary(ip_string) do
+    with {:ok, ip} <- parse_address(ip_string),
+         {:ok, cidr} <- cidr_with_prefix(cidr_string) do
+      NetworkAddressPolicy.cidr_contains?(ip, cidr)
     else
       _ -> false
     end
   end
 
-  defp parse_cidr(value) do
-    case String.split(value, "/", parts: 2) do
-      [address, mask] ->
-        with {:ok, ip} <- parse_address(address),
-             {mask, ""} <- Integer.parse(mask) do
-          {:ok, ip, mask}
-        else
-          _ -> :error
-        end
+  defp contains?(_cidr_string, _ip_string), do: false
 
-      [address] ->
-        case parse_address(address) do
-          {:ok, ip} -> {:ok, ip, family_bits(ip)}
-          _ -> :error
-        end
+  defp cidr_with_prefix(value) do
+    trimmed = String.trim(value)
 
-      _ ->
-        :error
+    if String.contains?(trimmed, "/") do
+      {:ok, trimmed}
+    else
+      case parse_address(trimmed) do
+        {:ok, {_, _, _, _}} -> {:ok, trimmed <> "/32"}
+        {:ok, {_, _, _, _, _, _, _, _}} -> {:ok, trimmed <> "/128"}
+        _ -> :error
+      end
     end
   end
 
@@ -272,35 +265,6 @@ defmodule ServiceRadar.EventWriter.FlowAppClassifier do
       {:ok, ip} -> {:ok, ip}
       {:error, _} -> :error
     end
-  end
-
-  defp family({_, _, _, _}, {_, _, _, _}), do: :same_family
-  defp family({_, _, _, _, _, _, _, _}, {_, _, _, _, _, _, _, _}), do: :same_family
-  defp family(_, _), do: :different
-
-  defp family_bits({_, _, _, _}), do: 32
-  defp family_bits({_, _, _, _, _, _, _, _}), do: 128
-
-  defp mask_address({a, b, c, d}, mask) when mask >= 0 and mask <= 32 do
-    bits = <<a, b, c, d>>
-    <<masked::binary-size(4)>> = mask_bits(bits, mask)
-    <<wa, wb, wc, wd>> = masked
-    {wa, wb, wc, wd}
-  end
-
-  defp mask_address({a, b, c, d, e, f, g, h}, mask) when mask >= 0 and mask <= 128 do
-    bits = <<a::16, b::16, c::16, d::16, e::16, f::16, g::16, h::16>>
-    <<masked::binary-size(16)>> = mask_bits(bits, mask)
-    <<wa::16, wb::16, wc::16, wd::16, we::16, wf::16, wg::16, wh::16>> = masked
-    {wa, wb, wc, wd, we, wf, wg, wh}
-  end
-
-  defp mask_bits(bits, mask) do
-    total = byte_size(bits) * 8
-
-    <<kept::bitstring-size(mask), _rest::bitstring>> = bits
-    padding = total - mask
-    <<kept::bitstring, 0::size(padding)>>
   end
 
   defp parse_int(value) when is_integer(value), do: value

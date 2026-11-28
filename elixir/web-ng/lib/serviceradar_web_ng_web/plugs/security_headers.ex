@@ -45,6 +45,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeaders do
 
   import Plug.Conn
 
+  alias Palisade.Plug.SecurityHeaders, as: PalisadeHeaders
+
   @default_permissions_policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), fullscreen=(self), display-capture=()"
   @default_hsts_max_age 63_072_000
 
@@ -55,8 +57,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeaders do
   def call(conn, opts) do
     runtime = Application.get_env(:serviceradar_web_ng, __MODULE__, [])
     opts = Keyword.merge(opts, runtime)
+    headers = palisade_headers(opts)
 
-    register_before_send(conn, &apply_headers(&1, opts))
+    register_before_send(conn, &apply_headers(&1, opts, headers))
   end
 
   # Websocket upgrades (`WebSockAdapter.upgrade/4`, e.g. the camera relay
@@ -66,38 +69,33 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeaders do
   # `Plug.Conn.AlreadySentError`, turning every websocket upgrade in a
   # pipeline with this plug into a 500. Skip: an upgraded (or already-sent)
   # response has no browser document left to protect.
-  defp apply_headers(%Plug.Conn{state: state} = conn, _opts) when state in [:sent, :upgraded] do
+  defp apply_headers(%Plug.Conn{state: state} = conn, _opts, _headers) when state in [:sent, :upgraded] do
     conn
   end
 
-  defp apply_headers(conn, opts) do
+  defp apply_headers(conn, opts, headers) do
     conn
-    |> put_hsts(opts)
-    |> put_permissions_policy(opts)
+    |> PalisadeHeaders.call(headers)
     |> apply_csp_mode(opts)
   end
 
-  defp put_hsts(conn, opts) do
-    if conn.scheme == :https do
-      max_age = Keyword.get(opts, :hsts_max_age, @default_hsts_max_age)
-      include_subdomains = Keyword.get(opts, :hsts_include_subdomains, true)
-      preload = Keyword.get(opts, :hsts_preload, false)
-
-      value =
-        ["max-age=#{max_age}"]
-        |> append_if(include_subdomains, "includeSubDomains")
-        |> append_if(preload, "preload")
-        |> Enum.join("; ")
-
-      put_resp_header(conn, "strict-transport-security", value)
-    else
-      conn
-    end
-  end
-
-  defp put_permissions_policy(conn, opts) do
-    policy = Keyword.get(opts, :permissions_policy, @default_permissions_policy)
-    put_resp_header(conn, "permissions-policy", policy)
+  # HSTS and Permissions-Policy come from palisade. CSP stays here: the router
+  # already set a product policy (map tiles, and so on) and this plug only
+  # appends `report-uri` or moves that policy to report-only. Palisade's own
+  # referrer, content-type and frame headers are left off so Phoenix's
+  # `put_secure_browser_headers/2` remains the source for those.
+  defp palisade_headers(opts) do
+    PalisadeHeaders.init(
+      content_security_policy: false,
+      referrer_policy: false,
+      content_type_options: false,
+      frame_options: false,
+      hsts: :https,
+      hsts_max_age: Keyword.get(opts, :hsts_max_age, @default_hsts_max_age),
+      hsts_include_subdomains: Keyword.get(opts, :hsts_include_subdomains, true),
+      hsts_preload: Keyword.get(opts, :hsts_preload, false),
+      permissions_policy: Keyword.get(opts, :permissions_policy, @default_permissions_policy)
+    )
   end
 
   defp apply_csp_mode(conn, opts) do
@@ -132,7 +130,4 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeaders do
       String.trim_trailing(csp, ";") <> "; report-uri " <> uri
     end
   end
-
-  defp append_if(parts, true, value), do: parts ++ [value]
-  defp append_if(parts, _, _), do: parts
 end

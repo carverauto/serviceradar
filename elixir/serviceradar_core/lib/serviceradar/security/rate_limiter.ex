@@ -28,6 +28,8 @@ defmodule ServiceRadar.Security.RateLimiter do
   size — acceptable for rate-limit and lockout purposes.
   """
 
+  @behaviour Palisade.RateLimit
+
   use GenServer
 
   require Logger
@@ -52,6 +54,7 @@ defmodule ServiceRadar.Security.RateLimiter do
     oauth_password_grant: [limit: 10, window_seconds: 60],
     oauth_client_credentials: [limit: 20, window_seconds: 60],
     oauth_authorize: [limit: 30, window_seconds: 60],
+    ## Client API
     oauth_authorization_code: [limit: 30, window_seconds: 60],
     mcp: [limit: 60, window_seconds: 60],
     remote_access_ssh_certificate_issue: [limit: 10, window_seconds: 60],
@@ -62,8 +65,6 @@ defmodule ServiceRadar.Security.RateLimiter do
   @type bucket :: atom() | binary()
   @type subject_key :: term()
   @type opts :: [limit: pos_integer(), window_seconds: pos_integer()]
-
-  ## Client API
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -107,6 +108,31 @@ defmodule ServiceRadar.Security.RateLimiter do
     {limit, window} = resolve_bucket(bucket, opts)
     GenServer.call(__MODULE__, {:check_and_record, bucket, key, limit, window})
   end
+
+  @doc """
+  `Palisade.RateLimit` callback.
+
+  `Palisade.Plug.RateLimit` passes `key` as `{bucket, subject}`. This
+  limiter stores whole seconds, so `window_ms` is truncated to seconds
+  (minimum 1). A key this module cannot track is denied.
+  """
+  @impl Palisade.RateLimit
+  @spec check(Palisade.RateLimit.key(), pos_integer(), pos_integer(), keyword()) ::
+          Palisade.RateLimit.result()
+  def check({bucket, subject}, limit, window_ms, _opts)
+      when is_integer(limit) and limit > 0 and is_integer(window_ms) and window_ms > 0 do
+    window = max(1, div(window_ms, 1000))
+
+    case check_and_record(bucket, subject, limit: limit, window_seconds: window) do
+      :ok ->
+        {:allow, requests_remaining({bucket, subject}, limit, window), window_ms}
+
+      {:error, retry_after} when is_integer(retry_after) and retry_after > 0 ->
+        {:deny, retry_after * 1000}
+    end
+  end
+
+  def check(_key, _limit, _window_ms, _opts), do: {:deny, 1_000}
 
   @doc """
   Clears a bucket/key combination locally and on peers.
@@ -247,6 +273,8 @@ defmodule ServiceRadar.Security.RateLimiter do
     {:reply, {:ok, snapshot}, state}
   end
 
+  ## Private
+
   @impl true
   def handle_cast({:peer_record, bucket, key, ts, window}, state) do
     write_attempt(bucket, key, ts, window)
@@ -290,7 +318,21 @@ defmodule ServiceRadar.Security.RateLimiter do
 
   def handle_info(_, state), do: {:noreply, state}
 
-  ## Private
+  # check_and_record has already counted this request. An empty table means
+  # the write was not visible yet; charge one so the header cannot claim a
+  # full budget for a request that was just allowed.
+  defp requests_remaining(cache_key, limit, window) do
+    now = System.system_time(:second)
+
+    case :ets.lookup(__table__(), cache_key) do
+      [{^cache_key, attempts}] ->
+        in_window = Enum.count(attempts, &(&1 >= now - window))
+        max(0, limit - in_window)
+
+      [] ->
+        max(0, limit - 1)
+    end
+  end
 
   defp do_check(bucket, key, limit, window, now \\ nil) do
     now = now || System.system_time(:second)

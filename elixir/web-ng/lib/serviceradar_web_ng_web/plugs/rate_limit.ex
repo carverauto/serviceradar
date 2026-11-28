@@ -45,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
 
   import Plug.Conn
 
+  alias Palisade.Plug.RateLimit, as: PalisadeRateLimit
   alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNGWeb.ClientIP
@@ -87,22 +88,30 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
 
   @impl true
   def call(conn, %{bucket: bucket, subject: subject_kind} = config) do
-    subject_key = derive_subject_key(conn, subject_kind)
     opts = build_opts(config)
     {limit, window} = RateLimiter.resolve_bucket(bucket, opts)
 
-    case RateLimiter.check_and_record(bucket, subject_key, opts) do
-      :ok ->
-        put_rate_limit_headers(conn, limit, remaining(bucket, subject_key, limit, window), window)
+    palisade =
+      PalisadeRateLimit.init(
+        bucket: bucket,
+        limit: limit,
+        window_ms: window * 1_000,
+        key: subject_fun(subject_kind),
+        backend: RateLimiter,
+        on_deny: fn denied, retry_after ->
+          emit_denied(denied, bucket, derive_subject_key(denied, subject_kind), retry_after)
+          respond_denied(denied, retry_after, config)
+        end
+      )
 
-      {:error, retry_after} ->
-        emit_denied(conn, bucket, subject_key, retry_after)
+    PalisadeRateLimit.call(conn, palisade)
+  end
 
-        conn
-        |> put_rate_limit_headers(limit, 0, window)
-        |> put_resp_header("retry-after", Integer.to_string(retry_after))
-        |> respond_denied(retry_after, config)
-        |> halt()
+  defp subject_fun(:ip), do: &client_ip/1
+
+  defp subject_fun(:ip_and_actor) do
+    fn conn ->
+      {client_ip(conn), current_actor_id(conn) || :anonymous}
     end
   end
 
@@ -218,31 +227,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.RateLimit do
       %{current_user: %{id: id}} -> id
       %{current_scope: %{user: %{id: id}}} -> id
       _ -> nil
-    end
-  end
-
-  ## Header helpers
-
-  defp put_rate_limit_headers(conn, limit, remaining, window) do
-    reset_at = System.system_time(:second) + window
-
-    conn
-    |> put_resp_header("x-ratelimit-limit", Integer.to_string(limit))
-    |> put_resp_header("x-ratelimit-remaining", Integer.to_string(max(0, remaining)))
-    |> put_resp_header("x-ratelimit-reset", Integer.to_string(reset_at))
-  end
-
-  defp remaining(bucket, subject_key, limit, window) do
-    # check_and_record has already counted this request — the remaining
-    # count below reflects the post-decrement state.
-    case :ets.lookup(RateLimiter.__table__(), {bucket, subject_key}) do
-      [{_, attempts}] ->
-        now = System.system_time(:second)
-        in_window = Enum.count(attempts, &(&1 >= now - window))
-        max(0, limit - in_window)
-
-      [] ->
-        max(0, limit - 1)
     end
   end
 

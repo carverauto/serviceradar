@@ -15,7 +15,7 @@ defmodule Palisade.NetworkAddressPolicy do
       IPv4 address is disallowed.
     * Hostnames: `localhost`, `localhost.localdomain`, any
       `*.local` (mDNS).
-    * DNS that resolves to ANY private/loopback address — even a
+    * DNS that resolves to ANY private/loopback address - even a
       single resolved address in the private range rejects the
       whole host. Closes the "DNS rebinding" attack where a
       public-looking host returns a 1-second-TTL private IP at
@@ -23,7 +23,12 @@ defmodule Palisade.NetworkAddressPolicy do
 
   `cidr_contains?/2` and `ip_in_any_cidr?/2` match an address against
   caller-supplied CIDRs, for callers that keep their own allow or deny
-  lists.
+  lists (trusted proxies, scan scopes). An IPv4-mapped IPv6 address
+  (`::ffff:10.0.0.5`) matches the IPv4 CIDRs its embedded address falls
+  in, and an IPv4 CIDR written in mapped form (`::ffff:10.0.0.0/104`)
+  matches plain IPv4 addresses. A plain IPv4 address does not match a
+  native IPv6 CIDR such as `::/0`. Malformed addresses and CIDRs never
+  match.
   """
 
   import Bitwise
@@ -85,17 +90,36 @@ defmodule Palisade.NetworkAddressPolicy do
   def private_or_loopback_ip?({_, _, _, _, _, _, _, _} = ip), do: private_or_loopback_ipv6?(ip)
   def private_or_loopback_ip?(_ip), do: true
 
-  @spec ip_in_any_cidr?(tuple(), [String.t()]) :: boolean()
+  @doc """
+  Returns true when `ip` lies inside any of `cidrs`.
+
+  `ip` is an `:inet` address tuple. Each CIDR is a string such as
+  `"10.0.0.0/8"` or `"fd00::/8"`; malformed entries are skipped.
+
+      iex> Palisade.NetworkAddressPolicy.ip_in_any_cidr?({0, 0, 0, 0, 0, 0xFFFF, 0x0A00, 5}, ["10.0.0.0/8"])
+      true
+  """
+  @spec ip_in_any_cidr?(:inet.ip_address(), [String.t()]) :: boolean()
   def ip_in_any_cidr?(ip, cidrs) when is_list(cidrs) do
     Enum.any?(cidrs, &cidr_contains?(ip, &1))
   end
 
-  @spec cidr_contains?(tuple(), String.t()) :: boolean()
-  def cidr_contains?(ip, cidr) when is_binary(cidr) do
-    with {:ok, {base, bits, size_bits}} <- parse_cidr(cidr),
-         true <- tuple_size(ip) == tuple_size(base) do
-      mask = cidr_mask(size_bits, bits)
-      (ip_to_int(ip) &&& mask) == (ip_to_int(base) &&& mask)
+  def ip_in_any_cidr?(_ip, _cidrs), do: false
+
+  @doc """
+  Returns true when `ip` lies inside `cidr`.
+
+  See the module documentation for how IPv4-mapped IPv6 addresses are
+  matched. Returns false for a malformed address or CIDR, and for a
+  prefix length outside the address family's range.
+  """
+  @spec cidr_contains?(:inet.ip_address(), String.t()) :: boolean()
+  def cidr_contains?(ip, cidr) when is_tuple(ip) and is_binary(cidr) do
+    with true <- valid_ip?(ip),
+         {:ok, {base, bits}} <- parse_cidr(cidr) do
+      ip
+      |> match_forms()
+      |> Enum.any?(&prefix_match?(&1, base, bits))
     else
       _ -> false
     end
@@ -166,20 +190,45 @@ defmodule Palisade.NetworkAddressPolicy do
   defp private_or_loopback_ipv6?(_ip), do: false
 
   defp parse_cidr(cidr) do
-    case String.split(String.trim(cidr), "/", parts: 2) do
-      [ip_text, bits_text] ->
-        with {:ok, ip} <- :inet.parse_address(String.to_charlist(ip_text)),
-             {bits, ""} <- Integer.parse(bits_text),
-             size_bits = ip_size_bits(ip),
-             true <- bits >= 0 and bits <= size_bits do
-          {:ok, {ip, bits, size_bits}}
-        else
-          _ -> {:error, :invalid_cidr}
-        end
-
-      _ ->
-        {:error, :invalid_cidr}
+    with [ip_text, bits_text] <- String.split(String.trim(cidr), "/", parts: 2),
+         {:ok, ip} <- :inet.parse_address(String.to_charlist(ip_text)),
+         {bits, ""} <- Integer.parse(bits_text),
+         true <- bits >= 0 and bits <= ip_size_bits(ip) do
+      {:ok, normalize_mapped_cidr(ip, bits)}
+    else
+      _ -> {:error, :invalid_cidr}
     end
+  end
+
+  # `::ffff:a.b.c.d/n` with n >= 96 describes an IPv4 range; compare it as one.
+  defp normalize_mapped_cidr({0, 0, 0, 0, 0, 0xFFFF, _, _} = ip, bits) when bits >= 96,
+    do: {embedded_ipv4(ip), bits - 96}
+
+  defp normalize_mapped_cidr(ip, bits), do: {ip, bits}
+
+  # An IPv4-mapped IPv6 address is compared both as itself and as the IPv4
+  # address it carries, so it matches IPv6 and IPv4 CIDRs alike.
+  defp match_forms({0, 0, 0, 0, 0, 0xFFFF, _, _} = ip), do: [ip, embedded_ipv4(ip)]
+  defp match_forms(ip), do: [ip]
+
+  defp embedded_ipv4({0, 0, 0, 0, 0, 0xFFFF, high, low}),
+    do: {high >>> 8, high &&& 0xFF, low >>> 8, low &&& 0xFF}
+
+  defp prefix_match?(ip, base, bits) when tuple_size(ip) == tuple_size(base) do
+    mask = cidr_mask(ip_size_bits(ip), bits)
+    (ip_to_int(ip) &&& mask) == (ip_to_int(base) &&& mask)
+  end
+
+  defp prefix_match?(_ip, _base, _bits), do: false
+
+  defp valid_ip?({_, _, _, _} = ip), do: valid_parts?(ip, 255)
+  defp valid_ip?({_, _, _, _, _, _, _, _} = ip), do: valid_parts?(ip, 0xFFFF)
+  defp valid_ip?(_ip), do: false
+
+  defp valid_parts?(ip, max) do
+    ip
+    |> Tuple.to_list()
+    |> Enum.all?(&(is_integer(&1) and &1 >= 0 and &1 <= max))
   end
 
   defp ip_size_bits({_a, _b, _c, _d}), do: 32
