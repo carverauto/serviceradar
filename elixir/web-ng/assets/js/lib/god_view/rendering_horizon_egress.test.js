@@ -345,7 +345,7 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(details.innerHTML).toContain("data-horizon-href")
   })
 
-  it("caches and replays god_view:horizon_egress_data in WorldMapRenderer and renders World-mode panel & layers", () => {
+  it("caches and replays god_view:horizon_egress_data in WorldMapRenderer and toggles native WorldTileLayer external layer", () => {
     const handlers = {}
     const detailHandlers = new Map()
     const el = document.createElement("div")
@@ -382,6 +382,7 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(renderer.sceneControls.get("god_view:horizon_egress_data")).toEqual(payload)
     expect(layersSpy).toHaveBeenCalledWith({layers: {horizon_egress: true}})
     expect(egressSpy).toHaveBeenCalledWith(payload)
+    expect(renderer.cache.externalLayer).toBe(true)
     expect(renderer.horizonEgressPanel.hidden).toBe(false)
     expect(renderer.horizonEgressPanel.textContent).toContain("Internet Egress / Horizon")
     expect(renderer.horizonEgressPanel.textContent).toContain("edge-rtr-01")
@@ -390,12 +391,17 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(renderer.horizonEgressPanel.textContent).toContain("2 alerts")
     expect(renderer.horizonEgressPanel.innerHTML).toContain("/dashboards/horizon#tab=bgp_sankey")
 
+    // Native WorldTileLayer owns rendering — no parallel world-horizon-egress-* overlay layers.
     const lastCall = renderer.deck.setProps.mock.calls.at(-1)[0]
-    expect(lastCall.layers.some((l) => l.id === "world-horizon-egress-edges")).toBe(true)
-    expect(lastCall.layers.some((l) => l.id === "world-horizon-egress-nodes")).toBe(true)
-    expect(lastCall.layers.some((l) => l.id === "world-horizon-egress-labels")).toBe(true)
+    expect(lastCall.layers).toHaveLength(1)
+    expect(lastCall.layers[0].props.horizonSeverityById?.get("asn:64512")).toBe("outage")
 
-    // Unmeasured edges must not display fake RTT 0us or loss 0.0% in World tooltip or selection panel.
+    // Hovering and picking a native external device glyph resolves metadata & Horizon drill-down.
+    const asnTip = renderer.worldTooltip({object: {id: "asn:64512", kind: "device", label: "Example Transit"}})
+    expect(asnTip.text).toContain("AS64512 · Example Transit")
+    expect(asnTip.text).toContain("[OUTAGE]")
+
+    // Unmeasured edges must not display fake RTT 0us or loss 0.0% in selection panel.
     const unmeasuredEdge = {
       horizonEntityType: "edge",
       src_id: "sr:edge-rtr-01",
@@ -404,19 +410,14 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
       avg_rtt_us: null,
       loss_pct: null,
     }
-    const worldEdgeTip = renderer.worldTooltip({
-      layer: {id: "world-horizon-egress-edges"},
-      object: unmeasuredEdge,
-    })
-    expect(worldEdgeTip.text).toBe("EGRESSES_TO: sr:edge-rtr-01 → 198.51.100.0/24")
-
     renderer.showHorizonEgressSelection(unmeasuredEdge)
     expect(renderer.panel.hidden).toBe(false)
     expect(renderer.panel.textContent).not.toContain("0us")
     expect(renderer.panel.textContent).not.toContain("0.0%")
 
-    // Toggling horizon_egress off must dismiss an active Horizon selection panel.
+    // Toggling horizon_egress off resets externalLayer and dismisses active Horizon selection panel.
     renderer.setSceneControl("god_view:set_topology_layers", {layers: {horizon_egress: false}})
+    expect(renderer.cache.externalLayer).toBe(false)
     expect(renderer.panel.hidden).toBe(true)
     expect(renderer.horizonEgressPanel.hidden).toBe(true)
   })
@@ -753,7 +754,7 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
     expect(autoData.nodes[0].isCluster).toBe(true)
     expect(autoData.nodes[0].labelText).toContain("Internet (198.51.100.0/24 · +2)")
 
-    // Mount real WorldMapRenderer DOM and verify bottom-left panel placement + smooth-zoom render trigger + cluster pick
+    // Mount real WorldMapRenderer DOM and verify bottom-left panel placement + native external device pick
     vi.stubGlobal("ResizeObserver", class {
       observe() {}
       disconnect() {}
@@ -768,31 +769,17 @@ describe("horizon_egress_shared & rendering_horizon_egress_methods", () => {
       expect(renderer.horizonEgressPanel.className).toContain("left-3")
       expect(renderer.horizonEgressPanel.className).not.toContain("right-3")
 
-      const renderSpy = vi.spyOn(renderer, "render").mockImplementation(() => {
-        renderer.lastHorizonRenderZoom = Number(renderer.viewState?.zoom ?? 0)
-      })
-      renderer.horizonEgressEnabled = true
-      renderer.viewState = {target: [256, 256, 0], zoom: 0}
-      renderer.lastHorizonRenderZoom = 0
+      renderer.setSceneControl("god_view:set_topology_layers", {layers: {horizon_egress: true}})
+      renderer.setSceneControl("god_view:horizon_egress_data", sampleEgressPayload())
 
-      // Smooth zoom increments < 0.25 accumulate against lastHorizonRenderZoom until crossing >= 0.25
-      renderer.setView({target: [256, 256, 0], zoom: 0.1})
-      expect(renderSpy).not.toHaveBeenCalled()
-      renderer.setView({target: [256, 256, 0], zoom: 0.2})
-      expect(renderSpy).not.toHaveBeenCalled()
-      renderer.setView({target: [256, 256, 0], zoom: 0.3})
-      expect(renderSpy).toHaveBeenCalledTimes(1)
-      expect(renderer.lastHorizonRenderZoom).toBe(0.3)
-
-      // Clicking a Horizon cluster bubble toggles expansion and dismisses any stale popup panel
-      const clusterKey = horizonDeviceClusterKey("sr:edge-rtr-01")
-      renderer.panel.hidden = false
+      // Picking a native external device glyph in WorldTileLayer opens Horizon inspection panel
       await renderer.pick({
-        layer: {id: "world-horizon-egress-nodes"},
-        object: {isCluster: true, clusterKey, interactionKey: "horizon-node:cluster"},
+        sourceTile: {content: {key: worldTileKey, generation: 1, revision: "a".repeat(64)}},
+        object: {id: "asn:64512", kind: "device", label: "Example Transit"},
       })
-      expect(renderer.expandedHorizonClusters.has(clusterKey)).toBe(true)
-      expect(renderer.panel.hidden).toBe(true)
+      expect(renderer.panel.hidden).toBe(false)
+      expect(renderer.panel.textContent).toContain("AS64512 · Example Transit")
+      expect(renderer.panel.innerHTML).toContain("/dashboards/horizon#tab=bgp_sankey&amp;origin_asn=64512")
       renderer.destroy()
     } finally {
       vi.unstubAllGlobals()

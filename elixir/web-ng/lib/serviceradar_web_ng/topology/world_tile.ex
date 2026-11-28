@@ -31,6 +31,8 @@ defmodule ServiceRadarWebNG.Topology.WorldTile do
   defp build(_world, _key, []), do: {:error, :payload_too_large}
 
   defp build(world, key, [budget | rest]) do
+    budget = Map.put(budget, :include_external, key.external == true)
+
     with {:ok, tile} <- TopologyAtlas.tile(world, key.z, key.x, key.y, budget),
          {:ok, encoded} <- encode(tile, key, budget) do
       {:ok, encoded}

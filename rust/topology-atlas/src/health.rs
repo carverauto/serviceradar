@@ -318,6 +318,78 @@ impl HealthIndex {
         })
     }
 
+    /// Project health from `base_world` onto a selection drawn from a layered
+    /// `target_world` (e.g. internal + external egress). Internal members keep
+    /// their exact observed health; external members without base health report
+    /// as unknown.
+    pub fn tile_health_projected(
+        &self,
+        base_world: &World,
+        target_world: &World,
+        selection: &TileSelection,
+    ) -> Result<TileHealth, Error> {
+        if selection.world_revision == self.world_revision {
+            return self.tile_health(base_world, selection);
+        }
+        self.check_world(base_world)?;
+        if selection.world_revision != target_world.detail_revision() {
+            return Err(Error::StaleDetailRevision);
+        }
+        let point_for = |target_index: usize| -> HealthCounts {
+            let id = target_world.positions[target_index].id.as_str();
+            match base_world.identities.get(id) {
+                Some(&base_index) => self.point(base_index as usize),
+                None => HealthCounts {
+                    healthy: 0,
+                    unavailable: 0,
+                    unknown: 1,
+                    observed: 0,
+                    total: 1,
+                },
+            }
+        };
+        let mut counts = vec![HealthCounts::default(); selection.glyphs.len()];
+        let promoted_set: HashSet<usize> = selection
+            .promoted
+            .iter()
+            .map(|&(index, _)| index as usize)
+            .collect();
+        for &(index, glyph) in &selection.promoted {
+            counts[glyph as usize] = point_for(index as usize);
+        }
+        for (range, glyph) in &selection.groups {
+            let mut group = HealthCounts::default();
+            for index in range.clone() {
+                if promoted_set.contains(&index) {
+                    continue;
+                }
+                let pt = point_for(index);
+                group.healthy += pt.healthy;
+                group.unavailable += pt.unavailable;
+                group.unknown += pt.unknown;
+                group.observed += pt.observed;
+                group.total += pt.total;
+            }
+            counts[*glyph as usize] = group;
+        }
+        Ok(TileHealth {
+            world_revision: target_world.detail_revision().to_owned(),
+            tile_revision: selection.tile_revision.clone(),
+            epoch: self.epoch,
+            revision: self.revision,
+            observation_sequence: self.observation_sequence,
+            glyphs: selection
+                .glyphs
+                .iter()
+                .zip(counts)
+                .map(|(glyph, counts)| GlyphHealth {
+                    id: glyph.id.clone(),
+                    counts,
+                })
+                .collect(),
+        })
+    }
+
     fn check_world(&self, world: &World) -> Result<(), Error> {
         if self.world_revision == world.detail_revision() {
             Ok(())

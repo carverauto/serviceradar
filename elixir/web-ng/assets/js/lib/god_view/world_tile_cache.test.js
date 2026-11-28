@@ -116,6 +116,26 @@ describe("world geometry cache", () => {
     expect(current.generation).toBe(2)
   })
 
+  it("appends ?layers=external and resets cached entries when externalLayer toggles", async () => {
+    const fetcher = vi.fn(url => {
+      const path = url.split("?")[0]
+      const [z, x, y] = path.split("/").slice(-3).map(Number)
+      return Promise.resolve(response({z, x, y}, 1))
+    })
+    vi.stubGlobal("fetch", fetcher)
+    const store = cache()
+    store.setVisible([root])
+    await store.get(root)
+    expect(fetcher.mock.calls[0][0]).toBe(`/topology/tiles/${manifest.layout_version}/0/0/0`)
+    expect(store.watchPayload().layers).toBeUndefined()
+
+    expect(store.setExternalLayer(true)).toBe(true)
+    expect(store.entries.size).toBe(0)
+    expect(store.watchPayload().layers).toBe("external")
+    await store.get(root)
+    expect(fetcher.mock.calls[1][0]).toBe(`/topology/tiles/${manifest.layout_version}/0/0/0?layers=external`)
+  })
+
   it("evicts the least recently used unpinned entry and preserves the visible one", async () => {
     const fetcher = automaticFetch()
     const store = cache({maxEntries: 2})

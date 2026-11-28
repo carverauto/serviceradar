@@ -278,6 +278,116 @@ fn disconnected_devices_do_not_shrink_the_connected_radial_overview() {
 }
 
 #[test]
+fn reconcile_layer_places_external_subgraph_disjoint_from_internal_cells() {
+    use serviceradar_topology_atlas::{
+        HealthIndex, HealthObservation, HealthState, TopologyClass, reconcile_layer,
+    };
+
+    let internal_nodes = vec![
+        device("sr:edge-rtr-01.example.test", 0),
+        device("sr:core-sw-01.example.test", 1),
+        device("sr:host-01.example.test", 2),
+    ];
+    let internal_links = vec![
+        relation("sr:edge-rtr-01.example.test", "sr:core-sw-01.example.test"),
+        relation("sr:core-sw-01.example.test", "sr:host-01.example.test"),
+    ];
+    let base_positions = reconcile(internal_nodes, &internal_links, &[]).unwrap();
+    let base_cells: HashSet<Cell> = base_positions.iter().map(|p| p.component).collect();
+    let base_points: HashSet<(u32, u32)> = base_positions.iter().map(|p| (p.x, p.y)).collect();
+
+    let external_nodes = vec![
+        device("asn:64500", 1),
+        device("asn:64501", 1),
+        device("ixp:example-ix", 1),
+        device("saas:example-api", 2),
+    ];
+    let external_links = vec![
+        relation("sr:edge-rtr-01.example.test", "asn:64500"),
+        relation("asn:64500", "ixp:example-ix"),
+        relation("asn:64500", "asn:64501"),
+        relation("asn:64501", "saas:example-api"),
+    ];
+
+    let ext_positions = reconcile_layer(
+        &base_positions,
+        external_nodes.clone(),
+        &external_links,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(ext_positions.len(), 4);
+    for p in &ext_positions {
+        assert!(!base_cells.contains(&p.component));
+        assert!(!base_points.contains(&(p.x, p.y)));
+        assert!(p.component_id.starts_with("ext:"));
+        assert!(p.component.contains(p.x, p.y));
+    }
+
+    // Incremental reconcile preserves existing external coordinates.
+    let mut grown_nodes = external_nodes;
+    grown_nodes.push(device("saas:example-cdn", 2));
+    let mut grown_links = external_links.clone();
+    grown_links.push(relation("asn:64501", "saas:example-cdn"));
+    let grown_positions =
+        reconcile_layer(&base_positions, grown_nodes, &grown_links, &ext_positions).unwrap();
+    assert_eq!(grown_positions.len(), 5);
+    for old in &ext_positions {
+        let kept = grown_positions.iter().find(|p| p.id == old.id).unwrap();
+        assert_eq!((kept.x, kept.y), (old.x, old.y));
+    }
+
+    // Combined layered World builds cleanly and projects base HealthIndex accurately.
+    let base_world = World::new_classified(
+        "layout-v1".into(),
+        16,
+        base_positions.clone(),
+        internal_links.clone(),
+        |_| TopologyClass::Backbone,
+    )
+    .unwrap();
+    let mut health = HealthIndex::new(&base_world, 1).unwrap();
+    health
+        .apply(
+            &base_world,
+            1,
+            &[HealthObservation {
+                device_id: "sr:edge-rtr-01.example.test".into(),
+                state: HealthState::Healthy,
+            }],
+        )
+        .unwrap();
+
+    let mut all_positions = base_positions;
+    all_positions.extend(grown_positions);
+    let mut all_links = internal_links;
+    all_links.extend(grown_links);
+    let layered_world =
+        World::new_classified("layout-v1".into(), 16, all_positions, all_links, |edge| {
+            if edge.source.starts_with("sr:") && edge.target.starts_with("sr:") {
+                TopologyClass::Backbone
+            } else {
+                TopologyClass::External
+            }
+        })
+        .unwrap();
+
+    let tile = layered_world
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    assert!(
+        tile.edges
+            .iter()
+            .any(|e| e.topology_class == TopologyClass::External),
+        "layered tile must emit TopologyClass::External edges"
+    );
+    let projected = health
+        .tile_health_projected(&base_world, &layered_world, &tile.selection)
+        .unwrap();
+    assert_eq!(projected.glyphs.len(), tile.glyphs.len());
+}
+
+#[test]
 fn invented_million_device_hierarchy_and_one_percent_growth() {
     let (mut nodes, mut links) = hierarchy::hierarchy();
     let started = Instant::now();

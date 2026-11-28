@@ -109,7 +109,7 @@ export function decodeWorldTile(bytes, expected) {
     const start = details.phase_start
     const end = details.phase_end
     const topologyClass = edgeClass(index)
-    requireValue(["backbone", "logical", "hosted", "endpoints", "inferred", "unknown"].includes(topologyClass), "edge class")
+    requireValue(["backbone", "logical", "hosted", "endpoints", "inferred", "external", "unknown"].includes(topologyClass), "edge class")
     requireValue(source < nodeCount && target < nodeCount, "endpoint")
     requireValue(typeof id === "string" && id.length > 0 && !edgeIds.has(id), "edge identity")
     requireValue(Number.isSafeInteger(count) && count > 0, "relation count")

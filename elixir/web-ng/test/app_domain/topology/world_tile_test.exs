@@ -104,6 +104,68 @@ defmodule ServiceRadarWebNG.Topology.WorldTileTest do
              TopologyAtlas.tile_relations(next_world, empty.selection)
   end
 
+  test "external layer tiles include external glyphs and edges while keeping default internal tiles isolated" do
+    cache = start_named_cache()
+    {:ok, builder} = TopologyAtlas.new_builder(@version, 16)
+
+    :ok =
+      TopologyAtlas.add_positions(builder, [
+        position("invented-device-a", 300_000),
+        position("invented-device-b", 600_000),
+        %{
+          device_id: "asn:64512",
+          label: "Example Transit",
+          x: 9_000_000,
+          y: 9_000_000,
+          min_zoom: 0,
+          parent_id: nil,
+          component_id: "ext:0",
+          component_z: 1,
+          component_x: 1,
+          component_y: 1,
+          placement_depth: 4,
+          active: true
+        }
+      ])
+
+    :ok =
+      TopologyAtlas.add_relations(builder, [
+        %{relation_id: "invented-link-a-b", source_id: "invented-device-a", target_id: "invented-device-b"},
+        %{
+          relation_id: "ext:EGRESSES_TO:invented-device-b->asn:64512",
+          source_id: "invented-device-b",
+          target_id: "asn:64512",
+          kind: "EGRESSES_TO",
+          evidence_class: "external-egress"
+        }
+      ])
+
+    {:ok, world} = TopologyAtlas.finish_world(builder)
+    manifest = %{layout_version: @version, generation: 1, zmax: 16}
+    assert :ok = WorldCache.install(world, manifest, prepared(world, manifest), cache)
+
+    {:ok, base_key} = TileKey.parse(%{"layout_version" => @version, "z" => "0", "x" => "0", "y" => "0"})
+
+    {:ok, ext_key} =
+      TileKey.parse(%{"layout_version" => @version, "z" => "0", "x" => "0", "y" => "0", "layers" => "external"})
+
+    assert base_key.external == false
+    assert ext_key.external == true
+
+    assert {:error, :invalid_tile} =
+             TileKey.parse(%{"layout_version" => @version, "z" => "0", "x" => "0", "y" => "0", "layers" => "bogus"})
+
+    assert {:ok, base_tile} = WorldCache.fetch(base_key, :foreground, cache)
+    assert {:ok, ext_tile} = WorldCache.fetch(ext_key, :foreground, cache)
+    refute base_tile.revision == ext_tile.revision
+    assert length(base_tile.flow_edges) == 1
+    assert length(ext_tile.flow_edges) == 2
+
+    assert {:ok, health} = TopologyAtlas.new_health(world, 1)
+    assert {:ok, %{glyphs: ext_health}} = TopologyAtlas.tile_health(world, health, ext_tile.selection)
+    assert length(ext_health) == length(ext_tile.glyphs)
+  end
+
   test "retained stale links preserve tile health and live traffic without attributing stale traffic" do
     cache = start_named_cache()
     {:ok, builder} = TopologyAtlas.new_builder(@version, 16)

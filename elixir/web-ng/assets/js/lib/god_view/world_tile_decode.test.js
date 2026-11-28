@@ -59,4 +59,17 @@ describe("world tile wire boundary", () => {
     expect(decoded.edges).toEqual([])
     expect(() => decodeWorldTile(empty, {...key, revision: "b".repeat(64)})).toThrow("response revision")
   })
+
+  it("accepts TopologyClass external edges in schema v3 tiles", () => {
+    const extTile = tile({
+      edges: [{
+        source: 0,
+        target: 1,
+        topologyClass: "external",
+        details: {id: "ext:EGRESSES_TO:a->b", represented_count: 1, phase_start: 0.1, phase_end: 0.9},
+      }],
+    })
+    const decoded = decodeWorldTile(extTile, key)
+    expect(decoded.edges[0].topologyClass).toBe("external")
+  })
 })

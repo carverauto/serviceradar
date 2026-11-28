@@ -46,6 +46,8 @@ fn graph(ids: &[&str], interface: i32, rate: i64) -> SourceGraph {
     SourceGraph {
         devices,
         relations,
+        external_devices: BTreeMap::new(),
+        external_relations: BTreeMap::new(),
         raw_links: u64::from(ids.len() >= 2),
     }
 }
@@ -573,6 +575,8 @@ fn duplicate_physical_evidence_collapses_without_merging_parallel_ports() {
         .reconcile(SourceGraph {
             devices,
             relations,
+            external_devices: BTreeMap::new(),
+            external_relations: BTreeMap::new(),
             raw_links,
         })
         .unwrap();
@@ -907,6 +911,8 @@ fn logical_relations_are_not_reported_as_physical_backbone() {
         .reconcile(SourceGraph {
             devices: BTreeMap::from([(left.into(), device(left)), (right.into(), device(right))]),
             relations: BTreeMap::from([(logical.relation_id.clone(), logical)]),
+            external_devices: BTreeMap::new(),
+            external_relations: BTreeMap::new(),
             raw_links: 1,
         })
         .unwrap();
@@ -1306,4 +1312,154 @@ fn an_async_read_permit_is_released_when_dropped() {
     assert!(GATE.try_acquire().is_none(), "the gate must be full");
     drop(permit);
     assert!(GATE.try_acquire().is_some());
+}
+
+#[test]
+fn external_egress_reconciles_into_optional_layered_world_without_mutating_internal_tiles() {
+    use dgraph_topology::{EgressTopologyResult, ExternalEdgeRef, ExternalNodeRef};
+    use serviceradar_topology_atlas::{HealthIndex, HealthObservation, HealthState};
+
+    let core = "sr:core-01.example.test";
+    let edge_rtr = "sr:edge-01.example.test";
+    let view = TopologyView::new(
+        vec![
+            canonical_device(core, "core-01"),
+            canonical_device(edge_rtr, "edge-01"),
+        ],
+        vec![NeighbourhoodEdge::new(
+            "CANONICAL_TOPOLOGY",
+            edge(core, edge_rtr, 1, 100),
+        )],
+    );
+    let egress = EgressTopologyResult {
+        max_hops: 3,
+        truncated: false,
+        egress_devices: vec![],
+        external_nodes: vec![
+            ExternalNodeRef {
+                id: "asn:64512".into(),
+                kind: "ASN".into(),
+                label: Some("Example Transit".into()),
+                asn: Some(64512),
+                region: None,
+                ip: None,
+                rpki_state: Some("valid".into()),
+                rtbh_active: Some(false),
+                outage_state: None,
+                port_speed_mbps: None,
+                metro: None,
+                iata: None,
+                country_code: None,
+            },
+            ExternalNodeRef {
+                id: "saas:example-api".into(),
+                kind: "SaasTarget".into(),
+                label: Some("Example API".into()),
+                asn: None,
+                region: None,
+                ip: None,
+                rpki_state: None,
+                rtbh_active: None,
+                outage_state: Some("healthy".into()),
+                port_speed_mbps: None,
+                metro: None,
+                iata: None,
+                country_code: None,
+            },
+        ],
+        edges: vec![
+            ExternalEdgeRef {
+                src_id: edge_rtr.into(),
+                dst_id: "asn:64512".into(),
+                kind: "EGRESSES_TO".into(),
+                border_asn: Some(64512),
+                as_boundary_confidence: None,
+                avg_rtt_us: Some(4200),
+                loss_pct: Some(0.0),
+                port_speed_mbps: Some(10_000),
+                if_name: Some("eth0".into()),
+                if_index: Some(2),
+                egress_source: Some("manual".into()),
+                last_seen: Some("2026-11-27T00:00:00Z".into()),
+            },
+            ExternalEdgeRef {
+                src_id: "asn:64512".into(),
+                dst_id: "saas:example-api".into(),
+                kind: "BORDER_HANDOFF".into(),
+                border_asn: Some(64512),
+                as_boundary_confidence: None,
+                avg_rtt_us: Some(8100),
+                loss_pct: Some(0.0),
+                port_speed_mbps: None,
+                if_name: None,
+                if_index: None,
+                egress_source: Some("automagic".into()),
+                last_seen: Some("2026-11-27T00:00:00Z".into()),
+            },
+        ],
+    };
+
+    let source = SourceGraph::from_view_with_egress(view, Some(egress)).unwrap();
+    let candidate = Builder::new("synthetic-ext-layout".into(), 16)
+        .unwrap()
+        .reconcile(source)
+        .unwrap();
+
+    // WorldInfo counts remain 100% internal.
+    assert_eq!(candidate.world.info.node_count, 2);
+    assert_eq!(candidate.world.info.relation_count, 1);
+    assert!(candidate.world.external_geometry.is_some());
+
+    // Internal-only tile excludes external nodes/edges.
+    let internal_tile = candidate
+        .world
+        .world_for_layers(false)
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    assert!(internal_tile
+        .edges
+        .iter()
+        .all(|e| e.topology_class != TopologyClass::External));
+    assert_eq!(internal_tile.device_count, 2);
+
+    // Layered tile includes TopologyClass::External edges and external glyphs.
+    let layered_tile = candidate
+        .world
+        .world_for_layers(true)
+        .tile(Cell::new(0, 0, 0).unwrap(), Budget::default())
+        .unwrap();
+    assert!(layered_tile
+        .edges
+        .iter()
+        .any(|e| e.topology_class == TopologyClass::External));
+    assert_eq!(layered_tile.device_count, 4);
+
+    // Health projection works cleanly against the layered selection.
+    let mut health = HealthIndex::new(&candidate.world.geometry, 1).unwrap();
+    health
+        .apply(
+            &candidate.world.geometry,
+            1,
+            &[HealthObservation {
+                device_id: edge_rtr.into(),
+                state: HealthState::Healthy,
+            }],
+        )
+        .unwrap();
+    let target = candidate
+        .world
+        .world_for_revision(layered_tile.selection.world_revision());
+    let projected = health
+        .tile_health_projected(&candidate.world.geometry, target, &layered_tile.selection)
+        .unwrap();
+    assert_eq!(projected.glyphs.len(), layered_tile.glyphs.len());
+    let total_healthy: u64 = projected.glyphs.iter().map(|g| g.counts.healthy).sum();
+    assert_eq!(total_healthy, 1);
+
+    // Cold-reload from persisted positions + relations reconstructs both worlds identically.
+    let cold_world = imported(&candidate).finish().unwrap();
+    assert_eq!(cold_world.info.node_count, 2);
+    assert_eq!(cold_world.info.relation_count, 1);
+    assert!(cold_world.external_geometry.is_some());
+    assert!(cold_world.search("asn:64512").is_some());
 }

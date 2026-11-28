@@ -69,13 +69,28 @@ function geometryFrame(geometry) {
   let frame = geometryFrames.get(geometry.positions)
   if (frame) return frame
   const position = index => [geometry.positions[index * 2], geometry.positions[index * 2 + 1], 0]
-  const nodes = geometry.nodes.filter(node => node.kind !== "boundary").map(node => ({...node, position: position(node.index)}))
+  const externalIncident = new Set()
+  const internalIncident = new Set()
   const sources = new Float64Array(geometry.edges.length * 2)
   const targets = new Float64Array(sources.length)
   for (const edge of geometry.edges) {
     sources.set(position(edge.source).slice(0, 2), edge.index * 2)
     targets.set(position(edge.target).slice(0, 2), edge.index * 2)
+    if (edgeTopologyClassValue(edge) === "external") {
+      externalIncident.add(edge.source)
+      externalIncident.add(edge.target)
+    } else {
+      internalIncident.add(edge.source)
+      internalIncident.add(edge.target)
+    }
   }
+  const nodes = geometry.nodes
+    .filter(node => node.kind !== "boundary")
+    .map(node => ({
+      ...node,
+      isExternal: externalIncident.has(node.index) && !internalIncident.has(node.index),
+      position: position(node.index),
+    }))
   frame = {
     nodes,
     glyphs: nodeGlyphLayerData(nodes),
@@ -339,7 +354,13 @@ export default class WorldTileLayer extends TileLayer {
     const shown = item => this.memberShown(geometry, item.index) && this.nodeShown(health(item), membership, item.index)
     const common = {coordinateSystem: COORDINATE_SYSTEM.CARTESIAN, parameters: GOD_VIEW_ALPHA_BLEND}
     const node = ({index}) => frame.nodes[index]
+    const severityById = this.props.horizonSeverityById
     const healthColor = item => {
+      const extSeverity = severityById?.get(item.id)
+      if (extSeverity === "outage") return [255, 42, 122, 240]
+      if (extSeverity === "degraded") return [255, 154, 0, 240]
+      if (extSeverity === "healthy") return [0, 230, 118, 240]
+      if (item.isExternal || severityById?.has(item.id)) return [56, 189, 248, 240]
       if (membership) return [[65, 195, 156, 240], [245, 117, 88, 240], [120, 132, 151, 230]][membership.availability[item.index]]
       const counts = health(item)
       if (!counts || counts.unknown > 0) return [120, 132, 151, 230]
@@ -349,22 +370,30 @@ export default class WorldTileLayer extends TileLayer {
     const edgeColor = (index, color) => geometry.edges[index].stale
       ? [148, 163, 184, Math.max(1, Math.round(color[3] * 0.45))]
       : color
+    const mantleColor = index => {
+      const cls = edgeClass(index)
+      if (cls === "external") return [56, 189, 248, Math.round(75 * edgeStyle(index).mantleAlphaScale)]
+      if (cls === "unknown") return [120, 132, 151, 30]
+      return [55, 175, 124, Math.round(70 * edgeStyle(index).mantleAlphaScale)]
+    }
+    const crustColor = index => {
+      const cls = edgeClass(index)
+      if (cls === "external") return [56, 189, 248, Math.round(180 * edgeStyle(index).crustAlphaScale)]
+      if (cls === "unknown") return [120, 132, 151, 100]
+      return [55, 175, 124, Math.round(135 * edgeStyle(index).crustAlphaScale)]
+    }
     return [
       frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edge-mantle`, data: frame.lines, pickable: false,
         visible: this.props.links !== false,
-        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeColor(index, edgeClass(index) === "unknown"
-          ? [120, 132, 151, 30]
-          : [55, 175, 124, Math.round(70 * edgeStyle(index).mantleAlphaScale)]),
+        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeColor(index, mantleColor(index)),
         getWidth: (_, {index}) => shownEdge(index) ? 6 * edgeStyle(index).mantleWidthScale : 0,
         widthUnits: "pixels", updateTriggers: {getWidth: [this.props.inferred, membership, this.props.membershipPending, this.props.membershipEnabled], getColor: [this.props.inferred, membership, this.props.membershipPending, this.props.membershipEnabled]},
       }),
       frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edges`, data: frame.lines, pickable: true,
         visible: this.props.links !== false,
-        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeColor(index, edgeClass(index) === "unknown"
-          ? [120, 132, 151, 100]
-          : [55, 175, 124, Math.round(135 * edgeStyle(index).crustAlphaScale)]),
+        getColor: (_, {index}) => !shownEdge(index) ? [0, 0, 0, 0] : edgeColor(index, crustColor(index)),
         getWidth: (_, {index}) => shownEdge(index) ? 1.5 * edgeStyle(index).crustWidthScale : 0, widthUnits: "pixels",
         updateTriggers: {getWidth: [this.props.inferred, membership, this.props.membershipPending, this.props.membershipEnabled], getColor: [this.props.inferred, membership, this.props.membershipPending, this.props.membershipEnabled]},
       }),
@@ -379,7 +408,7 @@ export default class WorldTileLayer extends TileLayer {
         radiusUnits: "pixels",
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 13 : 9) : 0,
         getFillColor: (_, info) => shown(node(info)) ? [...healthColor(node(info)).slice(0, 3), 35] : [0, 0, 0, 0],
-        updateTriggers: {getFillColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getRadius: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled]},
+        updateTriggers: {getFillColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled, severityById], getRadius: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled]},
       }),
       frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
@@ -389,7 +418,7 @@ export default class WorldTileLayer extends TileLayer {
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 9 : 4) : 0,
         getFillColor: (_, info) => {
           if (!shown(node(info))) return [0, 0, 0, 0]
-          if (node(info).kind === "device") return [232, 242, 237, 255]
+          if (node(info).kind === "device" && !node(info).isExternal && !severityById?.has(node(info).id)) return [232, 242, 237, 255]
           return healthColor(node(info))
         },
         getLineColor: (_, info) => {
@@ -397,7 +426,7 @@ export default class WorldTileLayer extends TileLayer {
           if (node(info).kind !== "device") return [210, 226, 240, 230]
           return healthColor(node(info))
         },
-        updateTriggers: {getLineWidth: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getFillColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getLineColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getRadius: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled]},
+        updateTriggers: {getLineWidth: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled], getFillColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled, severityById], getLineColor: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled, severityById], getRadius: [overlay, filters, membership, this.props.membershipPending, this.props.membershipEnabled]},
       }),
     ]
   }
@@ -425,4 +454,5 @@ WorldTileLayer.defaultProps = {
   membershipEnabled: false,
   membershipPending: false,
   membershipRevision: 0,
+  horizonSeverityById: {type: "object", value: null, compare: false},
 }

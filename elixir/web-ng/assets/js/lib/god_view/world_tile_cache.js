@@ -24,6 +24,25 @@ export class WorldTileCache {
     this.epoch = 0
     this.manifest = null
     this.watch = null
+    this.externalLayer = false
+  }
+
+  setExternalLayer(enabled) {
+    const next = enabled === true
+    if (this.externalLayer === next) return false
+    this.externalLayer = next
+    this.epoch += 1
+    this.abortPending()
+    this.entries.clear()
+    this.bytes = 0
+    this.watch = null
+    if (this.manifest) {
+      for (const [id, key] of this.visible) {
+        this.visible.set(id, this.key(key))
+      }
+    }
+    this.onChange()
+    return true
   }
 
   observe(manifest) {
@@ -72,7 +91,9 @@ export class WorldTileCache {
     const {z, x, y} = index
     if (!this.manifest || ![z, x, y].every(Number.isInteger) || z < 0 || z > this.manifest.zmax ||
         x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) throw new Error("Invalid topology tile key")
-    return {layout_version: this.manifest.layout_version, z, x, y}
+    return this.externalLayer
+      ? {layout_version: this.manifest.layout_version, z, x, y, layers: "external"}
+      : {layout_version: this.manifest.layout_version, z, x, y}
   }
 
   watchPayload() {
@@ -83,6 +104,7 @@ export class WorldTileCache {
     }
     return {
       layout_version: this.manifest.layout_version,
+      ...(this.externalLayer ? {layers: "external"} : {}),
       tiles: [...retained].map(([id, key]) => ({z: key.z, x: key.x, y: key.y, revision: this.entries.get(id)?.geometry.revision ?? null})),
     }
   }
@@ -166,7 +188,8 @@ export class WorldTileCache {
 
   async load(job) {
     const cached = this.entries.get(job.id)
-    const response = await fetch(`/topology/tiles/${job.key.layout_version}/${job.id}`, {
+    const query = job.key.layers === "external" ? "?layers=external" : ""
+    const response = await fetch(`/topology/tiles/${job.key.layout_version}/${job.id}${query}`, {
       credentials: "same-origin",
       signal: job.controller.signal,
       headers: {Accept: "application/vnd.apache.arrow.file", ...(cached ? {"If-None-Match": cached.etag} : {})},

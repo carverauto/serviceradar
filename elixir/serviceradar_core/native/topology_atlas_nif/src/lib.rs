@@ -17,7 +17,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use dgraph_topology::TopologyView;
+use dgraph_topology::{EgressTopologyResult, TopologyView};
 use rustler::{
     types::list::ListIterator, Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource,
     ResourceArc, Term,
@@ -37,7 +37,7 @@ mod atoms {
 }
 
 struct BuilderResource(Mutex<Option<Builder>>);
-struct GraphResource(Mutex<Option<TopologyView>>);
+struct GraphResource(Mutex<Option<(TopologyView, Option<EgressTopologyResult>)>>);
 struct WorldResource(Arc<WorldState>);
 struct CandidateResource(Candidate);
 
@@ -262,7 +262,8 @@ fn reconcile(
             env,
             isolate(|| {
                 let builder = take(&builder.0)?;
-                let source = SourceGraph::from_view(take(&graph.0)?)?;
+                let (view, egress) = take(&graph.0)?;
+                let source = SourceGraph::from_view_with_egress(view, egress)?;
                 Ok(ResourceArc::new(CandidateResource(
                     builder.reconcile(source)?,
                 )))
@@ -323,6 +324,7 @@ struct TileBudget {
     profile: WireTileProfile,
     nodes: usize,
     edges: usize,
+    include_external: bool,
 }
 #[derive(NifMap)]
 struct WireCell {
@@ -442,7 +444,7 @@ fn tile(
             };
             let tile = world
                 .0
-                .geometry
+                .world_for_layers(budget.include_external)
                 .tile_with_routing_budget(
                     cell,
                     Budget {
@@ -461,7 +463,7 @@ fn tile(
 #[rustler::nif]
 fn search(env: Env<'_>, world: ResourceArc<WorldResource>, id: String) -> Term<'_> {
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
-        match world.0.geometry.search(&id) {
+        match world.0.search(&id) {
             Some(position) => (
                 atoms::ok(),
                 PositionRow::from_position(position.clone(), true),

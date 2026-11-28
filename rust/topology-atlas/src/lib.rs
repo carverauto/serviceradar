@@ -20,8 +20,10 @@ pub use health::{
     DeviceIdsCursor, DeviceIdsPage, GlyphHealth, HEALTH_BATCH_LIMIT, HealthApply, HealthCounts,
     HealthIndex, HealthInfo, HealthObservation, HealthSnapshot, HealthState, TileHealth,
 };
-pub use layout::reconcile;
-pub use ordinals::{CanonicalOrdinals, ORDINAL_MAPPING_BYTES, ORDINAL_PORTABLE_BYTES, OrdinalInfo, RelationOrdinals};
+pub use layout::{reconcile, reconcile_layer};
+pub use ordinals::{
+    CanonicalOrdinals, ORDINAL_MAPPING_BYTES, ORDINAL_PORTABLE_BYTES, OrdinalInfo, RelationOrdinals,
+};
 pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, TileProfile, TopologyClass, World};
 
 /// Integers in this extent are exactly representable by Float32.

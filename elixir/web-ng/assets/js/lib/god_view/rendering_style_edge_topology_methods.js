@@ -65,6 +65,17 @@ const TOPOLOGY_VISUAL_PROFILES = {
     particleAlphaScale: 0.42,
     particleSizeScale: 0.82,
   },
+  external: {
+    mantleAlphaScale: 0.9,
+    mantleAlphaFloor: 24,
+    mantleWidthScale: 1.0,
+    crustAlphaScale: 0.96,
+    crustAlphaFloor: 32,
+    crustWidthScale: 1.05,
+    particleDensityScale: 0.7,
+    particleAlphaScale: 0.85,
+    particleSizeScale: 0.95,
+  },
   unknown: {
     mantleAlphaScale: 0.9,
     mantleAlphaFloor: 22,
@@ -88,6 +99,7 @@ function normalizeTopologyClass(value) {
     normalized === "observed" ||
     normalized === "endpoints" ||
     normalized === "backbone" ||
+    normalized === "external" ||
     normalized === "unknown"
   ) {
     return normalized
@@ -106,6 +118,7 @@ function dominantTopologyClassFromCounts(classCounts) {
     ["inferred", Number(classCounts.inferred || 0)],
     ["observed", Number(classCounts.observed || 0)],
     ["endpoints", Number(classCounts.endpoints || 0)],
+    ["external", Number(classCounts.external || 0)],
     ["unknown", Number(classCounts.unknown || 0)],
   ]
 
@@ -155,15 +168,18 @@ export const godViewRenderingStyleEdgeTopologyMethods = {
         Number(classCounts.observed || 0) > 0 && this.state.topologyLayers.endpoints === true
       const showEndpoints =
         Number(classCounts.endpoints || 0) > 0 && this.state.topologyLayers.endpoints === true
+      const showExternal =
+        Number(classCounts.external || 0) > 0 && this.state.topologyLayers.horizon_egress === true
       const showUnknown =
         Number(classCounts.unknown || 0) > 0 && this.state.topologyLayers.backbone !== false
-      return showBackbone || showLogical || showHosted || showInferred || showObserved || showEndpoints || showUnknown
+      return showBackbone || showLogical || showHosted || showInferred || showObserved || showEndpoints || showExternal || showUnknown
     }
 
     const topologyClass = edgeTopologyClassValue(edge)
     if (topologyClass === "inferred") return this.state.topologyLayers.inferred === true
     if (topologyClass === "observed") return this.state.topologyLayers.endpoints === true
     if (topologyClass === "endpoints") return this.state.topologyLayers.endpoints === true
+    if (topologyClass === "external") return this.state.topologyLayers.horizon_egress === true
     return this.state.topologyLayers.backbone !== false
   },
 }

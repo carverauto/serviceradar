@@ -218,11 +218,12 @@ fn tile_health(
 ) -> Term<'_> {
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
         read_reply(env, || {
+            let target = world.0.world_for_revision(selection.0.world_revision());
             let result = health
                 .0
                 .lock()
                 .map_err(|_| atoms::unavailable())?
-                .tile_health(&world.0.geometry, &selection.0)
+                .tile_health_projected(&world.0.geometry, target, &selection.0)
                 .map_err(engine_error)?;
             Ok(WireTileHealth {
                 world_revision: result.world_revision,
