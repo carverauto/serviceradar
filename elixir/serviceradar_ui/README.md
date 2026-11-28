@@ -60,7 +60,9 @@ classes. Branding and navigation in the shell are slots:
 ```heex
 <.skip_link />
 <.top_bar>
-  <:brand>Acme</:brand>
+  <:brand>
+    <.brand_lockup navigate={~p"/"} title="ServiceRadar" subtitle="Network Management" />
+  </:brand>
   <:nav><a href="/devices">Devices</a></:nav>
   <:actions><.theme_toggle /></:actions>
 </.top_bar>
@@ -68,7 +70,7 @@ classes. Branding and navigation in the shell are slots:
   <.button>Save</.button>
 </main>
 <.footer>
-  <:leading>Acme</:leading>
+  <:leading>Carver Automation</:leading>
 </.footer>
 ```
 
@@ -88,7 +90,7 @@ Serve the package static files and the CSS from your endpoint:
 plug Plug.Static,
   at: "/serviceradar_ui",
   from: {:serviceradar_ui, "priv/static"},
-  only: ~w(serviceradar_ui.js serviceradar_ui.js.map theme_init.js world-110m.json)
+  only: ~w(serviceradar_ui.js serviceradar_ui.js.map theme_init.js world-110m.json logo-animated.svg favicon.ico)
 
 plug Plug.Static,
   at: "/serviceradar_ui/css",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- Ship canonical `logo-animated.svg` and `favicon.ico` in `priv/static/` so
+  every ServiceRadar property renders the same brand mark from one package.
+- Add `ServiceRadarUI.Shell.brand_lockup/1` and `ServiceRadarUI.Shell.segmented_nav/1`.
+- Upgrade `ServiceRadarUI.Shell.top_bar/1` and `footer/1` with standard `1280px`
+  contained layout (`contained={true}` default), pill navigation targets, and an
+  optional `:mobile_nav` slot on `top_bar/1`.
+- Add atmospheric surface utilities `.sr-ui-hero-glow`, `.sr-ui-dot-grid`, and
+  `.sr-ui-card-interactive` in `priv/css/components.css`.
+
 ## 0.1.0
 
 Unreleased. This version is not published to hex.pm.
