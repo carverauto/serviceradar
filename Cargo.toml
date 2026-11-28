@@ -89,7 +89,7 @@ clap = "4"
 # Without the default features: no plots, no rayon. The measurements print to the log.
 criterion = { version = "0.8", default-features = false }
 crossbeam-channel = "0.5"
-deep_causality = "0.19"
+deep_causality = "0.20"
 deep_causality_algebra = "0.4"
 deep_causality_core = "0.14"
 deep_causality_data_structures = "0.11"
