@@ -1,63 +1,14 @@
 # Palisade
 
-> Trust-boundary defense primitives for Elixir web apps.
+Palisade checks the trust boundary of an Elixir web service.
+
+Outbound helpers accept an HTTPS URL only when the host resolves to a public address, then send the request to that address. TLS verification and the `Host` header stay on the original hostname. Plug modules cover the HTTP edge: security headers, the client address, rate limits, caps on long-lived connections, and rejection of malformed requests.
+
+Apache-2.0. Elixir `~> 1.15`. Fetches use [Req](https://hex.pm/packages/req). The edge modules use [Plug](https://hex.pm/packages/plug).
 
 [![Hex.pm](https://img.shields.io/hexpm/v/palisade.svg)](https://hex.pm/packages/palisade)
 
-Apache-2.0 licensed. Originally extracted from CarverAutomation's CRM and
-ServiceRadar codebases, which kept drifting copies of the same SSRF and
-web-edge hardening modules. Palisade is the canonical home.
-
-Every module takes its configuration as explicit options. Nothing reads
-application environment at request time.
-
-## Scope
-
-Outbound requests:
-
-- **`Palisade.NetworkAddressPolicy`** - rejects loopback, link-local and
-  private network addresses (IPv4 and IPv6), and is DNS-resolution aware
-  (defeats DNS rebinding). `ip_in_any_cidr?/2` and `cidr_contains?/2` match
-  an address against caller-supplied CIDRs, including IPv4-mapped IPv6
-  addresses.
-- **`Palisade.OutboundURLPolicy`** - HTTPS-only, public-host URL validator,
-  for code that follows an admin-supplied URL (OIDC discovery, webhook
-  callbacks).
-- **`Palisade.OutboundFetch`** - HTTP fetch bound to the resolved IP that
-  `OutboundURLPolicy` approved. TLS hostname verification and the `Host:`
-  header stay tied to the original hostname.
-
-Web edge (Plug):
-
-- **`Palisade.Plug.SecurityHeaders`** - content security policy (enforce or
-  report-only, with a report URI), HSTS, `Permissions-Policy`,
-  `Referrer-Policy`, `X-Content-Type-Options` and `X-Frame-Options`, with a
-  strict same-origin default policy.
-- **`Palisade.ClientIP`** and **`Palisade.Plug.RemoteIP`** - client address
-  resolution that reads `X-Forwarded-For` only from trusted proxy CIDRs, with
-  bounded parsing. `ClientIP.from_connect_info/2` gives LiveView sockets the
-  same answer.
-- **`Palisade.RateLimit`** - rate-limit backend behaviour, with
-  **`Palisade.RateLimit.ETS`** (single node, bounded, denies new keys when
-  full) and **`Palisade.Plug.RateLimit`** (named buckets, `x-ratelimit-*` and
-  `retry-after` headers, JSON or HTML 429).
-- **`Palisade.ConnectionLimiter`** - admits long-lived connections such as
-  LiveView mounts against global and per-key caps on active connections and
-  admission rate. A slot is released when its owner process exits.
-- **`Palisade.Plug.RequestGuard`** - rejects GET and HEAD requests with a
-  body or `transfer-encoding`, over-long query strings, too many headers, and
-  query parameters outside an optional allow-list.
-
-Planned:
-
-- `Palisade.OIDC.Client` - OIDC discovery, JWKS and ID-token verification
-  with nonce, iss, aud and exp validation.
-- `Palisade.OIDC.ConfigCache` - ETS-backed cache for OIDC discovery and JWKS
-  payloads.
-
 ## Installation
-
-Add `palisade` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
@@ -67,13 +18,9 @@ def deps do
 end
 ```
 
-## Web-edge setup
-
-Palisade has no application callback. The two modules that own a process
-are started from your own supervision tree:
+Palisade has no application callback. Start the rate-limit table and the connection limiter from your supervision tree when you use them:
 
 ```elixir
-# lib/my_app/application.ex
 children = [
   {Palisade.RateLimit.ETS, max_entries: 100_000},
   {Palisade.ConnectionLimiter, name: MyAppWeb.LiveLimiter, max_active_per_key: 20},
@@ -81,71 +28,71 @@ children = [
 ]
 ```
 
-Then add the plugs to the endpoint or a router pipeline:
+Each function and plug takes its settings as options. The module docs list every option and its default.
+
+## Outbound requests
+
+`Palisade.NetworkAddressPolicy` rejects loopback, link-local, private, and other special-use addresses, plus `localhost` and `*.local`. A DNS answer that includes any rejected address rejects the host. `ip_in_any_cidr?/2` and `cidr_contains?/2` match an address against CIDRs you supply. An IPv4-mapped IPv6 address matches the IPv4 range of the address it embeds.
+
+`Palisade.OutboundURLPolicy` accepts `https` URLs whose port is allow-listed (`443` by default) and whose host passes `NetworkAddressPolicy`.
+
+```elixir
+Palisade.OutboundURLPolicy.validate_https_public_url(
+  "https://accounts.example.com/.well-known/openid-configuration"
+)
+# {:ok, %URI{}}
+```
+
+`Palisade.OutboundFetch` performs the request against the address that policy approved. Redirects are off. The connect timeout is 5 seconds and the receive timeout is 10 seconds. A GET or HEAD retries once when a pooled connection is already closed. Pass `resolved_address:` when you already resolved the host, and `retry:` to replace the retry policy for one call.
+
+```elixir
+Palisade.OutboundFetch.get(
+  "https://accounts.example.com/.well-known/openid-configuration"
+)
+# {:ok, %Req.Response{}} | {:error, _}
+```
+
+## Web edge
+
+Put `RemoteIP` and `RequestGuard` in the endpoint, ahead of `Plug.Parsers` and the router. Put `RateLimit` on the pipelines that need their own bucket.
 
 ```elixir
 # lib/my_app_web/endpoint.ex
 @client_ip [trusted_proxies: ["10.0.0.0/8"]]
 
 plug Palisade.Plug.RemoteIP, @client_ip
-plug Palisade.Plug.RequestGuard, max_query_length: 4096
+plug Palisade.Plug.RequestGuard, max_query_length: 4_096
 plug Palisade.Plug.SecurityHeaders, csp_report_uri: "/csp-report"
+```
 
+```elixir
 # lib/my_app_web/router.ex
 pipeline :login do
   plug Palisade.Plug.RateLimit, bucket: :login, limit: 5, window_ms: 60_000
 end
 ```
 
-`Palisade.Plug.RateLimit` uses the default `Palisade.RateLimit.ETS` table
-unless given `backend: {Module, opts}`. A cluster-wide backend implements the
-`Palisade.RateLimit` behaviour.
+`Palisade.Plug.SecurityHeaders` sets a content security policy, HSTS on HTTPS responses, `Permissions-Policy`, `Referrer-Policy`, `X-Content-Type-Options`, and `X-Frame-Options`. The default policy allows scripts, styles, images, fonts, connections, and the manifest from the same origin, and allows nothing else. Pass `:content_security_policy` to replace it. `:csp_mode` set to `:report_only` sends the report-only header. Values are fixed when the plug starts. A later plug can replace a header on one response.
 
-Each module's documentation lists its options and defaults.
+`Palisade.ClientIP` returns the socket peer. It reads `X-Forwarded-For` only when that peer sits inside `:trusted_proxies`. The default is `[]`, so the header is ignored until you name your proxies. The walk starts at the nearest proxy and stops at the first address outside those CIDRs. An oversized or malformed chain returns the peer. `Palisade.Plug.RemoteIP` writes the result to `conn.remote_ip` and keeps the socket peer in `conn.private[:palisade_peer_ip]`. `ClientIP.from_connect_info/2` gives a LiveView socket the same answer.
 
-## Where the source lives
+`Palisade.Plug.RateLimit` counts `{bucket, client}` through a `Palisade.RateLimit` backend. The backend in the package is `Palisade.RateLimit.ETS`, one bounded table on a single node. A full table denies keys it does not already track. Allowed responses carry `x-ratelimit-limit`, `x-ratelimit-remaining`, and `x-ratelimit-reset`. A denied request stops with status 429 and `retry-after`. Another backend implements `Palisade.RateLimit` and is selected with `backend: {MyBackend, opts}`.
 
-Palisade's source lives inside ServiceRadar's monorepo at `elixir/palisade/`.
-ServiceRadar's other Elixir apps consume it with a sibling path dependency:
+`Palisade.ConnectionLimiter` admits a long-lived connection against caps on how many are active and how fast new ones arrive, both overall and per key. The owner process holds the slot until it exits. Admit a LiveView on the connected mount:
 
 ```elixir
-# in e.g. elixir/serviceradar_core/mix.exs
-{:palisade, path: "../palisade"}
+def mount(_params, _session, socket) do
+  if connected?(socket) do
+    ip = Palisade.ClientIP.from_connect_info(socket.private.connect_info, @client_ip)
+
+    case Palisade.ConnectionLimiter.admit(MyAppWeb.LiveLimiter, ip) do
+      :ok -> {:ok, socket}
+      {:error, _reason} -> {:ok, redirect(socket, to: "/busy")}
+    end
+  else
+    {:ok, socket}
+  end
+end
 ```
 
-Bazel builds and tests palisade on every pull request (see
-[Bazel and Mix](#bazel-and-mix)). External consumers pull from hex.pm, and
-Hex publication remains tag-triggered.
-
-## Versioning and publishing
-
-Tag-based. From the ServiceRadar repo root:
-
-```bash
-git tag palisade-v0.x.y
-git push origin palisade-v0.x.y
-```
-
-ServiceRadar CI watches for `palisade-v*` tags and runs
-`mix hex.publish package --yes` from `elixir/palisade/`. The publish step
-needs `HEX_API_KEY` set as a CI secret with publish scope on hex.pm. See
-[CHANGELOG.md](CHANGELOG.md) for release notes.
-
-## Bazel and Mix
-
-Inside this repository Bazel builds palisade with warnings as errors
-(`//elixir/palisade:erlang_app`), runs its tests
-(`//elixir/palisade:unit_tests`) and runs its format/Credo check
-(`//elixir/palisade:quality_check`) on every pull request. The
-tag-triggered Hex publish workflow still uses plain Mix, because external
-consumers build palisade with Mix when they pull it in as a Hex dependency.
-
-## Development
-
-```bash
-cd elixir/palisade
-mix deps.get
-mix test
-mix credo --strict
-mix format --check-formatted
-```
+`Palisade.Plug.RequestGuard` rejects a GET or HEAD that carries a body or `transfer-encoding` (400), a query string longer than `:max_query_length` (414, default 4096 bytes), more headers than `:max_headers` (431, default 100), and, when `:allowed_query_params` is set, a query parameter outside that list (400).
