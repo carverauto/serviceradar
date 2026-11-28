@@ -197,7 +197,7 @@ dependencies = [
  "bytes",
  "chrono",
  "metrics",
- "rand 0.10.2",
+ "rand 0.10.4",
  "serde",
  "tokio",
  "tracing",
@@ -399,7 +399,7 @@ dependencies = [
  "nuid",
  "pin-project",
  "portable-atomic",
- "rand 0.10.2",
+ "rand 0.10.4",
  "regex",
  "ring",
  "rustls-native-certs",
@@ -2999,7 +2999,7 @@ dependencies = [
  "libm",
  "miniz_oxide 0.8.9",
  "once_cell",
- "rand 0.10.2",
+ "rand 0.10.4",
  "rustc-hash",
  "rustix 1.1.6",
  "toml",
@@ -4086,7 +4086,7 @@ dependencies = [
  "lru",
  "mysql_common",
  "percent-encoding",
- "rand 0.10.2",
+ "rand 0.10.4",
  "serde",
  "socket2 0.6.5",
  "thiserror 2.0.20",
@@ -5014,7 +5014,7 @@ dependencies = [
  "hmac 0.13.0",
  "md-5",
  "memchr",
- "rand 0.10.2",
+ "rand 0.10.4",
  "sha2 0.11.0",
  "stringprep",
 ]
@@ -5246,7 +5246,7 @@ dependencies = [
  "chacha20",
  "core_detect",
  "num-traits",
- "rand 0.10.2",
+ "rand 0.10.4",
  "rand_xorshift",
  "regex-syntax",
  "rusty-fork",
@@ -5453,7 +5453,7 @@ checksum = "95c589f335db0f6aaa168a7cd27b1fc6920f5e1470c804f814d9cd6e62a0f70b"
 dependencies = [
  "env_logger",
  "log",
- "rand 0.10.2",
+ "rand 0.10.4",
 ]
 
 [[package]]
@@ -5485,7 +5485,7 @@ dependencies = [
  "bytes",
  "getrandom 0.4.3",
  "lru-slab",
- "rand 0.10.2",
+ "rand 0.10.4",
  "rand_pcg",
  "ring",
  "rustc-hash",
@@ -5562,9 +5562,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
+checksum = "8f6fa277c67e6ea590466f04c3fe82cb509f0864fe470643e5570de9514a9b11"
 dependencies = [
  "chacha20",
  "getrandom 0.4.3",
@@ -6889,7 +6889,7 @@ dependencies = [
  "notify",
  "prost",
  "quickcheck",
- "rand 0.10.2",
+ "rand 0.10.4",
  "rcgen",
  "redis",
  "rustls",
@@ -7947,7 +7947,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
@@ -8161,7 +8161,7 @@ dependencies = [
  "pin-project-lite",
  "postgres-protocol",
  "postgres-types",
- "rand 0.10.2",
+ "rand 0.10.4",
  "socket2 0.6.5",
  "tokio",
  "tokio-util",
@@ -8242,7 +8242,8 @@ dependencies = [
  "futures-sink",
  "http",
  "httparse",
- "rand 0.10.2",
+ "rand 0.10.4",
+ "rustls-pki-types",
  "sha1_smol",
  "simdutf8",
  "tokio",
