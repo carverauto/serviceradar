@@ -25,7 +25,7 @@ defmodule ServiceRadarUI.CspOutputTest do
     end
 
     for class <-
-          ~w(sr-ui-btn sr-ui-badge sr-ui-panel sr-ui-surface sr-ui-alert sr-ui-flash sr-ui-modal sr-ui-tabs sr-ui-dropdown sr-ui-table sr-ui-pagination sr-ui-spinner sr-ui-field sr-ui-skip-link sr-ui-topbar sr-ui-footer sr-ui-theme-toggle sr-chart-sparkline sr-chart-area sr-chart-bar sr-chart-donut sr-chart-gauge sr-map) do
+          ~w(sr-ui-btn sr-ui-badge sr-ui-panel sr-ui-surface sr-ui-alert sr-ui-flash sr-ui-modal sr-ui-tabs sr-ui-dropdown sr-ui-table sr-ui-pagination sr-ui-spinner sr-ui-field sr-ui-skip-link sr-ui-topbar sr-ui-brand-lockup sr-ui-segmented sr-ui-footer sr-ui-theme-toggle sr-chart-sparkline sr-chart-area sr-chart-bar sr-chart-donut sr-chart-gauge sr-map) do
       assert html =~ class
     end
 
@@ -53,6 +53,8 @@ defmodule ServiceRadarUI.CspOutputTest do
 
     assert File.exists?(Path.join(priv, "static/serviceradar_ui.js.map"))
     assert File.exists?(Path.join(priv, "static/world-110m.json"))
+    assert File.exists?(Path.join(priv, "static/logo-animated.svg"))
+    assert File.exists?(Path.join(priv, "static/favicon.ico"))
     assert byte_size(bundle) > 10_000
     assert bundle =~ "SrWorldMap"
     refute bundle =~ "Fiji"
@@ -81,11 +83,18 @@ defmodule ServiceRadarUI.CspOutputTest do
     ~H"""
     <.skip_link />
     <.top_bar>
-      <:brand>Acme</:brand>
-      <:nav><a href="/devices">Devices</a></:nav>
+      <:brand>
+        <.brand_lockup navigate="/" title="ServiceRadar" subtitle="Global Observability" />
+      </:brand>
+      <:nav><a href="/devices" aria-current="page">Devices</a></:nav>
+      <:mobile_nav><a href="/devices" aria-current="page">Devices</a></:mobile_nav>
       <:actions><.theme_toggle /></:actions>
     </.top_bar>
     <main id="main" tabindex="-1">
+      <.segmented_nav label="Time window">
+        <:item patch="/?window=7d">7d</:item>
+        <:item patch="/?window=30d" active>30d</:item>
+      </.segmented_nav>
       <.button>Save</.button>
       <.button navigate="/devices" variant="outline">Devices</.button>
       <.icon_button aria-label="Refresh"><.icon name="hero-arrow-path" /></.icon_button>
