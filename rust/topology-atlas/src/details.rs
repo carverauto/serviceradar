@@ -40,6 +40,10 @@ impl TileSelection {
         self.profile
     }
 
+    pub fn world_revision(&self) -> &str {
+        &self.world_revision
+    }
+
     pub fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.world_revision.capacity()
@@ -117,6 +121,12 @@ pub struct AggregateSelection {
     scope_revision: String,
     range: Range<usize>,
     excluded: Vec<usize>,
+}
+
+impl AggregateSelection {
+    pub fn world_revision(&self) -> &str {
+        &self.world_revision
+    }
 }
 
 impl AggregateSelection {

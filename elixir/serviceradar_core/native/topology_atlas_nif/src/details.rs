@@ -181,11 +181,7 @@ fn relation(env: Env<'_>, world: ResourceArc<WorldResource>, id: String) -> Term
             let row = relation_row(&world, &id)?;
             let mut nodes = Vec::with_capacity(2);
             for endpoint in [&row.source_id, &row.target_id] {
-                let position = world
-                    .0
-                    .geometry
-                    .search(endpoint)
-                    .ok_or(Error::StaleDetailRevision)?;
+                let position = world.0.search(endpoint).ok_or(Error::StaleDetailRevision)?;
                 nodes.push(PositionRow::from_position(position.clone(), true));
             }
             Ok(WireRelationDetail {
@@ -205,11 +201,9 @@ fn aggregate_selection(
 ) -> Term<'_> {
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
         read_call(env, || {
+            let target = world.0.world_for_revision(selection.0.world_revision());
             Ok(ResourceArc::new(AggregateResource(
-                world
-                    .0
-                    .geometry
-                    .aggregate_selection(&selection.0, &glyph_id)?,
+                target.aggregate_selection(&selection.0, &glyph_id)?,
             )))
         })
     })
@@ -232,7 +226,29 @@ fn detail<'a>(
                 .decode::<Option<WireDetailCursor>>()
                 .map_err(|_| Error::InvalidDetailCursor)?
                 .map(Into::into);
-            let page = world.0.geometry.detail(&scope, cursor.as_ref())?;
+            let page = if let Some(ref c) = cursor {
+                world
+                    .0
+                    .world_for_revision(&c.world_revision)
+                    .detail(&scope, Some(c))?
+            } else if let DetailScope::AggregateMembers(ref agg) = scope {
+                world
+                    .0
+                    .world_for_revision(agg.world_revision())
+                    .detail(&scope, None)?
+            } else {
+                match world.0.geometry.detail(&scope, None) {
+                    Ok(page) => page,
+                    Err(Error::DetailNotFound) => {
+                        if let Some(ext) = world.0.external_geometry.as_ref() {
+                            ext.detail(&scope, None)?
+                        } else {
+                            return Err(Error::DetailNotFound);
+                        }
+                    }
+                    Err(err) => return Err(err),
+                }
+            };
             let relations = detail_relations(&world, page.relations)?;
             Ok(WireDetailPage {
                 world_revision: page.world_revision,
@@ -270,7 +286,8 @@ fn bundle_info(
 ) -> Term<'_> {
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
         read_call(env, || {
-            let info = world.0.geometry.bundle_info(&selection.0, &id)?;
+            let target = world.0.world_for_revision(selection.0.world_revision());
+            let info = target.bundle_info(&selection.0, &id)?;
             Ok(WireBundleInfo {
                 id: info.id,
                 relation_count: info.relation_count,
@@ -334,10 +351,8 @@ fn bundle_detail<'a>(
                 .decode::<Option<WireBundleCursor>>()
                 .map_err(|_| Error::InvalidDetailCursor)?
                 .map(Into::into);
-            let page = world
-                .0
-                .geometry
-                .bundle_detail(&selection.0, &id, cursor.as_ref())?;
+            let target = world.0.world_for_revision(selection.0.world_revision());
+            let page = target.bundle_detail(&selection.0, &id, cursor.as_ref())?;
             Ok(WireBundlePage {
                 world_revision: page.world_revision,
                 scope_revision: page.scope_revision,
@@ -453,26 +468,21 @@ fn tile_relations<'a>(
                 .decode::<Option<WireRelationCursor>>()
                 .map_err(|_| Error::InvalidDetailCursor)?
                 .map(Into::into);
-            let page = world
-                .0
-                .geometry
-                .tile_relations(&selection.0, cursor.as_ref(), limit)?;
+            let world_revision = selection.0.world_revision();
+            let page = world.0.world_for_revision(world_revision).tile_relations(
+                &selection.0,
+                cursor.as_ref(),
+                limit,
+            )?;
             let mut relations = Vec::with_capacity(page.relations.len());
             for selected in page.relations {
-                let row = world
+                let (row, degrees) = world
                     .0
-                    .relations
-                    .get(selected.relation_index as usize)
+                    .relation_for_selection(world_revision, selected.relation_index as usize)
                     .ok_or(Error::StaleDetailRevision)?;
                 if row.relation_id != selected.relation_id {
                     return Err(Error::StaleDetailRevision);
                 }
-                let degrees = world
-                    .0
-                    .interface_degrees
-                    .get(selected.relation_index as usize)
-                    .copied()
-                    .ok_or(Error::StaleDetailRevision)?;
                 relations.push(WireSelectedRelation::new(row, degrees, selected));
             }
             Ok(WireRelationPage {

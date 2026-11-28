@@ -75,6 +75,7 @@ pub enum TopologyClass {
     #[default]
     Unknown,
     Inferred,
+    External,
 }
 
 impl TopologyClass {
@@ -86,6 +87,7 @@ impl TopologyClass {
             Self::Endpoints => "endpoints",
             Self::Unknown => "unknown",
             Self::Inferred => "inferred",
+            Self::External => "external",
         }
     }
 }

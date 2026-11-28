@@ -237,9 +237,10 @@ fn tile_device_ordinals(
 ) -> Term<'_> {
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
         read_reply(env, || {
+            let target = world.0.world_for_revision(selection.0.world_revision());
             with_ordinals(&mapping, |ordinals| {
                 ordinals
-                    .tile_device_ordinals(&world.0.geometry, &selection.0)
+                    .tile_device_ordinals_projected(&world.0.geometry, target, &selection.0)
                     .map_err(engine_error)
             })
         })
@@ -264,9 +265,15 @@ fn tile_relation_ordinals<'a>(
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
         read_reply(env, || {
             let cursor = cursor.map(Into::into);
+            let target = world.0.world_for_revision(selection.0.world_revision());
             let page = with_ordinals(&mapping, |ordinals| {
                 ordinals
-                    .relation_ordinals(&world.0.geometry, &selection.0, cursor.as_ref())
+                    .relation_ordinals_projected(
+                        &world.0.geometry,
+                        target,
+                        &selection.0,
+                        cursor.as_ref(),
+                    )
                     .map_err(engine_error)
             })?;
             Ok(WireRelationOrdinals {
@@ -289,9 +296,16 @@ fn aggregate_ordinals(
 ) -> Term<'_> {
     crate::admission::call(env, &crate::admission::ORDINAL_READ, || {
         read_reply(env, || {
+            let target = world.0.world_for_revision(aggregate.0.world_revision());
             let bytes = with_ordinals(&mapping, |ordinals| {
                 ordinals
-                    .aggregate(&world.0.geometry, &aggregate.0, max_bytes, timeout_ms)
+                    .aggregate_projected(
+                        &world.0.geometry,
+                        target,
+                        &aggregate.0,
+                        max_bytes,
+                        timeout_ms,
+                    )
                     .map_err(engine_error)
             })?;
             binary(env, &bytes)

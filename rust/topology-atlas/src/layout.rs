@@ -123,6 +123,182 @@ pub fn reconcile(
         .collect())
 }
 
+/// Deterministically place a secondary topology layer (such as external egress
+/// ASNs/IXPs/SaaS targets or cloud overlays) in quadtree cells strictly
+/// disjoint from `base_positions`. Previously placed layer nodes retain their
+/// coordinates; fresh layer nodes are laid out by ELK in reserved cells outside
+/// all internal components, guaranteeing zero coordinate or Morton-code overlap.
+pub fn reconcile_layer(
+    base_positions: &[Position],
+    mut layer_devices: Vec<Device>,
+    layer_relations: &[Relation],
+    previous_layer: &[Position],
+) -> Result<Vec<Position>, Error> {
+    if layer_devices.is_empty() {
+        return Ok(Vec::new());
+    }
+    layer_devices.sort_unstable_by(|a, b| a.id.cmp(&b.id));
+    let base_ids: HashSet<&str> = base_positions.iter().map(|p| p.id.as_str()).collect();
+    for device in &layer_devices {
+        if base_ids.contains(device.id.as_str()) {
+            return Err(Error::DuplicateIdentity(device.id.clone()));
+        }
+    }
+    let index = device_index(&layer_devices)?;
+
+    // Build intra-layer adjacency only; cross-layer anchor edges connect to
+    // base_positions and must not merge layer cells into internal cells.
+    let mut edges = vec![Vec::new(); layer_devices.len()];
+    let mut anchored = HashSet::<usize>::new();
+    for relation in layer_relations {
+        match (
+            index.get(relation.source.as_str()).copied(),
+            index.get(relation.target.as_str()).copied(),
+        ) {
+            (Some(source), Some(target)) if source != target => {
+                edges[source].push(target);
+                edges[target].push(source);
+            }
+            (Some(layer_idx), None) if base_ids.contains(relation.target.as_str()) => {
+                anchored.insert(layer_idx);
+            }
+            (None, Some(layer_idx)) if base_ids.contains(relation.source.as_str()) => {
+                anchored.insert(layer_idx);
+            }
+            _ => {}
+        }
+    }
+    for neighbours in &mut edges {
+        neighbours.sort_unstable();
+        neighbours.dedup();
+    }
+
+    // Reserve every cell already occupied by base_positions AND previous_layer.
+    let mut combined_previous = Vec::with_capacity(base_positions.len() + previous_layer.len());
+    combined_previous.extend(base_positions.iter().cloned());
+    combined_previous.extend(previous_layer.iter().cloned());
+    let _ = previous_index(&combined_previous)?;
+    let mut cells = ComponentCells::new(&combined_previous)?;
+    let known = previous_index(previous_layer)?;
+    let mut slots = ComponentSlots::from_previous(previous_layer);
+
+    // Promote directly-anchored layer vertices to root priority during forest construction.
+    let mut rooted_devices = layer_devices.clone();
+    for &idx in &anchored {
+        if rooted_devices[idx].importance > 0 {
+            rooted_devices[idx].importance = 0;
+        }
+    }
+    let forest = forest(&rooted_devices, &edges, &known);
+    let fresh_tree: Vec<_> = forest
+        .iter()
+        .filter(|tree| {
+            !tree
+                .iter()
+                .any(|(i, _)| known.contains_key(layer_devices[*i].id.as_str()))
+        })
+        .flatten()
+        .copied()
+        .collect();
+    let component_depth = combined_previous
+        .iter()
+        .map(|p| p.component.z)
+        .min()
+        .unwrap_or(1)
+        .max(1);
+    let mut positions: Vec<Option<Position>> = vec![None; layer_devices.len()];
+
+    let fresh = if fresh_tree.is_empty() {
+        None
+    } else {
+        let drawing = std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn_scoped(scope, || {
+                    let elk = crate::elk::Elk::new()?;
+                    crate::elk_hierarchy::compose(&fresh_tree, &elk)
+                })
+                .map_err(|_| Error::LayoutUnavailable)?
+                .join()
+                .map_err(|_| Error::LayoutUnavailable)?
+        })?;
+        let finest = crate::elk_hierarchy::finest_cell(&drawing, fresh_tree.len())?;
+        let seed_id = format!("layer:{}", layer_devices[fresh_tree[0].0].id);
+        let component = cells.reserve(&seed_id, component_depth, finest)?;
+        let geometry = crate::elk_hierarchy::project(&drawing, component, fresh_tree.len())?;
+        Some((
+            component,
+            geometry,
+            depth_for(fresh_tree.len().saturating_mul(4)),
+        ))
+    };
+
+    for tree in forest {
+        let anchor = tree
+            .iter()
+            .find_map(|(i, _)| known.get(layer_devices[*i].id.as_str()).copied());
+        let root = tree[0].0;
+        let component = anchor.map_or_else(|| fresh.as_ref().unwrap().0, |p| p.component);
+        let component_id = anchor.map_or_else(
+            || format!("ext:{}", layer_devices[root].id),
+            |p| p.component_id.clone(),
+        );
+        let placement_depth =
+            anchor.map_or_else(|| fresh.as_ref().unwrap().2, |p| p.placement_depth);
+        if u16::from(component.z) + u16::from(placement_depth) > 24 {
+            return Err(Error::ExhaustedWorld);
+        }
+        for &(i, parent) in &tree {
+            let device = &layer_devices[i];
+            let position = if let Some(old) = known.get(device.id.as_str()) {
+                let mut old = (*old).clone();
+                old.label.clone_from(&device.label);
+                old.min_zoom = minimum_zoom(device.importance);
+                old
+            } else if anchor.is_none() {
+                let (x, y) = fresh.as_ref().unwrap().1[&i];
+                Position {
+                    id: device.id.clone(),
+                    label: device.label.clone(),
+                    x,
+                    y,
+                    min_zoom: minimum_zoom(device.importance),
+                    parent_id: parent.map(|p| layer_devices[p].id.clone()),
+                    component_id: component_id.clone(),
+                    component,
+                    placement_depth,
+                }
+            } else {
+                let parent_position = parent
+                    .and_then(|p| positions[p].as_ref())
+                    .or(anchor)
+                    .expect("layer component anchor");
+                let (x, y, depth) = slots
+                    .get_mut(&parent_position.component)
+                    .expect("persisted layer component")
+                    .allocate(parent_position)?;
+                Position {
+                    id: device.id.clone(),
+                    label: device.label.clone(),
+                    x,
+                    y,
+                    min_zoom: minimum_zoom(device.importance),
+                    parent_id: Some(parent_position.id.clone()),
+                    component_id: parent_position.component_id.clone(),
+                    component: parent_position.component,
+                    placement_depth: depth,
+                }
+            };
+            positions[i] = Some(position);
+        }
+    }
+
+    Ok(positions
+        .into_iter()
+        .map(|p| p.expect("every layer device visited"))
+        .collect())
+}
+
 fn device_index(devices: &[Device]) -> Result<HashMap<&str, usize>, Error> {
     let mut index = HashMap::with_capacity(devices.len());
     for (i, device) in devices.iter().enumerate() {

@@ -99,7 +99,8 @@ export class WorldOverlays {
     const deadline = setTimeout(() => controller.abort(), 10000)
     const protocolGeneration = this.protocolGeneration
     try {
-      const url = `/topology/overlays/${geometry.key.layout_version}/${id}?revision=${geometry.revision}`
+      const layerParam = geometry.key.layers === "external" ? "&layers=external" : ""
+      const url = `/topology/overlays/${geometry.key.layout_version}/${id}?revision=${geometry.revision}${layerParam}`
       const response = await fetch(url, {credentials: "same-origin", signal: controller.signal, headers: {Accept: WORLD_OVERLAY_MIME}})
       if (!response.ok || response.headers.get("content-type")?.split(";")[0] !== WORLD_OVERLAY_MIME) {
         await response.body?.cancel()

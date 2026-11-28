@@ -4,10 +4,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
-use dgraph_topology::{CanonicalEdge, TopologyView};
+use dgraph_topology::{CanonicalEdge, EgressTopologyResult, TopologyView};
 use rustler::NifMap;
 use serviceradar_topology_atlas::{
-    reconcile, Cell, Device, Position, Relation, TopologyClass, World, ALGORITHM, WORLD_EXTENT,
+    reconcile, reconcile_layer, Cell, Device, Position, Relation, TopologyClass, World, ALGORITHM,
+    WORLD_EXTENT,
 };
 use sha2::{Digest, Sha256};
 
@@ -104,6 +105,12 @@ pub struct RelationRow {
 impl RelationRow {
     pub(crate) fn topology_class(&self) -> TopologyClass {
         match (self.kind.as_str(), self.evidence_class.as_deref()) {
+            (_, Some("external" | "external-egress")) => TopologyClass::External,
+            (
+                "EGRESSES_TO" | "BORDER_HANDOFF" | "TRACEROUTE_HOP" | "AS_REL_PROVIDER"
+                | "AS_REL_PEER" | "IXP_MEMBER" | "ANYCAST_SERVES" | "EXTERNAL_EGRESS",
+                _,
+            ) => TopologyClass::External,
             // Dgraph retains raw evidence names. An inferred segment may be
             // stored as ATTACHED_TO; that does not establish a physical link.
             (_, Some("inferred" | "inferred-segment")) => TopologyClass::Inferred,
@@ -185,11 +192,62 @@ pub struct Info {
     pub relation_count: u64,
 }
 
+pub(crate) fn is_external_position(row: &PositionRow) -> bool {
+    row.component_id.starts_with("ext:")
+}
+
 pub struct WorldState {
     pub geometry: World,
+    pub external_geometry: Option<World>,
     pub info: Info,
     pub relations: Arc<[RelationRow]>,
+    pub internal_relation_indices: Vec<usize>,
     pub interface_degrees: Vec<[u32; 2]>,
+}
+
+impl WorldState {
+    pub fn world_for_layers(&self, include_external: bool) -> &World {
+        if include_external {
+            self.external_geometry.as_ref().unwrap_or(&self.geometry)
+        } else {
+            &self.geometry
+        }
+    }
+
+    pub fn world_for_revision(&self, revision: &str) -> &World {
+        if let Some(ext) = self.external_geometry.as_ref() {
+            if ext.detail_revision() == revision {
+                return ext;
+            }
+        }
+        &self.geometry
+    }
+
+    pub fn search(&self, id: &str) -> Option<&Position> {
+        self.geometry
+            .search(id)
+            .or_else(|| self.external_geometry.as_ref().and_then(|w| w.search(id)))
+    }
+
+    pub fn relation_for_selection(
+        &self,
+        world_revision: &str,
+        relation_index: usize,
+    ) -> Option<(&RelationRow, [u32; 2])> {
+        let index = if self
+            .external_geometry
+            .as_ref()
+            .is_some_and(|w| w.detail_revision() == world_revision)
+        {
+            relation_index
+        } else {
+            *self.internal_relation_indices.get(relation_index)?
+        };
+        Some((
+            self.relations.get(index)?,
+            *self.interface_degrees.get(index)?,
+        ))
+    }
 }
 
 pub struct Builder {
@@ -259,7 +317,14 @@ impl Builder {
     }
 
     pub fn finish(self) -> Result<Arc<WorldState>> {
-        let relations = normalize(self.relations.into_values().filter(|row| row.active));
+        let (internal_rows, mut external_rows): (Vec<_>, Vec<_>) = self
+            .relations
+            .into_values()
+            .filter(|row| row.active)
+            .partition(|row| row.topology_class() != TopologyClass::External);
+        let mut relations = normalize(internal_rows);
+        relations.append(&mut external_rows);
+        relations.sort_by(|left, right| left.relation_id.cmp(&right.relation_id));
         build_world(
             self.layout_version,
             self.zmax,
@@ -285,18 +350,45 @@ impl Builder {
         }
         drop(inventory);
         let raw_links = graph.raw_links;
-        let relations: Arc<[RelationRow]> = normalize(graph.relations.into_values()).into();
-        let pipeline_stats = publication_stats(raw_links, &relations);
-        let digest = source_digest(&devices, &relations);
-        let geometry = layout_forest(&relations);
-        // Reject an obsolete drawing before allocating an incremental world.
-        // The worker stages fresh ELK coordinates under a new version instead.
-        validate_parent_tree(&old_positions, &geometry)?;
-        let prior: Vec<_> = old_positions.values().map(PositionRow::position).collect();
-        let next = reconcile(devices.into_values().collect(), &geometry, &prior)
+        let internal_relations = normalize(graph.relations.into_values());
+        let pipeline_stats = publication_stats(raw_links, &internal_relations);
+        let external_devices = graph.external_devices;
+        let external_relations: Vec<RelationRow> = graph.external_relations.into_values().collect();
+        let digest = source_digest(
+            &devices,
+            &internal_relations,
+            &external_devices,
+            &external_relations,
+        );
+        let geometry = layout_forest(&internal_relations);
+        let (old_external, old_internal): (BTreeMap<_, _>, BTreeMap<_, _>) = old_positions
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .partition(|(_, row)| is_external_position(row));
+        // Reject an obsolete internal drawing before allocating an incremental world.
+        // External topology churn never forces an internal layout version bump.
+        validate_parent_tree(&old_internal, &geometry)?;
+        let prior: Vec<_> = old_internal.values().map(PositionRow::position).collect();
+        let next_internal = reconcile(devices.into_values().collect(), &geometry, &prior)
             .map_err(|_| "cannot reconcile persisted world")?;
         drop(prior);
         drop(geometry);
+        let next_external = if external_devices.is_empty() {
+            Vec::new()
+        } else {
+            let ext_geometry: Vec<_> = external_relations
+                .iter()
+                .map(RelationRow::geometry)
+                .collect();
+            let prior_external: Vec<_> = old_external.values().map(PositionRow::position).collect();
+            reconcile_layer(
+                &next_internal,
+                external_devices.into_values().collect(),
+                &ext_geometry,
+                &prior_external,
+            )
+            .map_err(|_| "cannot reconcile external topology layer")?
+        };
         let mut positions: BTreeMap<_, _> = old_positions
             .iter()
             .map(|(id, row)| {
@@ -305,13 +397,17 @@ impl Builder {
                 (id.clone(), retired)
             })
             .collect();
-        for position in next {
+        for position in next_internal.into_iter().chain(next_external) {
             positions.insert(
                 position.id.clone(),
                 PositionRow::from_position(position, true),
             );
         }
         let positions: Vec<_> = positions.into_values().collect();
+        let mut combined_relations = internal_relations;
+        combined_relations.extend(external_relations);
+        combined_relations.sort_by(|left, right| left.relation_id.cmp(&right.relation_id));
+        let relations: Arc<[RelationRow]> = combined_relations.into();
         let world = build_world(layout_version, zmax, positions.iter(), relations.clone())?;
         let deltas = Deltas::new(&old_positions, &old_relations, &positions, &relations);
         Ok(Candidate {
@@ -339,11 +435,26 @@ fn build_world<'a>(
     positions: impl Iterator<Item = &'a PositionRow>,
     relations: Arc<[RelationRow]>,
 ) -> Result<Arc<WorldState>> {
-    let active: Vec<_> = positions
-        .filter(|p| p.active)
-        .map(PositionRow::position)
+    let mut internal_active = Vec::new();
+    let mut all_active = Vec::new();
+    for row in positions.filter(|p| p.active) {
+        let pos = row.position();
+        if !is_external_position(row) {
+            internal_active.push(pos.clone());
+        }
+        all_active.push(pos);
+    }
+    let internal_relation_indices: Vec<usize> = relations
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.topology_class() != TopologyClass::External)
+        .map(|(i, _)| i)
         .collect();
-    let bounds = active
+    let internal_relations: Vec<RelationRow> = internal_relation_indices
+        .iter()
+        .map(|&i| relations[i].clone())
+        .collect();
+    let bounds = internal_active
         .iter()
         .fold(None::<(u32, u32, u32, u32)>, |bounds, p| {
             Some(match bounds {
@@ -363,36 +474,10 @@ fn build_world<'a>(
         algorithm_version: ALGORITHM.into(),
         extent: WORLD_EXTENT,
         bounds,
-        node_count: active.len() as u64,
-        relation_count: relations.len() as u64,
+        node_count: internal_active.len() as u64,
+        relation_count: internal_relations.len() as u64,
     };
-    let geometry = World::new_classified(
-        layout_version,
-        zmax,
-        active,
-        relations.iter().map(RelationRow::geometry).collect(),
-        |edge| {
-            relations
-                .binary_search_by(|row| row.relation_id.cmp(&edge.id))
-                .map(|index| relations[index].topology_class())
-                .unwrap_or_default()
-        },
-    )
-    .map_err(|_| "invalid persisted world")?
-    .with_relation_stale(|edge| {
-        relations[relations
-            .binary_search_by(|row| row.relation_id.cmp(&edge.id))
-            .unwrap()]
-        .stale
-    })
-    .with_relation_last_seen(|edge| {
-        relations[relations
-            .binary_search_by(|row| row.relation_id.cmp(&edge.id))
-            .unwrap()]
-        .last_seen
-        .clone()
-    });
-    let overview: BTreeSet<_> = layout_forest(&relations)
+    let overview: BTreeSet<_> = layout_forest(&internal_relations)
         .iter()
         .map(|edge| {
             let row = &relations[relations
@@ -404,22 +489,63 @@ fn build_world<'a>(
             )
         })
         .collect();
-    let geometry = geometry.with_overview_relations(|edge| {
-        let row = &relations[relations
-            .binary_search_by(|row| row.relation_id.cmp(&edge.id))
-            .unwrap()];
-        // Parallel physical bindings on the selected pair remain measurable;
-        // a weaker class on that same pair remains separate detail evidence.
-        overview.contains(&(
-            device_pair(&row.source_id, &row.target_id),
-            row.topology_class(),
-        ))
-    });
+    let build_one = |active_positions: Vec<Position>,
+                     rels: &[RelationRow],
+                     include_ext: bool|
+     -> Result<World> {
+        let w = World::new_classified(
+            layout_version.clone(),
+            zmax,
+            active_positions,
+            rels.iter().map(RelationRow::geometry).collect(),
+            |edge| {
+                rels.binary_search_by(|row| row.relation_id.cmp(&edge.id))
+                    .map(|index| rels[index].topology_class())
+                    .unwrap_or_default()
+            },
+        )
+        .map_err(|_| "invalid persisted world")?
+        .with_relation_stale(|edge| {
+            rels[rels
+                .binary_search_by(|row| row.relation_id.cmp(&edge.id))
+                .unwrap()]
+            .stale
+        })
+        .with_relation_last_seen(|edge| {
+            rels[rels
+                .binary_search_by(|row| row.relation_id.cmp(&edge.id))
+                .unwrap()]
+            .last_seen
+            .clone()
+        });
+        Ok(w.with_overview_relations(|edge| {
+            let row = &rels[rels
+                .binary_search_by(|row| row.relation_id.cmp(&edge.id))
+                .unwrap()];
+            if include_ext && row.topology_class() == TopologyClass::External {
+                return true;
+            }
+            overview.contains(&(
+                device_pair(&row.source_id, &row.target_id),
+                row.topology_class(),
+            ))
+        }))
+    };
+    let has_external = all_active.len() > internal_active.len()
+        || internal_relation_indices.len() < relations.len();
+    let geometry = build_one(internal_active, &internal_relations, false)?;
+    let external_geometry = if has_external {
+        Some(build_one(all_active, &relations, true)?)
+    } else {
+        None
+    };
     let interface_degrees = interface_degrees(&relations);
     Ok(Arc::new(WorldState {
         geometry,
+        external_geometry,
         info,
         relations,
+        internal_relation_indices,
         interface_degrees,
     }))
 }
@@ -470,12 +596,22 @@ fn physical_binding(row: &RelationRow) -> bool {
 pub struct SourceGraph {
     pub devices: BTreeMap<String, Device>,
     pub relations: BTreeMap<String, RelationRow>,
+    pub external_devices: BTreeMap<String, Device>,
+    pub external_relations: BTreeMap<String, RelationRow>,
     /// Admitted view edges before duplicate evidence is collapsed.
     pub raw_links: u64,
 }
 
 impl SourceGraph {
+    #[allow(dead_code)]
     pub fn from_view(view: TopologyView) -> Result<Self> {
+        Self::from_view_with_egress(view, None)
+    }
+
+    pub fn from_view_with_egress(
+        view: TopologyView,
+        egress: Option<EgressTopologyResult>,
+    ) -> Result<Self> {
         let (nodes, edges) = view.into_parts();
         let raw_links = edges.len() as u64;
         let mut devices = admit_devices(nodes)?;
@@ -493,12 +629,104 @@ impl SourceGraph {
             }
             insert_relation(&mut devices, &mut relations, row)?;
         }
+        let (external_devices, external_relations) = match egress {
+            Some(result) => admit_external_egress(&devices, result),
+            None => (BTreeMap::new(), BTreeMap::new()),
+        };
         Ok(Self {
             devices,
             relations,
+            external_devices,
+            external_relations,
             raw_links,
         })
     }
+}
+
+fn admit_external_egress(
+    internal_devices: &BTreeMap<String, Device>,
+    egress: EgressTopologyResult,
+) -> (BTreeMap<String, Device>, BTreeMap<String, RelationRow>) {
+    let mut candidate_nodes = BTreeMap::new();
+    for node in egress.external_nodes {
+        if node.id.trim().is_empty() || internal_devices.contains_key(&node.id) {
+            continue;
+        }
+        let label = bounded_label(
+            node.label
+                .as_deref()
+                .filter(|v| !v.trim().is_empty())
+                .or_else(|| node.ip.as_deref().filter(|v| !v.trim().is_empty()))
+                .unwrap_or(&node.id),
+        );
+        let importance = match node.kind.as_str() {
+            "ASN" | "IXP" | "SaasTarget" => 1,
+            _ => 2,
+        };
+        candidate_nodes
+            .entry(node.id.clone())
+            .or_insert_with(|| Device {
+                id: node.id,
+                label,
+                importance,
+            });
+    }
+    let mut external_relations = BTreeMap::new();
+    let mut referenced_external = HashSet::new();
+    for edge in egress.edges {
+        if edge.src_id.trim().is_empty()
+            || edge.dst_id.trim().is_empty()
+            || edge.src_id == edge.dst_id
+        {
+            continue;
+        }
+        let src_internal = internal_devices.contains_key(&edge.src_id);
+        let dst_internal = internal_devices.contains_key(&edge.dst_id);
+        let src_external = candidate_nodes.contains_key(&edge.src_id);
+        let dst_external = candidate_nodes.contains_key(&edge.dst_id);
+        if !((src_internal || src_external) && (dst_internal || dst_external)) {
+            continue;
+        }
+        if !src_external && !dst_external {
+            continue;
+        }
+        let kind = if edge.kind.trim().is_empty() {
+            "EXTERNAL_EGRESS".to_owned()
+        } else {
+            edge.kind
+        };
+        let relation_id = format!("ext:{kind}:{}->{}", edge.src_id, edge.dst_id);
+        let row = RelationRow {
+            relation_id: relation_id.clone(),
+            source_id: edge.src_id.clone(),
+            target_id: edge.dst_id.clone(),
+            evidence_class: Some("external-egress".into()),
+            role: edge.egress_source.as_deref().and_then(nonempty),
+            source_if_index: edge
+                .if_index
+                .and_then(|v| i32::try_from(v).ok())
+                .and_then(positive),
+            source_if_name: edge.if_name.as_deref().and_then(nonempty),
+            target_if_index: None,
+            target_if_name: None,
+            telemetry_eligible: false,
+            kind,
+            active: true,
+            stale: false,
+            last_seen: edge.last_seen.as_deref().and_then(nonempty),
+        };
+        if row.validate().is_ok() {
+            if src_external {
+                referenced_external.insert(edge.src_id);
+            }
+            if dst_external {
+                referenced_external.insert(edge.dst_id);
+            }
+            external_relations.entry(relation_id).or_insert(row);
+        }
+    }
+    candidate_nodes.retain(|id, _| referenced_external.contains(id));
+    (candidate_nodes, external_relations)
 }
 
 fn admit_devices(nodes: Vec<dgraph_topology::CanonicalDevice>) -> Result<BTreeMap<String, Device>> {
@@ -845,7 +1073,12 @@ fn bounded_label(value: &str) -> String {
 
 // Length-prefixed fields avoid delimiter collisions; order is canonical and does
 // not depend on Dgraph UIDs, request pages, refresh time, rates, or status.
-fn source_digest(devices: &BTreeMap<String, Device>, relations: &[RelationRow]) -> String {
+fn source_digest(
+    devices: &BTreeMap<String, Device>,
+    relations: &[RelationRow],
+    external_devices: &BTreeMap<String, Device>,
+    external_relations: &[RelationRow],
+) -> String {
     let mut hash = Sha256::new();
     field(&mut hash, "topology-world-source-v1");
     hash.update((devices.len() as u64).to_be_bytes());
@@ -856,35 +1089,52 @@ fn source_digest(devices: &BTreeMap<String, Device>, relations: &[RelationRow]) 
     }
     hash.update((relations.len() as u64).to_be_bytes());
     for r in relations {
-        for value in [&r.relation_id, &r.source_id, &r.target_id] {
-            field(&mut hash, value);
+        hash_relation(&mut hash, r);
+    }
+    if !external_devices.is_empty() || !external_relations.is_empty() {
+        field(&mut hash, "topology-world-external-v1");
+        hash.update((external_devices.len() as u64).to_be_bytes());
+        for d in external_devices.values() {
+            field(&mut hash, &d.id);
+            field(&mut hash, &d.label);
+            hash.update([d.importance]);
         }
-        for value in [
-            &r.evidence_class,
-            &r.role,
-            &r.source_if_name,
-            &r.target_if_name,
-        ] {
-            hash.update([u8::from(value.is_some())]);
-            if let Some(value) = value {
-                field(&mut hash, value);
-            }
+        hash.update((external_relations.len() as u64).to_be_bytes());
+        for r in external_relations {
+            hash_relation(&mut hash, r);
         }
-        for index in [r.source_if_index, r.target_if_index] {
-            hash.update(index.unwrap_or(0).to_be_bytes());
-        }
-        hash.update([u8::from(r.telemetry_eligible)]);
-        hash.update([u8::from(r.stale)]);
-        hash.update([u8::from(r.last_seen.is_some())]);
-        if let Some(seen) = &r.last_seen {
-            field(&mut hash, seen);
-        }
-        field(&mut hash, &r.kind);
     }
     hash.finalize()
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+fn hash_relation(hash: &mut Sha256, r: &RelationRow) {
+    for value in [&r.relation_id, &r.source_id, &r.target_id] {
+        field(hash, value);
+    }
+    for value in [
+        &r.evidence_class,
+        &r.role,
+        &r.source_if_name,
+        &r.target_if_name,
+    ] {
+        hash.update([u8::from(value.is_some())]);
+        if let Some(value) = value {
+            field(hash, value);
+        }
+    }
+    for index in [r.source_if_index, r.target_if_index] {
+        hash.update(index.unwrap_or(0).to_be_bytes());
+    }
+    hash.update([u8::from(r.telemetry_eligible)]);
+    hash.update([u8::from(r.stale)]);
+    hash.update([u8::from(r.last_seen.is_some())]);
+    if let Some(seen) = &r.last_seen {
+        field(hash, seen);
+    }
+    field(hash, &r.kind);
 }
 
 fn field(hash: &mut Sha256, value: &str) {
@@ -940,6 +1190,7 @@ fn publication_stats(raw_links: u64, relations: &[RelationRow]) -> PipelineStats
             TopologyClass::Hosted => hosted += 1,
             TopologyClass::Endpoints => attachment += 1,
             TopologyClass::Inferred => inferred += 1,
+            TopologyClass::External => {}
             TopologyClass::Unknown => unknown += 1,
         }
     }

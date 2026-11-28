@@ -149,7 +149,12 @@ defmodule ServiceRadar.TopologyAtlas do
              is_integer(nodes) and nodes in 9..128 and is_integer(edges) and edges in 72..512 do
     case Map.get(budget, :profile, :standard) do
       profile when profile in [:standard, :aggregate_only] ->
-        Native.tile(world, z, x, y, Map.put(budget, :profile, profile))
+        budget =
+          budget
+          |> Map.put(:profile, profile)
+          |> Map.put(:include_external, Map.get(budget, :include_external, false) == true)
+
+        Native.tile(world, z, x, y, budget)
 
       _ ->
         {:error, :invalid_tile}

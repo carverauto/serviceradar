@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 
-use dgraph_topology::{TopologyClient, TopologyView};
+use dgraph_topology::{EgressTopologyResult, TopologyClient, TopologyView};
 use rustler::env::OwnedEnv;
 use rustler::{Atom, Encoder, Env, LocalPid, Monitor, Resource, ResourceArc, Term};
 use tokio::task::AbortHandle;
@@ -107,13 +107,13 @@ impl<F: Future> Future for CatchUnwind<F> {
     }
 }
 
-/// Connect and read the topology view, bounded by `deadline` and isolated from
-/// panics.
+/// Connect and read the topology view (plus best-effort external egress
+/// topology), bounded by `deadline` and isolated from panics.
 pub(crate) async fn read_topology_view(
     url: &str,
     stale_cutoff: &str,
     deadline: Duration,
-) -> (Result<TopologyView>, Kind) {
+) -> (Result<(TopologyView, Option<EgressTopologyResult>)>, Kind) {
     let entry = Instant::now();
     let connect_deadline = CONNECT_DEADLINE.min(deadline);
     let connect = CatchUnwind(Box::pin(TopologyClient::connect(url)));
@@ -146,22 +146,40 @@ pub(crate) async fn read_topology_view(
             Kind::Timeout,
         );
     }
-    let read = async move { client.query_topology_view(stale_cutoff).await };
-    match tokio::time::timeout(remaining, CatchUnwind(Box::pin(read))).await {
-        Ok(Ok(Ok(graph))) => (Ok(graph), Kind::Ok),
-        Ok(Ok(Err(_))) => (Err("topology view read failed".into()), Kind::Error),
-        Ok(Err(())) => (
-            Err("topology view read panicked (call isolated)".into()),
-            Kind::Panic,
-        ),
-        Err(_elapsed) => (
-            Err(format!(
-                "topology view read timed out after {}ms",
-                deadline.as_millis()
-            )),
-            Kind::Timeout,
-        ),
-    }
+    let read = async { client.query_topology_view(stale_cutoff).await };
+    let view = match tokio::time::timeout(remaining, CatchUnwind(Box::pin(read))).await {
+        Ok(Ok(Ok(graph))) => graph,
+        Ok(Ok(Err(_))) => return (Err("topology view read failed".into()), Kind::Error),
+        Ok(Err(())) => {
+            return (
+                Err("topology view read panicked (call isolated)".into()),
+                Kind::Panic,
+            )
+        }
+        Err(_elapsed) => {
+            return (
+                Err(format!(
+                    "topology view read timed out after {}ms",
+                    deadline.as_millis()
+                )),
+                Kind::Timeout,
+            )
+        }
+    };
+    let remaining_for_egress = deadline.saturating_sub(entry.elapsed());
+    let egress = if remaining_for_egress > Duration::from_secs(2) {
+        let egress_budget = remaining_for_egress.min(Duration::from_secs(10));
+        let egress_read = async { client.query_egress_topology(3, 200).await };
+        match tokio::time::timeout(egress_budget, CatchUnwind(Box::pin(egress_read))).await {
+            Ok(Ok(Ok(result))) if !result.external_nodes.is_empty() && !result.edges.is_empty() => {
+                Some(result)
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    (Ok((view, egress)), Kind::Ok)
 }
 
 fn kind_atom(kind: Kind) -> Atom {

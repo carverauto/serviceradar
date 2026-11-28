@@ -166,20 +166,40 @@ impl CanonicalOrdinals {
         world: &World,
         selection: &TileSelection,
     ) -> Result<Vec<u32>, Error> {
-        self.check_ready(world)?;
-        if selection.world_revision != world.detail_revision() {
+        self.tile_device_ordinals_projected(world, world, selection)
+    }
+
+    pub fn tile_device_ordinals_projected(
+        &self,
+        base_world: &World,
+        target_world: &World,
+        selection: &TileSelection,
+    ) -> Result<Vec<u32>, Error> {
+        self.check_ready(base_world)?;
+        if selection.world_revision != target_world.detail_revision() {
             return Err(Error::StaleDetailRevision);
         }
         if selection.glyphs.len() > 8192 {
             return Err(Error::OrdinalBudgetExceeded);
         }
+        let ordinal_for = |target_index: u32| -> u32 {
+            if std::ptr::eq(base_world, target_world) {
+                self.ordinals[target_index as usize]
+            } else {
+                let id = target_world.positions[target_index as usize].id.as_str();
+                base_world
+                    .identities
+                    .get(id)
+                    .map_or(0, |&base_index| self.ordinals[base_index as usize])
+            }
+        };
         let mut rows = vec![0; selection.glyphs.len()];
         for &(index, glyph) in &selection.promoted {
-            rows[glyph as usize] = self.ordinals[index as usize];
+            rows[glyph as usize] = ordinal_for(index);
         }
         for &(glyph, index) in &selection.boundary_devices {
             if let Some(index) = index {
-                rows[glyph as usize] = self.ordinals[index as usize];
+                rows[glyph as usize] = ordinal_for(index);
             }
         }
         Ok(rows)
@@ -192,26 +212,47 @@ impl CanonicalOrdinals {
         selection: &TileSelection,
         cursor: Option<&RelationCursor>,
     ) -> Result<RelationOrdinals, Error> {
-        self.check_ready(world)?;
+        self.relation_ordinals_projected(world, world, selection, cursor)
+    }
+
+    pub fn relation_ordinals_projected(
+        &self,
+        base_world: &World,
+        target_world: &World,
+        selection: &TileSelection,
+        cursor: Option<&RelationCursor>,
+    ) -> Result<RelationOrdinals, Error> {
+        self.check_ready(base_world)?;
         if selection.edges.len() > 512 {
             return Err(Error::OrdinalBudgetExceeded);
         }
-        let page = world.tile_relations(selection, cursor, 256)?;
+        let page = target_world.tile_relations(selection, cursor, 256)?;
         let rows: BTreeMap<_, _> = selection
             .edges
             .iter()
             .enumerate()
             .map(|(row, edge)| (edge.id.as_str(), row as u32))
             .collect();
+        let ordinal_for = |target_index: u32| -> u32 {
+            if std::ptr::eq(base_world, target_world) {
+                self.ordinals[target_index as usize]
+            } else {
+                let id = target_world.positions[target_index as usize].id.as_str();
+                base_world
+                    .identities
+                    .get(id)
+                    .map_or(0, |&base_index| self.ordinals[base_index as usize])
+            }
+        };
         let mut pairs = Vec::with_capacity(page.relations.len() * 12);
         for relation in page.relations {
             let row = rows
                 .get(relation.rendered_edge_id.as_str())
                 .ok_or(Error::StaleDetailRevision)?;
-            let endpoints = world.endpoints[relation.relation_index as usize];
+            let endpoints = target_world.endpoints[relation.relation_index as usize];
             pairs.extend_from_slice(&row.to_le_bytes());
-            pairs.extend_from_slice(&self.ordinals[endpoints.source as usize].to_le_bytes());
-            pairs.extend_from_slice(&self.ordinals[endpoints.target as usize].to_le_bytes());
+            pairs.extend_from_slice(&ordinal_for(endpoints.source).to_le_bytes());
+            pairs.extend_from_slice(&ordinal_for(endpoints.target).to_le_bytes());
         }
         Ok(RelationOrdinals {
             pairs,
@@ -230,18 +271,37 @@ impl CanonicalOrdinals {
         max_bytes: usize,
         timeout_ms: u64,
     ) -> Result<Vec<u8>, Error> {
-        self.check_ready(world)?;
+        self.aggregate_projected(world, world, aggregate, max_bytes, timeout_ms)
+    }
+
+    pub fn aggregate_projected(
+        &self,
+        base_world: &World,
+        target_world: &World,
+        aggregate: &AggregateSelection,
+        max_bytes: usize,
+        timeout_ms: u64,
+    ) -> Result<Vec<u8>, Error> {
+        self.check_ready(base_world)?;
         if !(1..=1000).contains(&timeout_ms) || !(1..=ORDINAL_PORTABLE_BYTES).contains(&max_bytes) {
             return Err(Error::InvalidBudget);
         }
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
         let mut bitmap = RoaringBitmap::new();
-        for (visited, index) in aggregate.member_indices(world)?.enumerate() {
+        for (visited, index) in aggregate.member_indices(target_world)?.enumerate() {
             if visited % 1024 == 0 {
                 check_time(deadline)?;
                 check_bitmap(&bitmap, max_bytes)?;
             }
-            let ordinal = self.ordinals[index];
+            let ordinal = if std::ptr::eq(base_world, target_world) {
+                self.ordinals[index]
+            } else {
+                let id = target_world.positions[index].id.as_str();
+                base_world
+                    .identities
+                    .get(id)
+                    .map_or(0, |&base_index| self.ordinals[base_index as usize])
+            };
             if ordinal != 0 {
                 bitmap.insert(ordinal);
             }
