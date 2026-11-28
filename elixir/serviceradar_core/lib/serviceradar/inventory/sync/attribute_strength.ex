@@ -213,7 +213,7 @@ defmodule ServiceRadar.Inventory.Sync.AttributeStrength do
     hostname = blank_to_nil(update.hostname)
     ip = blank_to_nil(update.ip)
 
-    if hostname != nil and not same_address?(hostname, ip) do
+    if hostname != nil and not same_address?(hostname, ip) and not ip_literal?(hostname) do
       tier =
         case source_class(update) do
           :passive -> :observed
@@ -225,6 +225,9 @@ defmodule ServiceRadar.Inventory.Sync.AttributeStrength do
       address_fallback(ip, update.source)
     end
   end
+
+  defp ip_literal?(value) when is_binary(value), do: Address.classify(value) != :invalid
+  defp ip_literal?(_value), do: false
 
   defp address_fallback(ip, source) when is_binary(ip) do
     if Address.classify(ip) in [:global, :private, :unique_local] do

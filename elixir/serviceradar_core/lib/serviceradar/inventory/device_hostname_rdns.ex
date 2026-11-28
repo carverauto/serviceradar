@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.ReverseDns
   alias ServiceRadar.Observability.SRQLRunner
@@ -672,7 +673,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
       |> Ash.Query.filter(expr(uid in ^uids))
-      |> Ash.Query.select([:uid, :ip, :hostname, :metadata, :last_seen_time])
+      |> Ash.Query.select([:uid, :ip, :name, :hostname, :metadata, :last_seen_time])
       |> Ash.read(actor: actor, page: [limit: max(length(uids), 1)])
       |> case do
         {:error, reason} ->
@@ -748,11 +749,27 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     patch = rdns_metadata_patch(hostname, status, error, now)
 
     if status == "ok" and ReverseDns.usable_hostname?(hostname, device_ip(device)) do
-      {:update, %{hostname: hostname, metadata_patch: patch}}
+      attrs = %{hostname: hostname, metadata_patch: patch}
+
+      attrs =
+        if should_replace_device_name?(Map.get(device, :name)),
+          do: Map.put(attrs, :name, hostname),
+          else: attrs
+
+      {:update, attrs}
     else
       {:skip, %{metadata_patch: patch}}
     end
   end
+
+  defp should_replace_device_name?(nil), do: true
+
+  defp should_replace_device_name?(name) when is_binary(name) do
+    trimmed = String.trim(name)
+    trimmed == "" or Address.classify(trimmed) != :invalid
+  end
+
+  defp should_replace_device_name?(_name), do: false
 
   defp apply_device(device, actor, now, lookup, persist, timeout_ms, cache?, acc) do
     ip = device_ip(device)

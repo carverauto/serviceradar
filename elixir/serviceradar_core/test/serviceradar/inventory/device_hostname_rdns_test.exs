@@ -65,6 +65,30 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
              DeviceHostnameRdns.result_attrs(device, "core-sw.farm.lan", "ok", nil, now)
 
     assert attrs.hostname == "core-sw.farm.lan"
+    assert attrs.name == "core-sw.farm.lan"
+
+    # Replaces IP-literal name but preserves an existing real display name.
+    assert {:update, ip_name_attrs} =
+             DeviceHostnameRdns.result_attrs(
+               %{ip: "192.0.2.8", name: "2001:db8::8", hostname: nil, metadata: %{}},
+               "edge-rtr.example.com",
+               "ok",
+               nil,
+               now
+             )
+
+    assert ip_name_attrs.name == "edge-rtr.example.com"
+
+    assert {:update, named_attrs} =
+             DeviceHostnameRdns.result_attrs(
+               %{ip: "192.0.2.8", name: "Core Router A", hostname: nil, metadata: %{}},
+               "edge-rtr.example.com",
+               "ok",
+               nil,
+               now
+             )
+
+    refute Map.has_key?(named_attrs, :name)
     # A PATCH, not the whole metadata map: the write merges in the database so it
     # cannot carry another writer's keys back with it.
     assert attrs.metadata_patch == %{

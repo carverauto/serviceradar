@@ -56,6 +56,20 @@ defmodule ServiceRadar.NetworkDiscovery.WorldInventoryTest do
                hostname: "host02.example.com"
              })
 
+    assert %{label: "router03.example.com"} =
+             WorldInventory.project(%{
+               uid: "sr:device03",
+               name: "2001:db8::1",
+               hostname: "router03.example.com"
+             })
+
+    assert %{label: "192.0.2.10"} =
+             WorldInventory.project(%{
+               uid: "sr:device04",
+               name: "192.0.2.10",
+               hostname: nil
+             })
+
     assert %{id: ^id, label: fallback} = WorldInventory.project(%{uid: id})
     assert fallback == "sr:" <> String.duplicate("x", 253)
   end

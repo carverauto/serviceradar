@@ -4,6 +4,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldInventory do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Identity.Address
 
   require Ash.Query
 
@@ -50,19 +51,32 @@ defmodule ServiceRadar.NetworkDiscovery.WorldInventory do
   defp importance(_type_id, _type), do: 2
 
   defp label(device, id) do
-    [Map.get(device, :name), Map.get(device, :hostname), id]
-    |> Enum.find_value(fn
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          value -> value
-        end
+    name = trim_non_empty(Map.get(device, :name))
+    hostname = trim_non_empty(Map.get(device, :hostname))
 
-      _value ->
-        nil
-    end)
-    |> bounded_label()
+    preferred =
+      cond do
+        non_ip_label?(name) -> name
+        non_ip_label?(hostname) -> hostname
+        name != nil -> name
+        hostname != nil -> hostname
+        true -> trim_non_empty(id) || to_string(id)
+      end
+
+    bounded_label(preferred)
   end
+
+  defp trim_non_empty(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp trim_non_empty(_value), do: nil
+
+  defp non_ip_label?(value) when is_binary(value), do: Address.classify(value) == :invalid
+  defp non_ip_label?(_value), do: false
 
   defp bounded_label(value) when byte_size(value) <= 256, do: value
   defp bounded_label(value), do: value |> binary_part(0, 256) |> complete_utf8()

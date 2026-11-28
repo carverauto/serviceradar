@@ -1116,7 +1116,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
           name: nil,
           hostname: nil,
           mac: "AA:BB:CC:DD:EE:56",
-          metadata: %{}
+          metadata: %{"sys_name" => "edge-rtr-01.example.com"}
         }
       ]
 
@@ -1124,6 +1124,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       assert index.mac_to_uid["AABBCCDDEE56"] == "sr:ocsf-device"
       assert index.ip_to_uid["192.0.2.51"] == "sr:ocsf-device"
+      assert index.name_to_uid["edge-rtr-01.example.com"] == "sr:ocsf-device"
+      assert index.name_to_uid["edge-rtr-01"] == "sr:ocsf-device"
     end
   end
 
@@ -1275,6 +1277,94 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
 
       assert MapperResultsIngestor.infer_wireguard_tunnel_links(records, interfaces, devices) ==
                []
+    end
+
+    test "infers multi-site and mismatched-name wireguard links from /31 and /30 transit pairs" do
+      now = DateTime.truncate(DateTime.utc_now(), :second)
+
+      records = [
+        %{
+          timestamp: now,
+          agent_id: "agent-1",
+          gateway_id: "gw-1",
+          partition: "default",
+          protocol: "SNMP-L2",
+          local_device_id: "sr:site-a",
+          local_device_ip: "192.0.2.1",
+          neighbor_device_id: "sr:sw-a",
+          neighbor_mgmt_addr: "192.0.2.2"
+        }
+      ]
+
+      interfaces = [
+        %{
+          device_id: "sr:site-a",
+          timestamp: now,
+          if_name: "wgsts1000",
+          if_descr: "wgsts1000",
+          ip_addresses: ["198.51.100.0"]
+        },
+        %{
+          device_id: "sr:site-b",
+          timestamp: now,
+          if_name: "wgsts1001",
+          if_descr: "wgsts1001",
+          ip_addresses: ["198.51.100.1"]
+        },
+        %{
+          device_id: "sr:site-a",
+          timestamp: now,
+          if_name: "wgsts1002",
+          if_descr: "wgsts1002",
+          ip_addresses: ["203.0.113.1"]
+        },
+        %{
+          device_id: "sr:site-c",
+          timestamp: now,
+          if_name: "wgsts1000",
+          if_descr: "wgsts1000",
+          ip_addresses: ["203.0.113.2"]
+        }
+      ]
+
+      devices = [
+        %{
+          uid: "sr:site-a",
+          ip: "192.0.2.1",
+          name: "site-a",
+          hostname: "site-a",
+          type: "router",
+          type_id: 12
+        },
+        %{
+          uid: "sr:site-b",
+          ip: "192.0.2.10",
+          name: "site-b",
+          hostname: "site-b",
+          type: "router",
+          type_id: 12
+        },
+        %{
+          uid: "sr:site-c",
+          ip: "192.0.2.20",
+          name: "site-c",
+          hostname: "site-c",
+          type: "router",
+          type_id: 12
+        }
+      ]
+
+      inferred = MapperResultsIngestor.infer_wireguard_tunnel_links(records, interfaces, devices)
+
+      pairs =
+        Enum.map(
+          inferred,
+          &{&1.local_device_id, &1.neighbor_device_id, &1.local_if_name, &1.neighbor_port_id}
+        )
+
+      assert {"sr:site-a", "sr:site-b", "wgsts1000", "wgsts1001"} in pairs
+      assert {"sr:site-a", "sr:site-c", "wgsts1002", "wgsts1000"} in pairs
+      assert length(inferred) == 2
     end
   end
 

@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.Identity.AddressTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Inventory.Identity.Address
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
 
   describe "classify/1" do
     test "IPv4 families" do
@@ -153,6 +154,28 @@ defmodule ServiceRadar.Inventory.Identity.AddressTest do
 
     test "a nil current address is replaced by any usable candidate" do
       assert Address.preferred_primary(nil, ["fe80::1"]) == "fe80::1"
+    end
+  end
+
+  describe "AttributeStrength.name_write/1 IP-literal protection" do
+    test "classifies IPv6 literal hostname on IPv4 device as address_fallback instead of a real hostname" do
+      assert {"192.0.2.1", nil, %{"strength" => 1}} =
+               AttributeStrength.name_write(%{
+                 ip: "192.0.2.1",
+                 hostname: "2001:db8::1",
+                 source: "mapper",
+                 metadata: %{}
+               })
+
+      assert {"edge-rtr.example.com", "edge-rtr.example.com", %{"strength" => strength}} =
+               AttributeStrength.name_write(%{
+                 ip: "192.0.2.1",
+                 hostname: "edge-rtr.example.com",
+                 source: "mapper",
+                 metadata: %{}
+               })
+
+      assert strength > 1
     end
   end
 end
