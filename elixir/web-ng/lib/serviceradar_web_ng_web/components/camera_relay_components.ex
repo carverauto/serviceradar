@@ -10,6 +10,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
   attr(:class, :string, default: "")
   attr(:compact, :boolean, default: false)
   attr(:poster_url, :string, default: nil)
+  attr(:liveview_webrtc_signaling, :boolean, default: false)
+  attr(:notify_viewer_ready, :boolean, default: false)
 
   def relay_player(assigns) do
     ~H"""
@@ -17,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
       id={"#{@id_prefix}-#{@session.id}"}
       phx-hook="CameraRelayStatusStream"
       phx-update="ignore"
+      data-relay-session-id={@session.id}
       data-stream-path={camera_relay_stream_path(@session)}
       data-preferred-playback-transport={relay_preferred_playback_transport(@session)}
       data-available-playback-transports={relay_available_playback_transports(@session)}
@@ -25,6 +28,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayComponents do
       data-webrtc-playback-transport={relay_webrtc_playback_transport(@session)}
       data-webrtc-signaling-path={relay_webrtc_signaling_path(@session)}
       data-webrtc-ice-servers={relay_webrtc_ice_servers_json(@session)}
+      data-liveview-webrtc-signaling={@liveview_webrtc_signaling && "true"}
+      data-notify-viewer-ready={@notify_viewer_ready && "true"}
       data-playback-state={relay_playback_state(@session)}
       class={["sr-camera-relay-player", @compact && "sr-camera-relay-player-compact", @class]}
     >

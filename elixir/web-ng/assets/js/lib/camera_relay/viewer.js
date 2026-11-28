@@ -149,18 +149,30 @@ function terminationLabel(kind) {
 
 const noop = () => {}
 
+function extractRelaySessionId(signalingPath) {
+  if (typeof signalingPath !== "string") return null
+  const match = signalingPath.match(/\/camera-relay-sessions\/([^/]+)\/webrtc\/session/)
+  return match ? match[1] : null
+}
+
 export class CameraRelayViewer {
   // options:
-  //   streamPath, webrtcSignalingPath, iceServers, playbackMetadata
+  //   relaySessionId, streamPath, webrtcSignalingPath, iceServers, playbackMetadata
+  //   sendWebRtcAnswer({relaySessionId, viewerSessionId, sdp})
+  //   sendWebRtcCandidates({relaySessionId, viewerSessionId, candidates})
   //   getCanvas(), getVideo()   playback surfaces, looked up when needed
   //   report(role, text)        status text for a named role
   //   reportState(role, value)  machine-readable state for a named role
   //   setSurfaceVisibility(transport)
   //   onStateChange(state, detail) one of CAMERA_VIEWER_STATES
   constructor(options = {}) {
+    this.relaySessionId = options.relaySessionId || extractRelaySessionId(options.webrtcSignalingPath)
     this.streamPath = options.streamPath
     this.webrtcSignalingPath = options.webrtcSignalingPath
     this.webrtcIceServers = options.iceServers || []
+    this.sendWebRtcAnswer = typeof options.sendWebRtcAnswer === "function" ? options.sendWebRtcAnswer : null
+    this.sendWebRtcCandidates =
+      typeof options.sendWebRtcCandidates === "function" ? options.sendWebRtcCandidates : null
     this.getCanvas = options.getCanvas || (() => null)
     this.getVideo = options.getVideo || (() => null)
     this.report = options.report || noop
@@ -421,6 +433,9 @@ export class CameraRelayViewer {
         return
       }
 
+      if (session.relay_session_id) {
+        this.relaySessionId = session.relay_session_id
+      }
       this.webrtcViewerSessionId = viewerSessionId
       this.webrtcRemoteCandidates = new Set()
       this.webrtcPendingRemoteCandidates = []
@@ -446,19 +461,8 @@ export class CameraRelayViewer {
       await peerConnection.setLocalDescription(answer)
       if (!isCurrentViewer()) return
 
-      const answerResponse = await fetch(`${this.webrtcSignalingPath}/${this.webrtcViewerSessionId}/answer`, {
-        method: "POST",
-        headers: jsonHeaders(),
-        credentials: "same-origin",
-        body: JSON.stringify({sdp: answer.sdp}),
-      })
-
-      const answerBody = await answerResponse.json()
+      const answerBody = await this.submitWebRtcAnswer(answer.sdp)
       if (!isCurrentViewer()) return
-
-      if (!answerResponse.ok) {
-        throw new Error(answerBody?.message || "WebRTC answer was rejected")
-      }
 
       this.addRemoteCandidates(peerConnection, answerBody?.data?.remote_ice_candidates)
       if (answerBody?.data?.ice_gathering_state === "complete") {
@@ -537,6 +541,31 @@ export class CameraRelayViewer {
     this.preloadedWebRtcSession = session
   }
 
+  async submitWebRtcAnswer(sdp) {
+    if (this.sendWebRtcAnswer && this.relaySessionId) {
+      return await this.sendWebRtcAnswer({
+        relaySessionId: this.relaySessionId,
+        viewerSessionId: this.webrtcViewerSessionId,
+        sdp,
+      })
+    }
+
+    const answerResponse = await fetch(`${this.webrtcSignalingPath}/${this.webrtcViewerSessionId}/answer`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      credentials: "same-origin",
+      body: JSON.stringify({sdp}),
+    })
+
+    const answerBody = await answerResponse.json()
+
+    if (!answerResponse.ok) {
+      throw new Error(answerBody?.message || "WebRTC answer was rejected")
+    }
+
+    return answerBody
+  }
+
   flushOutboundCandidates() {
     if (this.webrtcOutboundCandidateTimer) {
       clearTimeout(this.webrtcOutboundCandidateTimer)
@@ -549,6 +578,16 @@ export class CameraRelayViewer {
     }
 
     const batch = this.webrtcOutboundCandidates.splice(0)
+
+    if (this.sendWebRtcCandidates && this.relaySessionId) {
+      this.sendWebRtcCandidates({
+        relaySessionId: this.relaySessionId,
+        viewerSessionId: this.webrtcViewerSessionId,
+        candidates: batch,
+      })
+      return
+    }
+
     const payload = batch.length === 1 ? {candidate: batch[0]} : {candidates: batch}
 
     void Promise.resolve(

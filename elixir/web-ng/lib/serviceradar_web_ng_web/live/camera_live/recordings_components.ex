@@ -1413,6 +1413,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   id_prefix="camera-workspace-live-relay"
                   compact={true}
                   poster_url={@live_poster_url}
+                  liveview_webrtc_signaling={true}
+                  notify_viewer_ready={true}
                 />
                 <div
                   :if={!@live_tile || !@live_tile.session}

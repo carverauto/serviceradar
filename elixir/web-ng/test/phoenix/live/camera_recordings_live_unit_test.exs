@@ -2534,14 +2534,16 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
         Recordings.handle_async(:camera_live_open, {:ok, {live_tile, preloaded_offer}}, socket)
 
       assert with_live_tile.assigns.live_tile == live_tile
-      assert with_live_tile.assigns.pending_deferred_timeline_load? == false
+      # Timeline stays deferred while WebRTC connects; fallback timer is armed.
+      assert with_live_tile.assigns.pending_deferred_timeline_load? == true
+      assert is_reference(with_live_tile.assigns.deferred_timeline_timer_ref)
 
       after_open_async_names =
         with_live_tile.private
         |> Map.get(:live_async, %{})
         |> Map.keys()
 
-      assert :load_timeline_data in after_open_async_names
+      refute :load_timeline_data in after_open_async_names
 
       pushed_events = get_in(with_live_tile.private, [:live_temp, :push_events]) || []
 
@@ -2554,6 +2556,90 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
                  }
                ]
              ] = pushed_events
+
+      # LiveView handles WebRTC answer + ICE candidates directly without HTTP/DB round-trips.
+      with_webrtc_deps =
+        Phoenix.Component.assign(
+          with_live_tile,
+          :recordings_deps,
+          Map.merge(deps, %{
+            submit_webrtc_answer: fn ^relay_session_id, ^viewer_session_id, "v=0\r\nanswer", _scope ->
+              send(parent, :webrtc_answer_submitted)
+              {:ok, %{signaling_state: "answer_applied", remote_ice_candidates: []}}
+            end,
+            add_webrtc_ice_candidate: fn ^relay_session_id, ^viewer_session_id, candidate, _scope ->
+              send(parent, {:webrtc_candidate_added, candidate})
+              {:ok, %{signaling_state: "candidate_buffered"}}
+            end
+          })
+        )
+
+      {:reply, %{"ok" => true, "data" => answer_data}, _} =
+        Recordings.handle_event(
+          "camera_webrtc_answer",
+          %{
+            "relay_session_id" => relay_session_id,
+            "viewer_session_id" => viewer_session_id,
+            "sdp" => "v=0\r\nanswer"
+          },
+          with_webrtc_deps
+        )
+
+      assert_received :webrtc_answer_submitted
+      assert answer_data["relay_session_id"] == relay_session_id
+      assert answer_data["signaling_state"] == "answer_applied"
+
+      # Rejects mismatched relay session IDs (fail-closed).
+      {:reply, %{"ok" => false}, _} =
+        Recordings.handle_event(
+          "camera_webrtc_answer",
+          %{
+            "relay_session_id" => Ecto.UUID.generate(),
+            "viewer_session_id" => viewer_session_id,
+            "sdp" => "v=0\r\nanswer"
+          },
+          with_webrtc_deps
+        )
+
+      c1 = %{"candidate" => "candidate:1 1 UDP 1234 192.0.2.1 4000 typ host", "sdpMid" => "0"}
+      c2 = %{"candidate" => "candidate:2 1 UDP 5678 198.51.100.2 5000 typ relay", "sdpMid" => "0"}
+
+      {:noreply, _} =
+        Recordings.handle_event(
+          "camera_webrtc_candidates",
+          %{
+            "relay_session_id" => relay_session_id,
+            "viewer_session_id" => viewer_session_id,
+            "candidates" => [c1, c2]
+          },
+          with_webrtc_deps
+        )
+
+      assert_received {:webrtc_candidate_added, ^c1}
+      assert_received {:webrtc_candidate_added, ^c2}
+
+      # Once the viewer reports ready/playing, the deferred timeline load kicks off immediately.
+      {:noreply, with_timeline_started} =
+        Recordings.handle_event("camera_live_viewer_ready", %{}, with_live_tile)
+
+      assert with_timeline_started.assigns.pending_deferred_timeline_load? == false
+      assert with_timeline_started.assigns.deferred_timeline_timer_ref == nil
+
+      after_ready_async_names =
+        with_timeline_started.private
+        |> Map.get(:live_async, %{})
+        |> Map.keys()
+
+      assert :load_timeline_data in after_ready_async_names
+
+      # Fallback timer also triggers deferred timeline load if viewer_ready never arrives.
+      token = with_live_tile.assigns.deferred_timeline_token
+
+      {:noreply, after_fallback} =
+        Recordings.handle_info({:deferred_timeline_fallback, token}, with_live_tile)
+
+      assert after_fallback.assigns.pending_deferred_timeline_load? == false
+      assert :load_timeline_data in Map.keys(Map.get(after_fallback.private, :live_async, %{}))
 
       cov = populated_coverage(@camera_id, @base_now_us - @hour_us, @base_now_us, [])
       clip = sample_clip("clip-deferred-1", @base_now_us - 60_000_000, @base_now_us - 50_000_000)
@@ -2599,7 +2685,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
   end
 
   defp cancel_timers(socket) do
-    for key <- [:recording_refresh_timer_ref, :recording_debounce_timer_ref] do
+    for key <- [:recording_refresh_timer_ref, :recording_debounce_timer_ref, :deferred_timeline_timer_ref] do
       case Map.get(socket.assigns, key) do
         ref when is_reference(ref) -> Process.cancel_timer(ref)
         _ -> :ok
