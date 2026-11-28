@@ -1025,12 +1025,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "capnp"
+version = "0.28.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98d71e4c5b1c0a00179bb0b4bdf78a087fc3686414a49776069da5050d636ba2"
+dependencies = [
+ "embedded-io",
+]
+
+[[package]]
 name = "capnpc"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82ca16312ddb64529d31c8dc46148671c22e57b80134fa5f17811ad5a6a79492"
 dependencies = [
- "capnp",
+ "capnp 0.27.3",
 ]
 
 [[package]]
@@ -7420,7 +7429,7 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
- "capnp",
+ "capnp 0.28.2",
  "capnpc",
  "chrono",
  "rustler",
