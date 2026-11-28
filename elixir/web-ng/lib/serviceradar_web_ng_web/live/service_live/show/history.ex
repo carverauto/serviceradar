@@ -93,6 +93,22 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.History do
     end
   end
 
+  @ignored_struct_keys [
+    :__meta__,
+    :__metadata__,
+    :aggregates,
+    :calculations,
+    :__lateral_join_source__,
+    :__order__
+  ]
+
+  defp normalize_status_map(%_{} = status) do
+    status
+    |> Map.from_struct()
+    |> Map.drop(@ignored_struct_keys)
+    |> normalize_status_map()
+  end
+
   defp normalize_status_map(status) when is_map(status) do
     map =
       Enum.reduce(status, %{}, fn {key, value}, acc ->
