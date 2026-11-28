@@ -1078,6 +1078,44 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
       assert resolved.neighbor_device_id == "sr:registered-owner"
     end
+
+    test "defers alias_ip_to_uid for snmp-arp-fdb sightings with an unknown MAC while binding lldp" do
+      records = [
+        %{
+          local_device_id: "sr:switch",
+          local_device_ip: "192.0.2.10",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "198.51.100.77",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "a8:20:66:0d:e2:44",
+          metadata: %{"source" => "snmp-arp-fdb", "confidence_reason" => "arp_fdb_port_mapping"}
+        },
+        %{
+          local_device_id: "sr:switch",
+          local_device_ip: "192.0.2.10",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "198.51.100.78",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "a8:20:66:0d:e2:45",
+          metadata: %{"source" => "lldp"}
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:switch" => "sr:switch"},
+        ip_to_uid: %{},
+        alias_ip_to_uid: %{
+          "198.51.100.77" => "sr:aliased-endpoint",
+          "198.51.100.78" => "sr:multihomed-router"
+        },
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [fdb_record, lldp_record] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert fdb_record.neighbor_device_id == nil
+      assert lldp_record.neighbor_device_id == "sr:multihomed-router"
+    end
   end
 
   describe "build_topology_device_index_maps/2 (identifier precedence)" do

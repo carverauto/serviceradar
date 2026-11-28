@@ -4359,6 +4359,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reject(&is_nil/1)
   end
 
+  @alias_ip_mac_guarded_sources ~w(snmp-arp-fdb unifi-api-port-table unifi-api-wireless-client unifi-api-wired-client)
+
   defp resolve_topology_uid(
          candidate_uid,
          candidate_ip,
@@ -4369,14 +4371,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
        ) do
     uid = normalize_string(candidate_uid)
     chassis = normalize_mac(candidate_chassis)
+    normalized_ip = normalize_string(candidate_ip)
     mac_uid = resolve_topology_uid_match(index.mac_to_uid, chassis)
-    ip_uid = resolve_topology_uid_match(index.ip_to_uid, normalize_string(candidate_ip))
+    ip_uid = resolve_topology_uid_match(index.ip_to_uid, normalized_ip)
+
+    alias_ip_uid =
+      resolve_topology_uid_match(Map.get(index, :alias_ip_to_uid, %{}), normalized_ip)
 
     Enum.find(
       [
         resolve_topology_uid_match(index.uid_to_uid, uid),
         canonical_topology_uid_or_nil(uid),
-        neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, record),
+        neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, alias_ip_uid, record),
         resolve_topology_name_match(candidate_name, index)
       ],
       &is_binary/1
@@ -4387,18 +4393,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # neighbor IP, the IP is hearsay (stale ARP, cross-subnet FDB) and must not
   # win. When the MAC is unknown, weak L2 evidence also must not fall back to
   # IP — that fallback is what drew a farm switch to a dead MikroTik.
-  defp neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, record) do
+  # Similarly, alias-derived IPs (DeviceAliasState / discovered_interfaces) must
+  # not shortcut L2 endpoint sightings carrying an unknown MAC; those must pass
+  # through endpoint promotion so MAC conflicts are rejected and safe bindings
+  # register the MAC through DIRE.
+  defp neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, alias_ip_uid, record) do
+    metadata = topology_record_metadata(record)
+
     cond do
       is_binary(mac_uid) ->
         mac_uid
 
-      is_binary(chassis) and weak_l2_neighbor_identity?(topology_record_metadata(record)) ->
+      is_binary(chassis) and weak_l2_neighbor_identity?(metadata) ->
+        nil
+
+      is_binary(ip_uid) ->
+        ip_uid
+
+      is_binary(chassis) and alias_ip_mac_guarded_source?(metadata) ->
         nil
 
       true ->
-        ip_uid
+        alias_ip_uid
     end
   end
+
+  defp alias_ip_mac_guarded_source?(metadata) when is_map(metadata) do
+    metadata_value(metadata, "source") in @alias_ip_mac_guarded_sources
+  end
+
+  defp alias_ip_mac_guarded_source?(_), do: false
 
   defp topology_record_metadata(%{metadata: metadata}) when is_map(metadata), do: metadata
   defp topology_record_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
@@ -4655,7 +4679,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       |> Enum.group_by(&elem(&1, 0))
       |> Enum.reduce(index, fn {ip, entries}, acc ->
         case unique_canonical_alias_uid(entries) do
-          uid when is_binary(uid) -> put_topology_index_entry(acc, :ip_to_uid, ip, uid)
+          uid when is_binary(uid) -> put_topology_index_entry(acc, :alias_ip_to_uid, ip, uid)
           nil -> acc
         end
       end)
@@ -4721,7 +4745,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       end)
       |> Enum.reduce(index, fn {ip, uid_set}, acc ->
         case MapSet.to_list(uid_set) do
-          [uid] -> put_topology_index_entry(acc, :ip_to_uid, ip, uid)
+          [uid] -> put_topology_index_entry(acc, :alias_ip_to_uid, ip, uid)
           _ -> acc
         end
       end)
@@ -4773,7 +4797,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp empty_topology_device_index do
-    %{uid_to_uid: %{}, ip_to_uid: %{}, name_to_uid: %{}, mac_to_uid: %{}}
+    %{
+      uid_to_uid: %{},
+      ip_to_uid: %{},
+      alias_ip_to_uid: %{},
+      name_to_uid: %{},
+      mac_to_uid: %{}
+    }
   end
 
   defp put_topology_name_entries(index, names, uid) do
@@ -4791,7 +4821,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp put_topology_index_entry(index, _bucket, nil, _uid), do: index
 
   defp put_topology_index_entry(index, bucket, value, uid) do
-    update_in(index, [bucket], fn entries -> Map.put_new(entries, value, uid) end)
+    Map.update(index, bucket, %{value => uid}, fn entries ->
+      Map.put_new(entries, value, uid)
+    end)
   end
 
   defp topology_name_candidates(name) do
