@@ -165,8 +165,8 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
   test "error span gets error styling and expands details", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 
-    assert has_element?(lv, "#trace-spans-row-1 .text-red-700", "error")
-    refute has_element?(lv, "#trace-spans-row-2 .text-red-700")
+    assert has_element?(lv, "#trace-spans-row-1 .sr-ui-badge-error", "error")
+    refute has_element?(lv, "#trace-spans-row-2 .sr-ui-badge-error")
 
     lv
     |> element("#trace-spans-row-1")

@@ -1,3 +1,5 @@
+load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
 load("//build:elixir_quality.bzl", "elixir_quality")
@@ -21,6 +23,27 @@ filegroup(
         "mix.exs",
         "mix.lock",
     ],
+)
+
+# web-ng's Tailwind and esbuild read these through paths relative to
+# elixir/web-ng/assets (../../../serviceradar_ui/...). js_run_binary stages
+# every src with copy_to_bin, which refuses a source file from another
+# package. Copying them here lands them at bazel-out/.../elixir/serviceradar_ui,
+# which is where those relative paths resolve.
+copy_to_bin(
+    name = "bundle_inputs",
+    srcs = glob([
+        "lib/**",
+        "priv/css/**",
+        "priv/static/serviceradar_ui.js",
+    ]),
+)
+
+# Same file, as a js_library, so a js_test in another package can depend on it.
+# js_test refuses a raw source file from outside its own package.
+js_library(
+    name = "hook_js",
+    srcs = ["priv/static/serviceradar_ui.js"],
 )
 
 SERVICERADAR_UI_DEPS = [

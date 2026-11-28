@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       |> render_click()
 
       assert has_element?(lv, "#rule_builder_modal")
-      assert has_element?(lv, "h3", "Create Event Rule")
+      assert has_element?(lv, "#rule_builder_modal-title", "Create Event Rule")
     end
 
     @tag :web_ng_shared_fixture_db
