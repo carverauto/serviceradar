@@ -30,13 +30,52 @@ function parseJsonDataset(value, fallback) {
 export default {
   mounted() {
     const supportsLiveViewEvents = typeof this.handleEvent === "function"
+    const supportsPushEvent = typeof this.pushEvent === "function"
+    const useLiveViewSignaling =
+      this.el.dataset.liveviewWebrtcSignaling === "true" && supportsPushEvent
+    this.notifyViewerReady = this.el.dataset.notifyViewerReady === "true" && supportsPushEvent
+    this.notifiedViewerReady = false
+
+    const sendWebRtcAnswer = useLiveViewSignaling
+      ? ({relaySessionId, viewerSessionId, sdp}) =>
+          new Promise((resolve, reject) => {
+            this.pushEvent(
+              "camera_webrtc_answer",
+              {
+                relay_session_id: relaySessionId,
+                viewer_session_id: viewerSessionId,
+                sdp,
+              },
+              (reply) => {
+                if (reply?.ok) {
+                  resolve(reply)
+                } else {
+                  reject(new Error(reply?.message || "WebRTC answer was rejected"))
+                }
+              }
+            )
+          })
+      : null
+
+    const sendWebRtcCandidates = useLiveViewSignaling
+      ? ({relaySessionId, viewerSessionId, candidates}) => {
+          this.pushEvent("camera_webrtc_candidates", {
+            relay_session_id: relaySessionId,
+            viewer_session_id: viewerSessionId,
+            candidates,
+          })
+        }
+      : null
 
     this.viewer = new CameraRelayViewer({
+      relaySessionId: this.el.dataset.relaySessionId || null,
       streamPath: this.el.dataset.streamPath,
       webrtcSignalingPath: this.el.dataset.webrtcSignalingPath,
       iceServers: parseJsonDataset(this.el.dataset.webrtcIceServers, []),
       playbackMetadata: playbackMetadataFromDataset(this.el.dataset),
       awaitPreloadedWebRtcOffer: supportsLiveViewEvents,
+      sendWebRtcAnswer,
+      sendWebRtcCandidates,
       getCanvas: () => this.el.querySelector("[data-role='video-canvas']"),
       getVideo: () => this.el.querySelector("[data-role='video-element']"),
       report: (role, value) => setText(this.el, role, value),
@@ -67,6 +106,15 @@ export default {
     if (state === CAMERA_VIEWER_STATES.PLAYING) {
       const poster = this.el.querySelector("[data-role='video-poster']")
       poster?.classList?.add?.("opacity-0")
+    }
+
+    if (
+      this.notifyViewerReady &&
+      !this.notifiedViewerReady &&
+      (state === CAMERA_VIEWER_STATES.PLAYING || state === CAMERA_VIEWER_STATES.FAILED)
+    ) {
+      this.notifiedViewerReady = true
+      this.pushEvent("camera_live_viewer_ready", {})
     }
   },
 

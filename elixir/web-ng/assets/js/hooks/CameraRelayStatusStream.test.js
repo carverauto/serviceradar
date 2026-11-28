@@ -1306,4 +1306,125 @@ describe("CameraRelayStatusStream", () => {
     expect(candidateCalls()).toHaveLength(2)
     expect(JSON.parse(candidateCalls()[1][1].body)).toEqual({candidate: c3})
   })
+
+  it("sends WebRTC answer, batched ICE candidates, and viewer-ready over LiveView pushEvent when enabled", async () => {
+    vi.useFakeTimers()
+    const element = buildHookElement()
+    element.dataset.relaySessionId = "relay-lv-1"
+    element.dataset.webrtcPlaybackTransport = "membrane_webrtc"
+    element.dataset.webrtcSignalingPath = "/api/camera-relay-sessions/relay-lv-1/webrtc/session"
+    element.dataset.liveviewWebrtcSignaling = "true"
+    element.dataset.notifyViewerReady = "true"
+    const video = new EventTarget()
+    video.dataset = {}
+    video.classList = {toggle() {}}
+    video.play = vi.fn(() => Promise.resolve())
+    element.roles.set("video-element", video)
+
+    class PeerConnection extends EventTarget {
+      constructor() {
+        super()
+        this.connectionState = "new"
+        this.iceConnectionState = "new"
+        this.closed = false
+        this.addedCandidates = []
+      }
+      async setRemoteDescription() {}
+      async addIceCandidate(candidate) { this.addedCandidates.push(candidate) }
+      async createAnswer() { return {type: "answer", sdp: "v=0\r\nanswer-lv"} }
+      async setLocalDescription() {}
+      close() { this.closed = true }
+    }
+
+    const MockWebSocket = createMockWebSocketClass()
+    globalThis.WebSocket = MockWebSocket
+    globalThis.window = Object.assign(new EventTarget(), {
+      location: new URL("https://example.com/cameras/test/recordings?mode=live"),
+      RTCPeerConnection: PeerConnection,
+      WebSocket: MockWebSocket,
+      VideoDecoder: function VideoDecoder() {},
+      MediaStream: class MediaStream {
+        constructor(tracks) { this.tracks = tracks }
+      },
+    })
+    globalThis.document = {querySelector: () => null}
+    globalThis.fetch = vi.fn(async () => ({ok: true, json: async () => ({data: {}})}))
+
+    const eventHandlers = new Map()
+    const pushedEvents = []
+    const hook = {
+      ...CameraRelayStatusStream,
+      el: element,
+      handleEvent(name, cb) {
+        eventHandlers.set(name, cb)
+      },
+      pushEvent(name, payload, replyCb) {
+        pushedEvents.push({name, payload})
+        if (name === "camera_webrtc_answer" && replyCb) {
+          replyCb({
+            ok: true,
+            data: {
+              signaling_state: "answer_applied",
+              remote_ice_candidates: [
+                {candidate: "candidate:9 1 UDP 16777215 198.51.100.30 49200 typ relay", sdpMid: "0"},
+              ],
+            },
+          })
+        }
+      },
+    }
+
+    mountHook(hook)
+    eventHandlers.get("camera-relay:webrtc-offer")({
+      signaling_path: "/api/camera-relay-sessions/relay-lv-1/webrtc/session",
+      data: {
+        relay_session_id: "relay-lv-1",
+        viewer_session_id: "viewer-lv-1",
+        offer_sdp: "v=0\r\nm=video",
+        remote_ice_candidates: [],
+      },
+    })
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Zero HTTP POSTs for create or answer — all handled over LiveView pushEvent.
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(pushedEvents).toContainEqual({
+      name: "camera_webrtc_answer",
+      payload: {
+        relay_session_id: "relay-lv-1",
+        viewer_session_id: "viewer-lv-1",
+        sdp: "v=0\r\nanswer-lv",
+      },
+    })
+    expect(hook.viewer.peerConnection.addedCandidates).toHaveLength(1)
+
+    // Browser ICE candidates are also batched over LiveView pushEvent.
+    const c1 = {candidate: "candidate:1 1 UDP 1234 192.0.2.1 4000 typ host", sdpMid: "0"}
+    const ev1 = new Event("icecandidate")
+    ev1.candidate = {toJSON: () => c1}
+    const evEnd = new Event("icecandidate")
+    evEnd.candidate = null
+    hook.viewer.peerConnection.dispatchEvent(ev1)
+    hook.viewer.peerConnection.dispatchEvent(evEnd)
+
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(pushedEvents).toContainEqual({
+      name: "camera_webrtc_candidates",
+      payload: {
+        relay_session_id: "relay-lv-1",
+        viewer_session_id: "viewer-lv-1",
+        candidates: [c1],
+      },
+    })
+
+    // When video starts playing, viewer notifies LiveView once to unlock deferred timeline load.
+    const track = new Event("track")
+    track.track = {kind: "video"}
+    track.streams = [{}]
+    hook.viewer.peerConnection.dispatchEvent(track)
+    video.dispatchEvent(new Event("playing"))
+
+    expect(pushedEvents.filter((e) => e.name === "camera_live_viewer_ready")).toHaveLength(1)
+  })
 })

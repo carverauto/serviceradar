@@ -50,6 +50,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   @max_playlist_window_us 3_600_000_000
   @default_refresh_interval_ms 15_000
   @default_debounce_ms 500
+  @default_deferred_timeline_fallback_ms 3_000
+  @max_webrtc_ice_candidate_batch 32
   @default_switcher_per_page 20
   @gaps_per_page 10
   @default_min_confidence 50
@@ -129,6 +131,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         live_tile: nil,
         live_relay_subscriptions: MapSet.new(),
         pending_deferred_timeline_load?: false,
+        deferred_timeline_timer_ref: nil,
+        deferred_timeline_token: nil,
         roi_drawer_open?: false,
         roi_paint_mode: "focus",
         roi_focus_cells: MapSet.new(),
@@ -158,6 +162,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       )
       |> assign_new(:recording_refresh_interval_ms, fn -> @default_refresh_interval_ms end)
       |> assign_new(:recording_debounce_ms, fn -> @default_debounce_ms end)
+      |> assign_new(:deferred_timeline_fallback_ms, fn -> @default_deferred_timeline_fallback_ms end)
 
     {:ok, socket}
   end
@@ -444,6 +449,54 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   def handle_event("exit_live_mode", _params, socket) do
     {:noreply, assign(socket, live_mode?: false, live_tile: nil)}
+  end
+
+  def handle_event("camera_live_viewer_ready", _params, socket) do
+    {:noreply, maybe_start_pending_timeline_load(socket)}
+  end
+
+  def handle_event("camera_webrtc_answer", params, socket) do
+    scope = socket.assigns[:current_scope]
+    relay_session_id = Map.get(params, "relay_session_id")
+    viewer_session_id = Map.get(params, "viewer_session_id")
+    sdp = Map.get(params, "sdp")
+
+    with :ok <- authorize_live_webrtc_signal(socket, scope, relay_session_id),
+         {:ok, normalized_viewer_id} <- normalize_webrtc_string(viewer_session_id, "viewer_session_id"),
+         {:ok, normalized_sdp} <- normalize_webrtc_string(sdp, "sdp"),
+         {:ok, result} <-
+           deps(socket).submit_webrtc_answer.(relay_session_id, normalized_viewer_id, normalized_sdp, scope) do
+      data =
+        result
+        |> stringify_webrtc_map()
+        |> Map.put("relay_session_id", relay_session_id)
+
+      {:reply, %{"ok" => true, "data" => data}, socket}
+    else
+      {:error, reason} ->
+        {:reply, %{"ok" => false, "message" => format_webrtc_signal_error(reason)}, socket}
+    end
+  end
+
+  def handle_event("camera_webrtc_candidates", params, socket) do
+    scope = socket.assigns[:current_scope]
+    relay_session_id = Map.get(params, "relay_session_id")
+    viewer_session_id = Map.get(params, "viewer_session_id")
+
+    with :ok <- authorize_live_webrtc_signal(socket, scope, relay_session_id),
+         {:ok, normalized_viewer_id} <- normalize_webrtc_string(viewer_session_id, "viewer_session_id"),
+         {:ok, candidates} <- normalize_webrtc_candidates(params) do
+      add_candidate_fn = deps(socket).add_webrtc_ice_candidate
+
+      Enum.reduce_while(candidates, :ok, fn candidate, :ok ->
+        case add_candidate_fn.(relay_session_id, normalized_viewer_id, candidate, scope) do
+          {:ok, _result} -> {:cont, :ok}
+          {:error, _reason} -> {:halt, :error}
+        end
+      end)
+    end
+
+    {:noreply, socket}
   end
 
   def handle_event("refresh_recordings", _, socket), do: {:noreply, load_inventory(socket, nil)}
@@ -1332,6 +1385,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   @impl true
+  def handle_info({:deferred_timeline_fallback, token}, socket) do
+    if is_reference(token) and token == socket.assigns[:deferred_timeline_token] do
+      {:noreply, maybe_start_pending_timeline_load(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:refresh_camera_live_relay_session, relay_session_id}, socket) do
     {:noreply, refresh_live_tile(socket, relay_session_id, rearm: true)}
   end
@@ -2657,6 +2718,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       get_frame_overlay: &default_get_frame_overlay/3,
       open_source_preview: &CameraMultiview.open_source_preview/3,
       create_webrtc_session: &default_create_webrtc_session/2,
+      submit_webrtc_answer: &default_submit_webrtc_answer/4,
+      add_webrtc_ice_candidate: &default_add_webrtc_ice_candidate/4,
       save_roi_grid: &default_save_roi_grid/3,
       subscribe: &RecordingPubSub.subscribe/1,
       unsubscribe: &RecordingPubSub.unsubscribe/1,
@@ -3923,23 +3986,61 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp handle_camera_live_open_ok(socket, tile, preloaded_webrtc) do
-    socket =
-      if socket.assigns.live_mode? do
-        schedule_live_relay_refresh(tile)
+    if socket.assigns.live_mode? do
+      schedule_live_relay_refresh(tile)
 
+      socket =
         socket
         |> assign(:live_tile, tile)
         |> subscribe_live_tile(tile)
         |> maybe_push_preloaded_webrtc_offer(preloaded_webrtc)
-      else
-        maybe_release_preloaded_webrtc_offer(preloaded_webrtc, socket.assigns[:current_scope])
-        socket
-      end
 
-    {:noreply, maybe_start_pending_timeline_load(socket)}
+      socket =
+        if is_binary(CameraMultiview.session_id(tile)) do
+          schedule_deferred_timeline_fallback(socket)
+        else
+          maybe_start_pending_timeline_load(socket)
+        end
+
+      {:noreply, socket}
+    else
+      maybe_release_preloaded_webrtc_offer(preloaded_webrtc, socket.assigns[:current_scope])
+      {:noreply, maybe_start_pending_timeline_load(socket)}
+    end
+  end
+
+  defp schedule_deferred_timeline_fallback(socket) do
+    socket = cancel_deferred_timeline_timer(socket)
+
+    if socket.assigns[:pending_deferred_timeline_load?] and socket.assigns[:mode] == :timeline do
+      token = make_ref()
+      delay_ms = socket.assigns[:deferred_timeline_fallback_ms] || @default_deferred_timeline_fallback_ms
+      timer_ref = Process.send_after(self(), {:deferred_timeline_fallback, token}, delay_ms)
+
+      assign(socket,
+        deferred_timeline_timer_ref: timer_ref,
+        deferred_timeline_token: token
+      )
+    else
+      socket
+    end
+  end
+
+  defp cancel_deferred_timeline_timer(socket) do
+    case socket.assigns[:deferred_timeline_timer_ref] do
+      ref when is_reference(ref) -> Process.cancel_timer(ref)
+      _ -> :ok
+    end
+
+    assign(socket,
+      deferred_timeline_timer_ref: nil,
+      deferred_timeline_token: nil
+    )
   end
 
   defp maybe_start_pending_timeline_load(socket) do
+    socket = cancel_deferred_timeline_timer(socket)
+
     if socket.assigns[:pending_deferred_timeline_load?] and
          socket.assigns[:mode] == :timeline and
          not is_nil(socket.assigns[:source]) and
@@ -3959,6 +4060,81 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       :disabled
     end
   end
+
+  defp default_submit_webrtc_answer(relay_session_id, viewer_session_id, answer_sdp, scope) do
+    CameraRelayWebRTC.submit_answer(relay_session_id, viewer_session_id, answer_sdp, scope: scope)
+  end
+
+  defp default_add_webrtc_ice_candidate(relay_session_id, viewer_session_id, candidate, scope) do
+    CameraRelayWebRTC.add_ice_candidate(relay_session_id, viewer_session_id, candidate, scope: scope)
+  end
+
+  defp authorize_live_webrtc_signal(socket, scope, relay_session_id) do
+    active_relay_id = CameraMultiview.session_id(socket.assigns[:live_tile])
+
+    cond do
+      not RBAC.can?(scope, "devices.cameras.view") ->
+        {:error, "not authorized to view live camera streams"}
+
+      not is_binary(relay_session_id) or relay_session_id == "" ->
+        {:error, "relay_session_id is required"}
+
+      not is_binary(active_relay_id) or relay_session_id != active_relay_id ->
+        {:error, "relay session was not found"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp normalize_webrtc_string(value, field_name) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: {:error, "#{field_name} is required"}, else: {:ok, trimmed}
+  end
+
+  defp normalize_webrtc_string(_value, field_name), do: {:error, "#{field_name} is required"}
+
+  defp normalize_webrtc_candidates(%{"candidates" => candidates}) when is_list(candidates) do
+    cond do
+      candidates == [] ->
+        {:error, "candidates must be a non-empty list"}
+
+      length(candidates) > @max_webrtc_ice_candidate_batch ->
+        {:error, "candidates exceeds maximum batch size"}
+
+      true ->
+        candidates
+        |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
+          case normalize_webrtc_candidate_item(item) do
+            {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+            {:error, _} = error -> {:halt, error}
+          end
+        end)
+        |> case do
+          {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+          error -> error
+        end
+    end
+  end
+
+  defp normalize_webrtc_candidates(_params), do: {:error, "candidates must be a non-empty list"}
+
+  defp normalize_webrtc_candidate_item(%{} = candidate), do: {:ok, candidate}
+
+  defp normalize_webrtc_candidate_item(candidate) when is_binary(candidate) do
+    trimmed = String.trim(candidate)
+    if trimmed == "", do: {:error, "candidate is required"}, else: {:ok, %{"candidate" => trimmed}}
+  end
+
+  defp normalize_webrtc_candidate_item(_other), do: {:error, "candidate is required"}
+
+  defp stringify_webrtc_map(%{} = map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
+  defp stringify_webrtc_map(_other), do: %{}
+
+  defp format_webrtc_signal_error(reason) when is_binary(reason), do: reason
+  defp format_webrtc_signal_error(:not_found), do: "relay session was not found"
+  defp format_webrtc_signal_error(:viewer_session_not_found), do: "webrtc viewer session was not found"
+  defp format_webrtc_signal_error(_other), do: "WebRTC signaling failed"
 
   defp maybe_preload_webrtc_session(%{session: %{id: relay_session_id, status: status}}, scope, create_webrtc_fn)
        when is_binary(relay_session_id) and status in [:active, "active"] and is_function(create_webrtc_fn, 2) do
