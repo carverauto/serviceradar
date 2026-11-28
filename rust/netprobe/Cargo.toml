@@ -72,4 +72,4 @@ libc = "0.2"
 procfs = "0.18"
 
 [target.'cfg(target_arch = "bpf")'.dependencies]
-aya-ebpf = "0.1.1"
+aya-ebpf = "0.3.0"
