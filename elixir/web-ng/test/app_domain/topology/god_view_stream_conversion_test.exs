@@ -23,6 +23,28 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
            ]
   end
 
+  test "device_node_attributes/4 prefers real hostname over IP-literal name" do
+    attrs =
+      GodViewStream.device_node_attributes(
+        %{name: "2001:db8::42", hostname: "edge-rtr.example.com", ip: "192.0.2.42", type: "router"},
+        "sr:rtr-42",
+        nil,
+        false
+      )
+
+    assert attrs.label == "edge-rtr.example.com"
+
+    fallback_attrs =
+      GodViewStream.device_node_attributes(
+        %{name: "192.0.2.42", hostname: nil, ip: "192.0.2.42", type: "router"},
+        "sr:rtr-43",
+        nil,
+        false
+      )
+
+    assert fallback_attrs.label == "192.0.2.42"
+  end
+
   test "canonical parallel relations preserve their keys through runtime edge conversion" do
     rows =
       for link_key <- ["relation01", "relation02"] do

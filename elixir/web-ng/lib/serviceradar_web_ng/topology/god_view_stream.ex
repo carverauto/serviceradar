@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
@@ -1958,11 +1959,29 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp node_label(nil, id), do: ip_like_id(id) || id
 
   defp node_label(device, id) do
-    Map.get(device, :name) ||
-      Map.get(device, :hostname) ||
-      node_ip(device, id) ||
-      id
+    name = trim_label(Map.get(device, :name))
+    hostname = trim_label(Map.get(device, :hostname))
+
+    cond do
+      non_ip_label?(name) -> name
+      non_ip_label?(hostname) -> hostname
+      name != nil -> name
+      hostname != nil -> hostname
+      true -> node_ip(device, id) || id
+    end
   end
+
+  defp trim_label(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp trim_label(_value), do: nil
+
+  defp non_ip_label?(value) when is_binary(value), do: Address.classify(value) == :invalid
+  defp non_ip_label?(_value), do: false
 
   defp node_kind(nil), do: "endpoint"
   defp node_kind(device), do: node_type(device) || "device"

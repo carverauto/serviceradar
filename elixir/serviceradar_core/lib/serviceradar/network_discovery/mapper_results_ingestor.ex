@@ -165,9 +165,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          records = build_topology_records(updates),
          canonical_seed_records = sanitize_topology_records(records),
          resolved_records = resolve_topology_device_ids(canonical_seed_records),
-         :ok <- promote_topology_sightings(resolved_records, actor) do
+         {:ok, promoted_records} <- promote_topology_sightings(resolved_records, actor) do
       final_records =
-        resolved_records
+        promoted_records
         |> resolve_topology_device_ids()
         |> enrich_resolved_topology_records()
 
@@ -425,7 +425,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp promote_topology_sightings([], _actor), do: :ok
+  defp promote_topology_sightings([], _actor), do: {:ok, []}
 
   defp promote_topology_sightings(records, actor) do
     endpoint_promotion? = endpoint_identity_promotion_enabled?()
@@ -450,13 +450,41 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
 
     Enum.each(endpoint_candidates, &promote_endpoint_topology_sighting(&1, actor))
-    Enum.each(candidates, &promote_topology_sighting(&1, actor))
 
-    :ok
+    promoted_ip_to_uid =
+      Enum.reduce(candidates, %{}, fn candidate, acc ->
+        case promote_topology_sighting(candidate, actor) do
+          {:ok, ip, uid} when is_binary(ip) and is_binary(uid) ->
+            Map.put_new(acc, ip, uid)
+
+          _ ->
+            acc
+        end
+      end)
+
+    updated_records =
+      if map_size(promoted_ip_to_uid) == 0 do
+        records
+      else
+        Enum.map(records, fn record ->
+          if canonical_topology_uid?(normalize_string(record.neighbor_device_id)) do
+            record
+          else
+            ip = normalize_alias_ip(record.neighbor_mgmt_addr)
+
+            case Map.get(promoted_ip_to_uid, ip) do
+              uid when is_binary(uid) -> %{record | neighbor_device_id: uid}
+              _ -> record
+            end
+          end
+        end)
+      end
+
+    {:ok, updated_records}
   rescue
     e ->
       Logger.warning("Topology sighting promotion failed: #{inspect(e)}")
-      :ok
+      {:ok, records}
   end
 
   # Endpoint attachment identity promotion (task: fix-topology-evidence-pipeline-
@@ -832,11 +860,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          ) do
       {:ok, uid} ->
         touch_topology_candidate(uid, candidate_ip, metadata, actor)
+        {:ok, candidate_ip, uid}
 
       {:error, reason} ->
         Logger.debug(
           "Topology sighting candidate promotion skipped for #{candidate_ip}: #{inspect(reason)}"
         )
+
+        :skip
     end
   end
 
@@ -3875,13 +3906,127 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     existing = existing_topology_edge_set(records)
     context = inference_context(records)
 
-    interfaces
-    |> Enum.map(&normalize_wireguard_interface/1)
-    |> Enum.filter(&valid_wireguard_interface?/1)
-    |> latest_wireguard_interfaces()
-    |> Enum.group_by(& &1.tunnel_name)
-    |> Enum.flat_map(&infer_wireguard_group(&1, devices_by_uid, existing, context))
+    latest =
+      interfaces
+      |> Enum.map(&normalize_wireguard_interface/1)
+      |> Enum.filter(&valid_wireguard_interface?/1)
+      |> latest_wireguard_interfaces()
+
+    {p2p_links, paired_keys, existing} =
+      infer_wireguard_p2p_subnet_links(latest, devices_by_uid, existing, context)
+
+    remaining =
+      Enum.reject(latest, fn iface ->
+        MapSet.member?(paired_keys, {iface.device_id, iface.tunnel_name})
+      end)
+
+    name_links =
+      remaining
+      |> Enum.group_by(& &1.tunnel_name)
+      |> Enum.flat_map(&infer_wireguard_group(&1, devices_by_uid, existing, context))
+
+    p2p_links ++ name_links
   end
+
+  defp infer_wireguard_p2p_subnet_links(interfaces, devices_by_uid, existing, context) do
+    {links31, paired31, existing} =
+      infer_wireguard_p2p_pass(
+        interfaces,
+        &wireguard_ipv4_p2p_key(&1.tunnel_ip, 31),
+        devices_by_uid,
+        existing,
+        context
+      )
+
+    unpaired =
+      Enum.reject(interfaces, fn iface ->
+        MapSet.member?(paired31, {iface.device_id, iface.tunnel_name})
+      end)
+
+    {links30, paired30, existing} =
+      infer_wireguard_p2p_pass(
+        unpaired,
+        &wireguard_ipv4_p2p_key(&1.tunnel_ip, 30),
+        devices_by_uid,
+        existing,
+        context
+      )
+
+    {links31 ++ links30, MapSet.union(paired31, paired30), existing}
+  end
+
+  defp infer_wireguard_p2p_pass(interfaces, key_fn, devices_by_uid, existing, context) do
+    interfaces
+    |> Enum.reduce(%{}, fn iface, acc ->
+      case key_fn.(iface) do
+        {subnet_key, host_bit} ->
+          Map.update(acc, subnet_key, [{iface, host_bit}], &[{iface, host_bit} | &1])
+
+        nil ->
+          acc
+      end
+    end)
+    |> Enum.sort_by(fn {subnet_key, _entries} -> subnet_key end)
+    |> Enum.reduce({[], MapSet.new(), existing}, fn {_subnet_key, entries},
+                                                    {links_acc, paired_acc, existing_acc} ->
+      unique_members =
+        Enum.uniq_by(entries, fn {iface, _bit} -> iface.device_id end)
+
+      case unique_members do
+        [{left, left_bit}, {right, right_bit}] when left_bit != right_bit ->
+          rule =
+            if left.tunnel_name == right.tunnel_name,
+              do: "exact_wg_interface_name_two_router_endpoints",
+              else: "wireguard_p2p_transit_subnet"
+
+          case build_wireguard_link_pair(left, right, devices_by_uid, existing_acc, context, rule) do
+            [link] ->
+              edge_key = normalized_edge_key(left.device_id, right.device_id)
+
+              next_paired =
+                paired_acc
+                |> MapSet.put({left.device_id, left.tunnel_name})
+                |> MapSet.put({right.device_id, right.tunnel_name})
+
+              {links_acc ++ [link], next_paired, MapSet.put(existing_acc, edge_key)}
+
+            [] ->
+              {links_acc, paired_acc, existing_acc}
+          end
+
+        _ ->
+          {links_acc, paired_acc, existing_acc}
+      end
+    end)
+  end
+
+  defp wireguard_ipv4_p2p_key(ip, prefix_len) when is_binary(ip) do
+    case :inet.parse_ipv4strict_address(String.to_charlist(ip)) do
+      {:ok, {a, b, c, d}} ->
+        ip_int =
+          Bitwise.bor(
+            Bitwise.bor(Bitwise.bsl(a, 24), Bitwise.bsl(b, 16)),
+            Bitwise.bor(Bitwise.bsl(c, 8), d)
+          )
+
+        case prefix_len do
+          31 ->
+            {Bitwise.band(ip_int, 0xFFFFFFFE), Bitwise.band(ip_int, 1)}
+
+          30 ->
+            host = Bitwise.band(ip_int, 3)
+
+            if host in [1, 2] do
+              {Bitwise.band(ip_int, 0xFFFFFFFC), host}
+            end
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp wireguard_ipv4_p2p_key(_ip, _prefix_len), do: nil
 
   defp normalize_wireguard_interface(iface) do
     %{
@@ -3933,13 +4078,20 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     Enum.uniq_by(members, & &1.device_id)
   end
 
-  defp build_wireguard_link_pair(left, right, devices_by_uid, existing, context) do
+  defp build_wireguard_link_pair(
+         left,
+         right,
+         devices_by_uid,
+         existing,
+         context,
+         rule \\ "exact_wg_interface_name_two_router_endpoints"
+       ) do
     left_device = Map.get(devices_by_uid, left.device_id)
     right_device = Map.get(devices_by_uid, right.device_id)
     edge_key = normalized_edge_key(left.device_id, right.device_id)
 
     if valid_wireguard_pair?(left_device, right_device, existing, edge_key) do
-      emit_wireguard_link(left, right, left_device, right_device, context)
+      emit_wireguard_link(left, right, left_device, right_device, context, rule)
     else
       []
     end
@@ -3952,7 +4104,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       not MapSet.member?(existing, edge_key)
   end
 
-  defp emit_wireguard_link(left, right, left_device, right_device, context) do
+  defp emit_wireguard_link(left, right, left_device, right_device, context, rule) do
     {local, neighbor, local_device, neighbor_device} =
       canonical_wireguard_pair(left, right, left_device, right_device)
 
@@ -3960,7 +4112,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     neighbor_ip = normalize_interface_ip(neighbor_device.ip) || neighbor.tunnel_ip
 
     if is_binary(local_ip) and is_binary(neighbor_ip) do
-      [build_wireguard_link(local, neighbor, local_ip, neighbor_ip, neighbor_device, context)]
+      [
+        build_wireguard_link(
+          local,
+          neighbor,
+          local_ip,
+          neighbor_ip,
+          neighbor_device,
+          context,
+          rule
+        )
+      ]
     else
       []
     end
@@ -3974,7 +4136,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp build_wireguard_link(local, neighbor, local_ip, neighbor_ip, neighbor_device, context) do
+  defp build_wireguard_link(
+         local,
+         neighbor,
+         local_ip,
+         neighbor_ip,
+         neighbor_device,
+         context,
+         rule
+       ) do
     %{
       timestamp: max_wireguard_timestamp(local.timestamp, neighbor.timestamp),
       agent_id: context.agent_id,
@@ -3987,22 +4157,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       local_if_name: local.tunnel_name,
       neighbor_device_id: neighbor.device_id,
       neighbor_chassis_id: nil,
-      neighbor_port_id: local.tunnel_name,
+      neighbor_port_id: neighbor.tunnel_name,
       neighbor_port_descr: "wireguard",
       neighbor_system_name:
         first_non_blank([neighbor_device.name, neighbor_device.hostname, neighbor.device_id]),
       neighbor_mgmt_addr: neighbor_ip,
-      metadata: wireguard_link_metadata(local.tunnel_name),
+      metadata: wireguard_link_metadata(local.tunnel_name, rule),
       created_at: context.created_at
     }
   end
 
-  defp wireguard_link_metadata(tunnel_name) do
+  defp wireguard_link_metadata(tunnel_name, rule) do
     %{
       "source" => "wireguard-derived",
       "evidence_class" => "direct-logical",
       "relation_family" => "LOGICAL_PEER",
-      "rule" => "exact_wg_interface_name_two_router_endpoints",
+      "rule" => rule,
       "tunnel_name" => tunnel_name,
       "confidence_tier" => "high",
       "confidence_score" => 95,
@@ -4189,6 +4359,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reject(&is_nil/1)
   end
 
+  @alias_ip_mac_guarded_sources ~w(snmp-arp-fdb unifi-api-port-table unifi-api-wireless-client unifi-api-wired-client)
+
   defp resolve_topology_uid(
          candidate_uid,
          candidate_ip,
@@ -4199,14 +4371,18 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
        ) do
     uid = normalize_string(candidate_uid)
     chassis = normalize_mac(candidate_chassis)
+    normalized_ip = normalize_string(candidate_ip)
     mac_uid = resolve_topology_uid_match(index.mac_to_uid, chassis)
-    ip_uid = resolve_topology_uid_match(index.ip_to_uid, normalize_string(candidate_ip))
+    ip_uid = resolve_topology_uid_match(index.ip_to_uid, normalized_ip)
+
+    alias_ip_uid =
+      resolve_topology_uid_match(Map.get(index, :alias_ip_to_uid, %{}), normalized_ip)
 
     Enum.find(
       [
         resolve_topology_uid_match(index.uid_to_uid, uid),
         canonical_topology_uid_or_nil(uid),
-        neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, record),
+        neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, alias_ip_uid, record),
         resolve_topology_name_match(candidate_name, index)
       ],
       &is_binary/1
@@ -4217,18 +4393,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # neighbor IP, the IP is hearsay (stale ARP, cross-subnet FDB) and must not
   # win. When the MAC is unknown, weak L2 evidence also must not fall back to
   # IP — that fallback is what drew a farm switch to a dead MikroTik.
-  defp neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, record) do
+  # Similarly, alias-derived IPs (DeviceAliasState / discovered_interfaces) must
+  # not shortcut L2 endpoint sightings carrying an unknown MAC; those must pass
+  # through endpoint promotion so MAC conflicts are rejected and safe bindings
+  # register the MAC through DIRE.
+  defp neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, alias_ip_uid, record) do
+    metadata = topology_record_metadata(record)
+
     cond do
       is_binary(mac_uid) ->
         mac_uid
 
-      is_binary(chassis) and weak_l2_neighbor_identity?(topology_record_metadata(record)) ->
+      is_binary(chassis) and weak_l2_neighbor_identity?(metadata) ->
+        nil
+
+      is_binary(ip_uid) ->
+        ip_uid
+
+      is_binary(chassis) and alias_ip_mac_guarded_source?(metadata) ->
         nil
 
       true ->
-        ip_uid
+        alias_ip_uid
     end
   end
+
+  defp alias_ip_mac_guarded_source?(metadata) when is_map(metadata) do
+    metadata_value(metadata, "source") in @alias_ip_mac_guarded_sources
+  end
+
+  defp alias_ip_mac_guarded_source?(_), do: false
 
   defp topology_record_metadata(%{metadata: metadata}) when is_map(metadata), do: metadata
   defp topology_record_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
@@ -4337,8 +4531,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     if ips == [] and uids == [] and names == [] and macs == [] do
       empty_topology_device_index()
     else
-      identifier_index =
-        build_identifier_topology_index(macs, ips, topology_record_partitions(records))
+      partitions = topology_record_partitions(records)
+      identifier_index = build_identifier_topology_index(macs, ips, partitions)
 
       query =
         from(d in Device,
@@ -4346,6 +4540,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           where:
             d.ip in ^ips or d.uid in ^uids or fragment("LOWER(COALESCE(?, ''))", d.name) in ^names or
               fragment("LOWER(COALESCE(?, ''))", d.hostname) in ^names or
+              fragment("LOWER(COALESCE(?->>'sys_name', ''))", d.metadata) in ^names or
               fragment(
                 "REPLACE(REPLACE(REPLACE(UPPER(COALESCE(?, '')), ':', ''), '-', ''), '.', '')",
                 d.mac
@@ -4363,6 +4558,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       query
       |> Repo.all()
       |> build_topology_device_index_maps(identifier_index)
+      |> merge_alias_state_topology_index(ips, partitions)
+      |> merge_interface_ip_topology_index(ips, partitions)
     end
   rescue
     e ->
@@ -4435,10 +4632,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       ip = normalize_string(row.ip)
       mac = normalize_mac(row.mac)
 
+      metadata = if is_map(Map.get(row, :metadata)), do: row.metadata, else: %{}
+
       name_candidates =
         row.name
         |> topology_name_candidates()
         |> Kernel.++(topology_name_candidates(row.hostname))
+        |> Kernel.++(topology_name_candidates(Map.get(metadata, "sys_name")))
+        |> Kernel.++(topology_name_candidates(Map.get(metadata, "sysName")))
         |> Enum.uniq()
 
       if canonical_topology_uid?(uid) do
@@ -4451,6 +4652,108 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         acc
       end
     end)
+  end
+
+  defp merge_alias_state_topology_index(index, [], _partitions), do: index
+
+  defp merge_alias_state_topology_index(index, ips, partitions) do
+    valid_ips = Enum.filter(ips, &AliasPolicy.valid_alias_ip?/1)
+
+    if valid_ips == [] do
+      index
+    else
+      query =
+        from(das in DeviceAliasState,
+          join: d in Device,
+          on: d.uid == das.device_id,
+          where: is_nil(d.deleted_at),
+          where: das.partition in ^partitions,
+          where: das.alias_type in [:ip, :interface_ip],
+          where: das.state in [:detected, :confirmed, :updated],
+          where: das.alias_value in ^valid_ips,
+          select: {das.alias_value, das.device_id, das.state}
+        )
+
+      query
+      |> Repo.all()
+      |> Enum.group_by(&elem(&1, 0))
+      |> Enum.reduce(index, fn {ip, entries}, acc ->
+        case unique_canonical_alias_uid(entries) do
+          uid when is_binary(uid) -> put_topology_index_entry(acc, :alias_ip_to_uid, ip, uid)
+          nil -> acc
+        end
+      end)
+    end
+  rescue
+    e ->
+      Logger.warning("Topology alias-state index lookup failed: #{inspect(e)}")
+      index
+  end
+
+  defp unique_canonical_alias_uid(entries) do
+    uids =
+      entries
+      |> Enum.map(fn {_ip, device_id, _state} -> normalize_string(device_id) end)
+      |> Enum.filter(&canonical_topology_uid?/1)
+      |> Enum.uniq()
+
+    case uids do
+      [uid] -> uid
+      _ -> nil
+    end
+  end
+
+  defp merge_interface_ip_topology_index(index, [], _partitions), do: index
+
+  defp merge_interface_ip_topology_index(index, ips, partitions) do
+    valid_ips = Enum.filter(ips, &AliasPolicy.valid_alias_ip?/1)
+
+    if valid_ips == [] do
+      index
+    else
+      ip_set = MapSet.new(valid_ips)
+
+      query =
+        from(i in Interface,
+          join: d in Device,
+          on: d.uid == i.device_id,
+          where: is_nil(d.deleted_at),
+          where: i.partition in ^partitions,
+          where: i.timestamp > ago(24, "hour"),
+          where: fragment("? && ?", i.ip_addresses, ^valid_ips),
+          select: {i.device_id, i.ip_addresses}
+        )
+
+      query
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn {device_id, iface_ips}, by_ip ->
+        uid = normalize_string(device_id)
+
+        if canonical_topology_uid?(uid) and is_list(iface_ips) do
+          Enum.reduce(iface_ips, by_ip, fn raw_ip, acc ->
+            ip = normalize_interface_ip(raw_ip)
+
+            if is_binary(ip) and MapSet.member?(ip_set, ip) do
+              Map.update(acc, ip, MapSet.new([uid]), &MapSet.put(&1, uid))
+            else
+              acc
+            end
+          end)
+        else
+          by_ip
+        end
+      end)
+      |> Enum.reduce(index, fn {ip, uid_set}, acc ->
+        case MapSet.to_list(uid_set) do
+          [uid] -> put_topology_index_entry(acc, :alias_ip_to_uid, ip, uid)
+          _ -> acc
+        end
+      end)
+    end
+  rescue
+    e ->
+      Logger.warning("Topology interface-IP index lookup failed: #{inspect(e)}")
+      index
   end
 
   defp canonical_uid_from_index(index_map, key) when is_map(index_map) do
@@ -4494,7 +4797,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp empty_topology_device_index do
-    %{uid_to_uid: %{}, ip_to_uid: %{}, name_to_uid: %{}, mac_to_uid: %{}}
+    %{
+      uid_to_uid: %{},
+      ip_to_uid: %{},
+      alias_ip_to_uid: %{},
+      name_to_uid: %{},
+      mac_to_uid: %{}
+    }
   end
 
   defp put_topology_name_entries(index, names, uid) do
@@ -4512,7 +4821,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp put_topology_index_entry(index, _bucket, nil, _uid), do: index
 
   defp put_topology_index_entry(index, bucket, value, uid) do
-    update_in(index, [bucket], fn entries -> Map.put_new(entries, value, uid) end)
+    Map.update(index, bucket, %{value => uid}, fn entries ->
+      Map.put_new(entries, value, uid)
+    end)
   end
 
   defp topology_name_candidates(name) do
