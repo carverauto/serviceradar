@@ -11,7 +11,7 @@ mix credo --strict
 
 (
   cd assets
-  node --test js/test/
+  node --test js/test/*.test.js
   node scripts/build.mjs --check
   node scripts/bundle_size.mjs
 )

@@ -2,8 +2,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveModulesTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Observability.ServiceState
+  alias ServiceRadar.Observability.ServiceStatus
   alias ServiceRadarWebNGWeb.ServiceLive.Index.Data
   alias ServiceRadarWebNGWeb.ServiceLive.Service
+  alias ServiceRadarWebNGWeb.ServiceLive.Show.History
   alias ServiceRadarWebNGWeb.ServiceLive.Show.Query
 
   @moduletag :db_free
@@ -215,6 +217,51 @@ defmodule ServiceRadarWebNGWeb.ServiceLiveModulesTest do
       assert summary.unavailable == 1
       assert summary.available + summary.unavailable == summary.total
       assert summary.availability_pct == 50.0
+    end
+  end
+
+  describe "show history live status updates" do
+    test "appends ServiceStatus structs without raising Enumerable protocol errors" do
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{
+          __changed__: %{},
+          history: [],
+          service: %{
+            "service_id" => "svc-synthetic-01",
+            "service_name" => "Synthetic Plugin Check",
+            "service_type" => "plugin",
+            "gateway_id" => "gw-1",
+            "agent_id" => "agent-1",
+            "partition" => "default"
+          }
+        }
+      }
+
+      status = %ServiceStatus{
+        timestamp: ~U[2026-10-06 02:15:06.216822Z],
+        gateway_id: "gw-1",
+        agent_id: "agent-1",
+        service_id: "svc-synthetic-01",
+        service_name: "Synthetic Plugin Check",
+        service_type: "plugin",
+        partition: "default",
+        available: true,
+        message: "all checks nominal",
+        details: ~s({"summary":"all checks nominal"})
+      }
+
+      assert {:matched, updated_socket} = History.apply_status(socket, status, 20)
+      assert [entry] = updated_socket.assigns.history
+      assert entry["service_id"] == "svc-synthetic-01"
+      assert entry["timestamp"] == "2026-10-06T02:15:06.216822Z"
+      assert entry["message"] == "all checks nominal"
+      assert entry["available"] == true
+      refute Map.has_key?(entry, "__meta__")
+      refute Map.has_key?(entry, "__metadata__")
+
+      # Deduplicating identical status updates does not insert duplicates
+      assert {:matched, deduped_socket} = History.apply_status(updated_socket, status, 20)
+      assert length(deduped_socket.assigns.history) == 1
     end
   end
 end
