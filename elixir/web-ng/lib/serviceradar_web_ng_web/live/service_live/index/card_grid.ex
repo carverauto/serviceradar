@@ -103,46 +103,30 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
 
   defp render_compact_widget(%{"widget" => "sparkline"} = data) do
     assigns = %{
-      points: sparkline_points(Map.get(data, "data")),
+      values: sparkline_numbers(Map.get(data, "data")),
       label: Map.get(data, "label") || "Trend"
     }
 
     ~H"""
     <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/40 p-3">
-      <div class="text-[11px] text-sr-muted mb-2">{@label}</div>
-      <svg viewBox="0 0 100 32" class="w-full h-8 text-sr-brand">
-        <polyline fill="none" stroke="currentColor" stroke-width="2" points={@points} />
-      </svg>
+      <div class="mb-2 text-[11px] text-sr-muted">{@label}</div>
+      <ServiceRadarUI.Charts.sparkline
+        values={@values}
+        tone="brand"
+        label={@label}
+        class="h-8 w-full"
+      />
     </div>
     """
   end
 
   defp render_compact_widget(_instruction), do: nil
 
-  defp sparkline_points(values) when is_list(values) and values != [] do
-    numbers = values |> Enum.map(&to_float/1) |> Enum.reject(&is_nil/1)
-
-    case numbers do
-      [] ->
-        ""
-
-      _ ->
-        min = Enum.min(numbers)
-        max = Enum.max(numbers)
-        range = if max - min == 0, do: 1.0, else: max - min
-        step = 100 / max(Enum.count(numbers) - 1, 1)
-
-        numbers
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {value, index} ->
-          x = index * step
-          y = 32 - (value - min) / range * 28 - 2
-          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-        end)
-    end
+  defp sparkline_numbers(values) when is_list(values) do
+    values |> Enum.map(&to_float/1) |> Enum.reject(&is_nil/1)
   end
 
-  defp sparkline_points(_values), do: ""
+  defp sparkline_numbers(_values), do: []
 
   defp to_float(value) when is_float(value), do: value
   defp to_float(value) when is_integer(value), do: value * 1.0

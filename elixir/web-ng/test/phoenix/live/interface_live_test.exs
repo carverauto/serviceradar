@@ -78,8 +78,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLiveTest do
     } do
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}/interfaces/#{interface_uid}")
 
-      # Status renders as brand ui_badge pills (rounded-full), not daisy `.badge`.
-      assert has_element?(view, "span.rounded-full", ~r/^\s*Up\s*$/)
+      # Status renders as a package badge, not a daisy `.badge`.
+      assert has_element?(view, "span.sr-ui-badge", ~r/^\s*Up\s*$/)
     end
 
     test "can toggle favorite", %{

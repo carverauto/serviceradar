@@ -136,22 +136,19 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   end
 
   defp render_widget(%{"widget" => "sparkline"} = data) do
-    points = sparkline_points(Map.get(data, "data"))
+    values = sparkline_numbers(Map.get(data, "data"))
     label = Map.get(data, "label") || "Trend"
-    assigns = %{points: points, label: label}
+    assigns = %{values: values, label: label}
 
     ~H"""
     <div>
-      <div class="text-xs text-sr-muted mb-2">{@label}</div>
-      <svg viewBox="0 0 100 32" class="w-full h-8">
-        <polyline
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          class="text-sr-brand"
-          points={@points}
-        />
-      </svg>
+      <div class="mb-2 text-xs text-sr-muted">{@label}</div>
+      <ServiceRadarUI.Charts.sparkline
+        values={@values}
+        tone="brand"
+        label={@label}
+        class="h-8 w-full"
+      />
     </div>
     """
   end
@@ -181,33 +178,13 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
   defp format_value(value) when is_list(value), do: Jason.encode!(value)
   defp format_value(value), do: inspect(value)
 
-  defp sparkline_points(values) when is_list(values) and values != [] do
-    numbers =
-      values
-      |> Enum.map(&to_float/1)
-      |> Enum.reject(&is_nil/1)
-
-    case numbers do
-      [] ->
-        ""
-
-      _ ->
-        min = Enum.min(numbers)
-        max = Enum.max(numbers)
-        range = if max - min == 0, do: 1.0, else: max - min
-        step = 100 / max(Enum.count(numbers) - 1, 1)
-
-        numbers
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {value, idx} ->
-          x = idx * step
-          y = 32 - (value - min) / range * 28 - 2
-          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-        end)
-    end
+  defp sparkline_numbers(values) when is_list(values) do
+    values
+    |> Enum.map(&to_float/1)
+    |> Enum.reject(&is_nil/1)
   end
 
-  defp sparkline_points(_), do: ""
+  defp sparkline_numbers(_values), do: []
 
   defp to_float(value) when is_float(value), do: value
   defp to_float(value) when is_integer(value), do: value * 1.0

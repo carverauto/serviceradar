@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponentsTest do
     assert html =~ "Risk &amp; Compliance" or html =~ "Risk & Compliance"
     assert html =~ "Risk score 90 out of 100"
     assert html =~ "Critical"
-    refute html =~ ">Info<"
+    refute html =~ ~r/>\s*Info\s*</
   end
 
   test "candidate KEV and malformed confirmed rows cannot enter fallback risk" do
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponentsTest do
         }
       )
 
-    assert html =~ ">Info<"
+    assert html =~ ~r/>\s*Info\s*</
     assert html =~ "Risk score 0 out of 10"
     refute html =~ "Risk score 100 out of 100"
   end
@@ -106,6 +106,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponentsTest do
     refute html =~ "Risk Score"
     assert html =~ ~s(data-role="risk-level-badge")
     assert html =~ "Low"
-    assert html =~ "bg-emerald-500/10"
+    assert html =~ "sr-ui-badge-success"
   end
 end

@@ -770,6 +770,8 @@ tailwind_bin.tailwindcss(
         ":bundle_srcs",
         ":node_modules",
         "//elixir/web-ng:web_templates",
+        # css/app.css @import and @source the package tokens, component CSS, and HEEx.
+        "//elixir/serviceradar_ui:srcs",
     ],
     outs = ["static/assets/css/app.css"],
     args = [
@@ -796,6 +798,8 @@ js_run_binary(
     srcs = [
         ":bundle_srcs",
         ":node_modules",
+        # js/app.js imports the prebuilt hooks bundle outside assets/.
+        "//elixir/serviceradar_ui:srcs",
     ],
     args = ["static/assets/js"],
     chdir = package_name(),

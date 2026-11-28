@@ -412,7 +412,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:x, x)
       |> assign(:y, y)
       |> assign(:points, points)
-      |> assign(:spark, sparkline(points))
 
     ~H"""
     <div class="flex flex-col gap-3">
@@ -421,15 +420,12 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       </div>
 
       <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
-        <svg viewBox="0 0 400 120" class="w-full h-28">
-          <polyline
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            class="text-sr-brand"
-            points={@spark}
-          />
-        </svg>
+        <ServiceRadarUI.Charts.sparkline
+          values={@points}
+          tone="brand"
+          label={"#{@y} over #{@x}"}
+          class="h-28 w-full"
+        />
       </div>
     </div>
     """
@@ -500,54 +496,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:points, :list, default: [])
 
   def srql_sparkline(assigns) do
-    assigns = assign(assigns, :spark, sparkline(assigns.points))
-
     ~H"""
-    <div class="w-24 h-6">
-      <svg viewBox="0 0 400 120" class="w-full h-full">
-        <polyline
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          class="text-sr-brand"
-          points={@spark}
-        />
-      </svg>
+    <div class="h-6 w-24">
+      <ServiceRadarUI.Charts.sparkline values={@points} tone="brand" class="h-full w-full" />
     </div>
     """
-  end
-
-  defp sparkline(points) when is_list(points) do
-    values = Enum.map(points, fn {_dt, v} -> v end)
-
-    case {values, Enum.min(values, fn -> 0 end), Enum.max(values, fn -> 0 end)} do
-      {[], _, _} ->
-        ""
-
-      {_values, min_v, max_v} when min_v == max_v ->
-        values
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {_v, idx} ->
-          x = idx_to_x(idx, length(values))
-          "#{x},60"
-        end)
-
-      {_values, min_v, max_v} ->
-        values
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {v, idx} ->
-          x = idx_to_x(idx, length(values))
-          y = 110 - round((v - min_v) / (max_v - min_v) * 100)
-          "#{x},#{y}"
-        end)
-    end
-  end
-
-  defp idx_to_x(_idx, 0), do: 0
-  defp idx_to_x(0, _len), do: 0
-
-  defp idx_to_x(idx, len) when len > 1 do
-    round(idx / (len - 1) * 400)
   end
 
   defp format_number(v) when is_float(v), do: :erlang.float_to_binary(v, decimals: 2)

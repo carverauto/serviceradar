@@ -488,8 +488,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
       {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
 
-      # The info variant of ui_badge carries the brand tint (bg-sr-brand/10).
-      assert html =~ ~r/class="[^"]*bg-sr-brand\/10[^"]*"[^>]*>\s*INFO\s*</
+      assert html =~ ~r/class="[^"]*sr-ui-badge-info[^"]*"[^>]*>\s*INFO\s*</
       # Neither the raw enum name nor an upcased copy of it may reach the badge.
       refute html =~ "SEVERITY_NUMBER_INFO"
       refute html =~ ">SEVERITY NUMBER INFO<"
@@ -506,8 +505,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       {:ok, _lv, html} = live(conn, ~p"/logs/#{log_id}")
 
       # The trailing numbered-variant digit is stripped: WARN3 -> WARN.
-      # The warning variant of ui_badge carries the amber tint (bg-amber-500/10).
-      assert html =~ ~r/class="[^"]*bg-amber-500\/10[^"]*"[^>]*>\s*WARN\s*</
+      assert html =~ ~r/class="[^"]*sr-ui-badge-warning[^"]*"[^>]*>\s*WARN\s*</
       refute html =~ "SEVERITY_NUMBER_WARN3"
     end
 

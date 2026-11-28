@@ -277,45 +277,12 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
       |> Enum.take(@recent_limit)
       |> Enum.reverse()
 
-    {min_v, max_v} =
-      case values do
-        [] -> {0.0, 0.0}
-        _ -> {Enum.min(values), Enum.max(values)}
-      end
-
-    points =
-      values
-      |> Enum.with_index()
-      |> Enum.map_join(" ", fn {v, idx} ->
-        x = if length(values) > 1, do: idx / (length(values) - 1) * 200.0, else: 0.0
-        y = normalize_y(v, min_v, max_v)
-        "#{fmt(x)},#{fmt(y)}"
-      end)
-
-    assigns = assign(assigns, :points, points)
+    assigns = assign(assigns, :values, values)
 
     ~H"""
-    <div class="w-full">
-      <svg viewBox="0 0 200 60" class="w-full h-16">
-        <polyline
-          fill="none"
-          stroke="#3B82F6"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          points={@points}
-        />
-      </svg>
-    </div>
+    <ServiceRadarUI.Charts.sparkline values={@values} tone="info" class="h-16 w-full" />
     """
   end
-
-  defp normalize_y(v, min_v, max_v) do
-    range = if max_v == min_v, do: 1.0, else: max_v - min_v
-    55.0 - (v - min_v) / range * 50.0
-  end
-
-  defp fmt(num) when is_float(num), do: :erlang.float_to_binary(num, decimals: 1)
 
   defp format_ms_number(value) when is_float(value) do
     value

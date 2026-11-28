@@ -186,9 +186,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
 
   test "toast stacking token sits above modal stacking token" do
     css = File.read!(css_path())
+    tokens = File.read!(tokens_path())
 
-    assert css =~ "--sr-z-modal: 200;"
-    assert css =~ "--sr-z-toast: 300;"
+    assert css =~ "serviceradar_ui/priv/css/tokens.css"
+    assert tokens =~ "--sr-z-modal: 200;"
+    assert tokens =~ "--sr-z-toast: 300;"
     assert css =~ ".sr-toast"
   end
 
@@ -225,6 +227,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
       &File.exists?/1
     ) ||
       raise "dashboard CSS not staged; declare //elixir/web-ng/assets:css/app.css as test data"
+  end
+
+  defp tokens_path do
+    Enum.find(
+      [
+        Path.expand("../../../../../serviceradar_ui/priv/css/tokens.css", __DIR__),
+        Path.join(File.cwd!(), "../serviceradar_ui/priv/css/tokens.css"),
+        Path.join([
+          System.get_env("TEST_SRCDIR") || "",
+          System.get_env("TEST_WORKSPACE") || "_main",
+          "elixir/serviceradar_ui/priv/css/tokens.css"
+        ])
+      ],
+      &File.exists?/1
+    ) ||
+      raise "token CSS not staged; declare //elixir/serviceradar_ui:srcs as test data"
   end
 
   defp index_dir do

@@ -44,10 +44,10 @@
 
 ## 5. web-ng adoption
 
-- [ ] 5.1 Add the path dependency, then the CSS imports and hook registration.
-- [ ] 5.2 Replace the `ui_components.ex` call sites. Allow delegating wrappers for at most one release.
-- [ ] 5.3 Replace the four sparkline implementations with `ServiceRadarUI.Charts.sparkline/1`.
-- [ ] 5.4 Remove the duplicated token CSS. Layout tests stay green.
+- [x] 5.1 Add the path dependency, then the CSS imports and hook registration.
+- [x] 5.2 Replace the `ui_components.ex` call sites. Allow delegating wrappers for at most one release.
+- [x] 5.3 Replace the four sparkline implementations with `ServiceRadarUI.Charts.sparkline/1`.
+- [x] 5.4 Remove the duplicated token CSS. Layout tests stay green.
 
 ## 6. Release
 

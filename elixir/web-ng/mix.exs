@@ -126,6 +126,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:usage_rules, "~> 1.2.8", only: [:dev], runtime: false},
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
+      {:serviceradar_ui, path: "../serviceradar_ui"},
       # Reads local recording copies from NVR read listeners (timeline playback).
       {:serviceradar_nvr_client, path: "../serviceradar_nvr_client"},
       {:gnat, "~> 1.15"},
