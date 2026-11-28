@@ -9,6 +9,11 @@ planning, not a continuous-recording or capacity claim. Upon approval, productio
 scale-out targets recorder pools; the existing bounded core-attached capture and
 optional core-spool work remain valid with their current evidence and gates.
 
+Visual-search cost stays deferred. The frame-change gate is
+[add-vms-frame-change-gate](../add-vms-frame-change-gate/proposal.md), tracked on
+[#6658](https://github.com/carverauto/serviceradar/issues/6658). It is not the
+next recording task.
+
 [Archive player #6096](https://github.com/carverauto/serviceradar/pull/6096)
 is merged. The [published-head evidence](validation.md#published-head-archive-player-validation)
 owns the final validation results, executor commits, corrected first-run failure

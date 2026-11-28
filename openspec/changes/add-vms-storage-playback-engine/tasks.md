@@ -57,13 +57,13 @@ or live acceptance task below.
 ## 3. Optional derivatives and follow-on proposals
 
 - [ ] 3.1 Specify and prototype Whisper transcripts with time-aligned text, search authorization, text/semantic retrieval, model versions and retention.
-- [ ] 3.2 Specify sampled thumbnails/CLIP projections and bounded index/backfill costs; resolve projection versus telemetry ownership before schema work.
+- [ ] 3.2 Specify sampled thumbnails/CLIP projections and bounded index/backfill costs; resolve projection versus telemetry ownership before schema work. The frame-change measurement in `add-vms-frame-change-gate` comes first. Do not size a GPU pool from the unmeasured 2,000-sample sketch.
 - [ ] 3.3 Add player location/camera/time overlays with capture-time metadata; prototype optional burned-in text/logo exports and measure encode cost.
 - [ ] 3.4 Evaluate Smelter composition and actual GPU/ARM64 support independently of core recording.
 - [ ] 3.5 Coordinate PostGIS field-of-view and OCR/POS search with spatial/observation owners; select extensions through measured compatibility gates.
 - [ ] 3.6 Extend #4914 with high-quality local/substream policy and on-demand historical fetch without weakening offline admission/archive receipts.
 - [ ] 3.7 Add low-cost object/person detection through the existing shared ingest, Boombox analysis branch and result contract; do not create a second camera ingest. Current `ExternalBoomboxAnalysisWorker.build_results` reports decoded keyframe dimensions/reference labels and `BoomboxSidecarWorker` reports capture summaries, not semantic object/person detections.
-  - Evaluate sampled/substream or motion-triggered frames and a small local model on CPU versus available GPUs, including ARM64 and runtime compatibility. No paid per-frame service is the default.
+  - Evaluate sampled/substream or motion-triggered frames and a small local model on CPU versus available GPUs, including ARM64 and runtime compatibility. No paid per-frame service is the default. The scene-change half of this evaluation is `add-vms-frame-change-gate` (Vix/libvips, no new SIMD kernel). Person/object detection stays here and waits on that measurement.
   - Cap queue length, concurrency and result age; drop overloaded or stale analysis rather than stall live playback or recording. Measure end-to-end decode, inference and storage costs alongside missed/false detections before selecting model or cadence.
   - Show bounded recent detections with thumbnail, time, class and confidence, linking an independently authorized clip only when available. Preserve clock uncertainty, retention and recording-permission boundaries for results and thumbnails; do not imply capture UTC or footage availability from an analysis result.
 

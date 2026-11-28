@@ -104,7 +104,10 @@ EventWriter and the configured telemetry backend. The later P3 proposal must
 define projection versus telemetry ownership, retention and rebuild semantics
 before adding a raw `vms_ai_events` firehose to CNPG. CLIP visual search,
 PostGIS field-of-view and OCR/POS search retain their PRD goals but require their
-own model, event and spatial contracts.
+own model, event and spatial contracts. Samples that are worth a CLIP embedding
+are filtered by the separate [frame-change gate](../add-vms-frame-change-gate/proposal.md):
+a Vix/libvips luma difference on a downscaled frame. That gate adds no SIMD
+kernel, FPGA bitstream, or CLIP index. #6658 tracks it.
 
 Deleting media or expiring a policy reconciles transcripts, embeddings, thumbnails
 and exports according to their explicit retention/hold policy. Holds include

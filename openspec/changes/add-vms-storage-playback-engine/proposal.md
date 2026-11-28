@@ -80,3 +80,6 @@ blocked by VMS. Do not close #4913 or #4915 for merging planning documents.
 
 [Design](design.md), [cloud ownership and issue scopes](cloud-control-plane.md),
 [GPU and plugin evaluation](media-workers.md), [tasks and acceptance](tasks.md).
+The deferred frame-change gate is
+[add-vms-frame-change-gate](../add-vms-frame-change-gate/proposal.md), tracked on
+[#6658](https://github.com/carverauto/serviceradar/issues/6658).
