@@ -293,6 +293,7 @@ js_test(
         "js/lib/spatial_location.js",
         ":bundle_srcs",
         ":node_modules",
+        "//elixir/serviceradar_ui:hook_js",
         "//js/topology-layout:radial_graph",
     ],
     entry_point = "god_view_scene_test_runner.mjs",
@@ -770,6 +771,8 @@ tailwind_bin.tailwindcss(
         ":bundle_srcs",
         ":node_modules",
         "//elixir/web-ng:web_templates",
+        # css/app.css @import and @source the package tokens, component CSS, and HEEx.
+        "//elixir/serviceradar_ui:bundle_inputs",
     ],
     outs = ["static/assets/css/app.css"],
     args = [
@@ -796,6 +799,8 @@ js_run_binary(
     srcs = [
         ":bundle_srcs",
         ":node_modules",
+        # js/app.js imports the prebuilt hooks bundle outside assets/.
+        "//elixir/serviceradar_ui:bundle_inputs",
     ],
     args = ["static/assets/js"],
     chdir = package_name(),

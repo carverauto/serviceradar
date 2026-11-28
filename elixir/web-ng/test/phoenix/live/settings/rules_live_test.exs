@@ -152,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       # Modal should be visible
       assert has_element?(lv, "#rule_builder_modal")
-      assert has_element?(lv, "h3", "Create Event Rule")
+      assert has_element?(lv, "#rule_builder_modal-title", "Create Event Rule")
     end
 
     test "creates promotion rule via rule builder", %{conn: conn, scope: scope} do
@@ -237,7 +237,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       # Modal should show with existing values
       assert has_element?(lv, "#rule_builder_modal")
-      assert has_element?(lv, "h3", "Edit Event Rule")
+      assert has_element?(lv, "#rule_builder_modal-title", "Edit Event Rule")
 
       # Update the rule
       lv

@@ -2,10 +2,13 @@
    https://tailwindcss.com/docs/configuration */
 
 @import "tailwindcss" source(none);
+@import "../../../serviceradar_ui/priv/css/tokens.css";
+@import "../../../serviceradar_ui/priv/css/components.css";
 @source "../css";
 @source "../js";
 @source "../component/src";
 @source "../../lib/serviceradar_web_ng_web";
+@source "../../../serviceradar_ui/lib";
 
 /* A Tailwind plugin that makes "hero-#{ICON}" classes available.
    Icons are stored under assets/vendor/heroicons. */
@@ -27,43 +30,9 @@
   color: #152126;
 }
 
-/*
- * Shared ServiceRadar design tokens — aligned with marketing (serviceradar-web)
- * and control plane (brand green, Avenir Next, sr-* surfaces).
- * daisyUI semantic colors (--color-primary etc.) map to the same brand green so
- * residual daisy components and the ops shell no longer render cyan/blue chrome.
- */
-@theme inline {
-  --font-sans: var(--sr-font-sans);
-  --font-mono: var(--sr-font-mono);
-
-  --color-sr-canvas: var(--sr-color-canvas);
-  --color-sr-surface: var(--sr-color-surface);
-  --color-sr-raised: var(--sr-color-raised);
-  --color-sr-subtle: var(--sr-color-subtle);
-  --color-sr-control: var(--sr-color-control);
-  --color-sr-ink: var(--sr-color-ink);
-  --color-sr-muted: var(--sr-color-muted);
-  --color-sr-line: var(--sr-color-line);
-  --color-sr-line-strong: var(--sr-color-line-strong);
-  --color-sr-line-hover: var(--sr-color-line-hover);
-  --color-sr-brand: var(--sr-color-brand);
-  --color-sr-brand-strong: var(--sr-color-brand-strong);
-  --color-sr-on-brand: var(--sr-color-on-brand);
-  --color-sr-focus: var(--sr-color-focus);
-
-  --radius-sr-small: var(--sr-radius-small);
-  --radius-sr-control: var(--sr-radius-control);
-  --radius-sr-surface: var(--sr-radius-surface);
-
-  --shadow-sr-control: var(--sr-shadow-control);
-  --shadow-sr-button: var(--sr-shadow-button);
-  --shadow-sr-surface: var(--sr-shadow-surface);
-  --shadow-sr-raised: var(--sr-shadow-raised);
-  --shadow-sr-nav: var(--sr-shadow-nav);
-
-  --ease-sr-out: var(--sr-ease-out);
-}
+/* sr-* tokens and the Tailwind @theme map live in serviceradar_ui tokens.css.
+   daisyUI semantic colors (--color-primary etc.) stay here so residual daisy
+   components and the ops shell no longer render cyan/blue chrome. */
 
 /* Light theme — marketing brand green (was Nocturne cyan/blue) */
 :root, [data-theme="light"] {
@@ -438,120 +407,6 @@
 }
 
 /* This file is for your main application CSS */
-
-/* Brand tokens (marketing/control parity). Light defaults; dark overrides below. */
-:root {
-  --sr-font-sans: "Avenir Next", Avenir, "Segoe UI Variable", "Segoe UI", ui-sans-serif,
-    system-ui, sans-serif;
-  --sr-font-mono: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-
-  --sr-radius-small: 0.375rem;
-  --sr-radius-control: 0.625rem;
-  --sr-radius-surface: 0.875rem;
-
-  --sr-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --sr-duration-base: 200ms;
-
-  --sr-z-shell: 50;
-  --sr-z-menu: 60;
-  --sr-z-modal: 200;
-  /* Above .sr-ui-modal (200). Native <dialog showModal()> still uses the
-     browser top layer; ToastTopLayer promotes flashes into that layer. */
-  --sr-z-toast: 300;
-
-  --sr-color-canvas: #f7f9f8;
-  --sr-color-surface: #fcfdfd;
-  --sr-color-raised: #ffffff;
-  --sr-color-subtle: #eff4f1;
-  --sr-color-control: #ffffff;
-  --sr-color-ink: #0b1720;
-  --sr-color-muted: #5d6977;
-  --sr-color-line: #dde4e1;
-  --sr-color-line-strong: #c8d3ce;
-  --sr-color-line-hover: #91a49b;
-  --sr-color-brand: #0b824d;
-  --sr-color-brand-strong: #076b3e;
-  --sr-color-on-brand: #f8fffb;
-  --sr-color-focus: rgb(22 138 82 / 0.28);
-
-  --sr-shadow-control:
-    0 1px 2px rgb(23 48 38 / 0.05),
-    inset 0 1px 0 rgb(255 255 255 / 0.8);
-  --sr-shadow-button:
-    0 5px 14px rgb(7 107 62 / 0.16),
-    inset 0 1px 0 rgb(255 255 255 / 0.16);
-  --sr-shadow-surface: 0 10px 30px rgb(23 48 38 / 0.055);
-  --sr-shadow-raised:
-    0 18px 50px rgb(23 48 38 / 0.09),
-    inset 0 1px 0 rgb(255 255 255 / 0.85);
-  --sr-shadow-nav:
-    0 8px 24px rgb(23 48 38 / 0.07),
-    inset 0 1px 0 rgb(255 255 255 / 0.8);
-}
-
-[data-theme="dark"] {
-  --sr-color-canvas: #0a1114;
-  --sr-color-surface: #10191d;
-  --sr-color-raised: #152126;
-  --sr-color-subtle: #17252a;
-  --sr-color-control: #111c20;
-  --sr-color-ink: #edf5f1;
-  --sr-color-muted: #aab8b2;
-  --sr-color-line: #26363a;
-  --sr-color-line-strong: #3b4c50;
-  --sr-color-line-hover: #587169;
-  --sr-color-brand: #3ecf87;
-  --sr-color-brand-strong: #5bde9b;
-  --sr-color-on-brand: #062b1a;
-  --sr-color-focus: rgb(62 207 135 / 0.3);
-
-  --sr-shadow-control:
-    0 1px 2px rgb(0 0 0 / 0.2),
-    inset 0 1px 0 rgb(255 255 255 / 0.035);
-  --sr-shadow-button:
-    0 5px 14px rgb(0 0 0 / 0.2),
-    inset 0 1px 0 rgb(255 255 255 / 0.13);
-  --sr-shadow-surface: 0 10px 30px rgb(0 0 0 / 0.18);
-  --sr-shadow-raised:
-    0 18px 50px rgb(0 0 0 / 0.26),
-    inset 0 1px 0 rgb(255 255 255 / 0.04);
-  --sr-shadow-nav:
-    0 8px 24px rgb(0 0 0 / 0.2),
-    inset 0 1px 0 rgb(255 255 255 / 0.04);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --sr-color-canvas: #0a1114;
-    --sr-color-surface: #10191d;
-    --sr-color-raised: #152126;
-    --sr-color-subtle: #17252a;
-    --sr-color-control: #111c20;
-    --sr-color-ink: #edf5f1;
-    --sr-color-muted: #aab8b2;
-    --sr-color-line: #26363a;
-    --sr-color-line-strong: #3b4c50;
-    --sr-color-line-hover: #587169;
-    --sr-color-brand: #3ecf87;
-    --sr-color-brand-strong: #5bde9b;
-    --sr-color-on-brand: #062b1a;
-    --sr-color-focus: rgb(62 207 135 / 0.3);
-
-    --sr-shadow-control:
-      0 1px 2px rgb(0 0 0 / 0.2),
-      inset 0 1px 0 rgb(255 255 255 / 0.035);
-    --sr-shadow-button:
-      0 5px 14px rgb(0 0 0 / 0.2),
-      inset 0 1px 0 rgb(255 255 255 / 0.13);
-    --sr-shadow-surface: 0 10px 30px rgb(0 0 0 / 0.18);
-    --sr-shadow-raised:
-      0 18px 50px rgb(0 0 0 / 0.26),
-      inset 0 1px 0 rgb(255 255 255 / 0.04);
-    --sr-shadow-nav:
-      0 8px 24px rgb(0 0 0 / 0.2),
-      inset 0 1px 0 rgb(255 255 255 / 0.04);
-  }
-}
 
 html,
 body {

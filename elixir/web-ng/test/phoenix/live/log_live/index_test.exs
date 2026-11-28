@@ -150,10 +150,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     # SEVERITY_NUMBER_INFO -> INFO label + info color (was "SEVER" truncation +
     # ghost color before the fix).
-    # ui_badge's info variant carries the brand tint (bg-sr-brand/10).
-    assert html =~ ~r/class="[^"]*bg-sr-brand\/10[^"]*"[^>]*>\s*INFO\s*</
-    # SEVERITY_NUMBER_WARN -> WARN label + warning color (bg-amber-500/10).
-    assert html =~ ~r/class="[^"]*bg-amber-500\/10[^"]*"[^>]*>\s*WARN\s*</
+    assert html =~ ~r/class="[^"]*sr-ui-badge-info[^"]*"[^>]*>\s*INFO\s*</
+    # SEVERITY_NUMBER_WARN -> WARN label + warning color.
+    assert html =~ ~r/class="[^"]*sr-ui-badge-warning[^"]*"[^>]*>\s*WARN\s*</
 
     # The raw enum name and its 5-char truncation must never reach the badge.
     refute html =~ "SEVERITY_NUMBER_INFO"

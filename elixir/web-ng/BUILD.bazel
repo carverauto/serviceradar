@@ -381,7 +381,10 @@ mix_app(
     extra_config = WEB_NG_EXTRA_CONFIG,
     mix_env = "test",
     native_libs = WEB_NG_NATIVE_LIBS,
-    deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
+    deps = [
+        "//elixir/serviceradar_core:erlang_app",
+        "//elixir/serviceradar_ui:erlang_app",
+    ] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
 )
 
 # The release build. Under :prod, elixirc_paths drops test/support and every
@@ -396,7 +399,10 @@ mix_app(
     extra_config = WEB_NG_EXTRA_CONFIG,
     mix_env = "prod",
     native_libs = WEB_NG_NATIVE_LIBS,
-    deps = ["//elixir/serviceradar_core:erlang_app_prod"] + WEB_NG_DEPS,
+    deps = [
+        "//elixir/serviceradar_core:erlang_app_prod",
+        "//elixir/serviceradar_ui:erlang_app",
+    ] + WEB_NG_DEPS,
 )
 
 # Assembly-only release: no deps.get, no recompilation, no cargo, no bun, no network.
@@ -417,6 +423,7 @@ elixir_release(
         "//elixir/serviceradar_recording_metadata:mix.exs",
         "//elixir/serviceradar_recording_control:mix.exs",
         "//elixir/serviceradar_srql:mix.exs",
+        "//elixir/serviceradar_ui:mix.exs",
         "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
     out = "serviceradar-web-ng-release.tar.gz",
@@ -497,8 +504,10 @@ ex_unit_tests(
         "//addons/anomaly-addon:anomaly_manifest",
         "//addons/powerdns:powerdns_manifest",
         # assets/ is its own package; glob() here cannot see css/app.css.
-        # DashboardLayoutTest reads it at runtime.
+        # DashboardLayoutTest reads it at runtime, and the stacking tokens
+        # it checks now live in the imported serviceradar_ui stylesheet.
         "//elixir/web-ng/assets:css/app.css",
+        "//elixir/serviceradar_ui:srcs",
         "//elixir/web-ng/assets:rum_bundle",
         # TimestampFormatterInventoryTest scans production JavaScript at runtime.
         # assets/ is a separate package, so these sources must be explicit runfiles.
@@ -953,7 +962,10 @@ elixir_quality(
         "@hexpm//:phoenix",
     ],
     source_deps = ["@hexpm//:ex_dna"],
-    tool_deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
+    tool_deps = [
+        "//elixir/serviceradar_core:erlang_app",
+        "//elixir/serviceradar_ui:erlang_app",
+    ] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
 )
 
 # Reader-level MTR parity: the same synthetic traces and hops seeded into a

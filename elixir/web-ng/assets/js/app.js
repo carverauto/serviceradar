@@ -24,14 +24,15 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import HookModules from "./hooks"
+import {hooks as srHooks} from "../../../serviceradar_ui/priv/static/serviceradar_ui.js"
 import {dashboardWindowPreferences} from "./hooks/DashboardWindowSelect"
 import {registerGlobalWindowEvents, registerLiveReloadHelpers} from "./utils/window_events"
 
-// Custom hooks
+// Custom hooks. App hooks win when a name collides with the package.
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   params: () => ({_csrf_token: csrfToken, dashboard_windows: dashboardWindowPreferences()}),
-  hooks: {...HookModules},
+  hooks: {...srHooks, ...HookModules},
 })
 
 // Show a thin progress bar on live navigation and form submits.

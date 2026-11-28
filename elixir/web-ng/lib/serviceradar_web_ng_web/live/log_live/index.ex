@@ -7640,43 +7640,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp sparkline(assigns) do
     data = Enum.map(assigns.data, &to_number/1)
-    min_val = Enum.min(data, fn -> 0.0 end)
-    max_val = Enum.max(data, fn -> 0.0 end)
-    range = max_val - min_val
-
-    # Normalize to 0-100 range for SVG, with some padding
-    points =
-      data
-      |> Enum.with_index()
-      |> Enum.map_join(" ", fn {val, idx} ->
-        x = idx / max(length(data) - 1, 1) * 100.0
-        # Always floats — Float.round/2 rejects integers (flat series → y=50).
-        y = if range > 0.0, do: 100.0 - (val - min_val) / range * 80.0 - 10.0, else: 50.0
-        "#{Float.round(x * 1.0, 1)},#{Float.round(y * 1.0, 1)}"
-      end)
-
-    # Determine trend color based on first vs last value
     first_val = List.first(data) || 0
     last_val = List.last(data) || 0
-    # Explicit stroke colors — daisy stroke-warning/info no longer resolve.
-    trend_color = if last_val > first_val * 1.1, do: "stroke-amber-400", else: "stroke-sky-400"
+    tone = if last_val > first_val * 1.1, do: "warning", else: "info"
 
-    assigns =
-      assigns
-      |> assign(:points, points)
-      |> assign(:trend_color, trend_color)
+    assigns = assigns |> assign(:values, data) |> assign(:tone, tone)
 
     ~H"""
-    <svg viewBox="0 0 100 100" class="w-20 h-6" preserveAspectRatio="none">
-      <polyline
-        points={@points}
-        fill="none"
-        class={[@trend_color, "opacity-70"]}
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
+    <ServiceRadarUI.Charts.sparkline values={@values} tone={@tone} class="h-6 w-20" />
     """
   end
 

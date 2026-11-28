@@ -471,16 +471,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
           <.ui_badge size="sm" variant="error" title="false">
             <.icon name="hero-x-mark" class="size-3" /> false
           </.ui_badge>
-        <% {:sparkline, points, title} -> %>
-          <svg
-            viewBox="0 0 100 24"
-            preserveAspectRatio="none"
-            class="h-6 w-28 text-sr-brand"
-            role="img"
-            aria-label="sparkline"
-          >
-            <polyline points={points} fill="none" stroke="currentColor" stroke-width="2" />
-          </svg>
+        <% {:sparkline, values, title} -> %>
+          <ServiceRadarUI.Charts.sparkline
+            values={values}
+            tone="brand"
+            label="sparkline"
+            class="h-6 w-28"
+          />
           <span class="sr-only">{title}</span>
         <% {:json, summary, title} -> %>
           <span class="font-mono text-[11px]" title={title}>{summary}</span>
@@ -497,9 +494,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   end
 
   defp table_cell_value(value, "sparkline") do
-    case table_sparkline_points(value) do
-      "" -> {:text, format_value(value), format_value(value)}
-      points -> {:sparkline, points, format_value(value)}
+    case sparkline_numbers(value) do
+      [] -> {:text, format_value(value), format_value(value)}
+      numbers -> {:sparkline, numbers, format_value(value)}
     end
   end
 
@@ -927,37 +924,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     |> String.capitalize()
   end
 
-  defp table_sparkline_points(values) when is_list(values) do
-    values =
-      values
-      |> Enum.map(&numeric/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.take(40)
-
-    case values do
-      [] ->
-        ""
-
-      [_single] ->
-        "0,12 100,12"
-
-      values ->
-        min_value = Enum.min(values)
-        max_value = Enum.max(values)
-        spread = max(max_value - min_value, 1.0)
-        last_index = max(length(values) - 1, 1)
-
-        values
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {value, index} ->
-          x = index / last_index * 100
-          y = 24 - (value - min_value) / spread * 20 - 2
-          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-        end)
-    end
+  defp sparkline_numbers(values) when is_list(values) do
+    values
+    |> Enum.map(&numeric/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.take(40)
   end
 
-  defp table_sparkline_points(_value), do: ""
+  defp sparkline_numbers(_value), do: []
 
   defp status_tone(value) do
     value =

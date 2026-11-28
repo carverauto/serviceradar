@@ -163,6 +163,12 @@ config :serviceradar_core, host_distributed_processes: false
 # ServiceRadar.ProcessRegistry.join_process_registry?/0.
 config :serviceradar_core, join_process_registry: false
 
+# Package form errors use the app's Gettext translator. The shell still
+# bootstraps theme from assets/js/theme_init.js (phx:theme / phx:set-theme).
+config :serviceradar_ui,
+       :error_translator,
+       {ServiceRadarWebNGWeb.CoreComponents, :translate_error}
+
 # Guardian JWT configuration
 # Secret key is loaded from runtime.exs (TOKEN_SIGNING_SECRET or SECRET_KEY_BASE)
 config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
